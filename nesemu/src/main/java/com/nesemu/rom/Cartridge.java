@@ -2,6 +2,10 @@ package com.nesemu.rom;
 
 import com.nesemu.mapper.Mapper;
 
+/**
+ * Class representing a NES cartridge.
+ * This class contains the ROM data and the mapper used for memory mapping.
+ */
 public class Cartridge {
     private INesRom rom;
     private Mapper mapper;

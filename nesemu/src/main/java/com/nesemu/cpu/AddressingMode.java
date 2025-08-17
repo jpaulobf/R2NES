@@ -1,5 +1,8 @@
 package com.nesemu.cpu;
 
+/**
+ * Enum representing the various addressing modes used in the NES CPU.
+ */
 public enum AddressingMode {
     IMMEDIATE,
     ZERO_PAGE,

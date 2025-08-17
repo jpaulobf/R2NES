@@ -1,5 +1,10 @@
 package com.nesemu.memory;
 
+/**
+ * Class representing the RAM memory for the NES emulator.
+ * This class implements the Memory interface
+ * and provides methods for reading and writing to the RAM.
+ */
 public class RAM implements Memory {
     private byte[] data;
 

@@ -3,6 +3,10 @@ package com.nesemu.emulator;
 import com.nesemu.cpu.CPU;
 import com.nesemu.memory.Memory;
 
+/**
+ * Class representing the NES emulator.
+ * It initializes the CPU and memory, and provides methods to reset and run the emulator.
+ */
 public class NesEmulator {
     private final CPU cpu;
     private final Memory memory;
@@ -19,8 +23,7 @@ public class NesEmulator {
     public void run() {
         while (true) {
             cpu.clock();
-            // Aqui adicionar lógica para renderizar a tela, processar entrada, etc.
-            // Por exemplo, chamar um método de renderização ou aguardar um intervalo de tempo.
+            // TODO: Implement additional logic for handling interrupts, rendering, etc.
         }
     }
 }

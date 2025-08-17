@@ -1,5 +1,9 @@
 package com.nesemu.mapper;
 
+/**
+ * Mapper 0 implementation for the NES emulator.
+ * This mapper is used for games that do not require any special memory mapping.
+ */
 public class Mapper0 implements Mapper {
     @Override
     public int cpuRead(int address) {

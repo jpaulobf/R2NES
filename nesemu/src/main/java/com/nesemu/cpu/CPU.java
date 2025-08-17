@@ -3,6 +3,10 @@ package com.nesemu.cpu;
 import com.nesemu.cpu.interfaces.iCPU;
 import com.nesemu.memory.Memory;
 
+/**
+ * Class representing the NES CPU.
+ * Implements the main functionalities and instructions of the processor.
+ */
 public class CPU implements iCPU {
     private int a;      // Acumulador
     private int x;      // Registrador X

@@ -1,5 +1,9 @@
 package com.nesemu.cpu;
 
+/**
+ * Enumeration representing the operation codes (opcodes) of the NES.
+ * Each opcode corresponds to a specific instruction that the CPU can execute.
+ */
 public enum Opcode {
     ADC, AND, ASL, BCC, BCS, BEQ, BIT, BMI, BNE, BPL, BRK, BVC, BVS,
     CLC, CLD, CLI, CLV, CMP, CPX, CPY,
@@ -15,10 +19,10 @@ public enum Opcode {
     SBC, SEC, SED, SEI, STA, STX, STY,
     TAX, TAY, TSX, TXA, TXS, TYA,
 
-    // Instruções não documentadas (ilegais) mais comuns:
+    // Most common undocumented (illegal) instructions:
     AAC, AAX, AHX, ALR, ANC, ARR, ASR, ATX, AXA, AXS, DCP, DOP, ISC, KIL, LAR, LAS, LAX, LXA, RLA, RRA, SAX, SBX, SHA, SHS, SHX, SHY, SLO, SRE, TAS, TOP, XAA;
 
-    // Utilitário: mapeia um nome para o Opcode (útil para decodificação)
+    // Utility: maps a name to the Opcode (useful for decoding)
     public static Opcode fromName(String name) {
         try {
             return Opcode.valueOf(name.toUpperCase());
