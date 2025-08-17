@@ -25,11 +25,19 @@ public class CPU implements iCPU {
     private boolean negative;
     private final Memory memory;
 
+    /*
+     * Construtor da CPU
+     * @param memory Instância de memória que a CPU irá utilizar
+     */
     public CPU(Memory memory) {
         this.memory = memory;
         reset();
     }
 
+    /**
+     * Reseta a CPU para o estado inicial.
+     * Inicializa os registradores e o Program Counter (PC) a partir do vetor de reset.
+     */
     public void reset() {
         a = x = y = 0;
         sp = 0xFD;
@@ -38,34 +46,46 @@ public class CPU implements iCPU {
         carry = zero = interruptDisable = decimal = breakFlag = unused = overflow = negative = false;
     }
 
+    /**
+     * Executa um ciclo de clock da CPU.
+     * Lê o próximo opcode da memória, decodifica e executa a instrução
+     */
+    public void clock() {
+        int opcodeByte = memory.read(pc++);
+        Opcode opcode = Opcode.fromByte(opcodeByte);
+
+        // Se o opcode não for reconhecido, retorna.
+        if (opcode == null) return;
+    
+        // Obtém o modo de endereçamento e o operando
+        AddressingMode mode = getAddressingMode(opcodeByte);
+        int operand = fetchOperand(mode);
+    
+        execute(opcode, mode, operand);
+    }
+
+
     // Métodos utilitários para flags
     private void setZeroAndNegative(int value) {
         zero = (value & 0xFF) == 0;
         negative = (value & 0x80) != 0;
     }
 
+    // Métodos de interrupção
     public void nmi() {
         // Implementar lógica de Non-Maskable Interrupt
         // Salvar PC e flags, atualizar PC para vetor NMI
     }
 
+    /**
+     * Executa uma interrupção de requisição (IRQ).
+     * Se as interrupções não estiverem desabilitadas, salva o estado atual e pula para o vetor IRQ.
+     */
     public void irq() {
         if (!interruptDisable) {
             // Implementar lógica de Interrupt Request
             // Salvar PC e flags, atualizar PC para vetor IRQ
         }
-    }
-
-    // Dispatcher principal
-    public void clock() {
-        int opcodeByte = memory.read(pc++);
-        Opcode opcode = Opcode.fromByte(opcodeByte);
-        if (opcode == null) return;
-    
-        AddressingMode mode = getAddressingMode(opcodeByte);
-        int operand = fetchOperand(mode);
-    
-        execute(opcode, mode, operand);
     }
     
     // Exemplo de tabela de modos de endereçamento (pode ser array ou switch)
