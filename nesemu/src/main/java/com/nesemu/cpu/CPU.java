@@ -25,9 +25,36 @@ public class CPU implements iCPU {
     private boolean negative;
     private final Memory memory;
 
+    // Cycle counter for instruction timing
+    private int cycles;
+
+    // Interrupt pending flags
+    private boolean nmiPending = false;
+    private boolean irqPending = false;
+
+    // NES 6502 cycle table (official opcodes only, 256 entries)
+    private static final int[] CYCLE_TABLE = new int[] {
+        7,6,2,8,3,3,5,5,3,2,2,2,4,4,6,6, // 0x00-0x0F
+        2,5,2,8,3,4,6,6,3,4,2,7,4,4,7,7, // 0x10-0x1F
+        6,6,2,8,3,3,5,5,4,2,2,2,4,4,6,6, // 0x20-0x2F
+        2,5,2,8,4,4,6,6,2,5,2,7,4,4,7,7, // 0x30-0x3F
+        6,6,2,8,3,3,5,5,3,2,2,2,3,4,6,6, // 0x40-0x4F
+        2,5,2,8,3,4,6,6,2,5,2,7,4,4,7,7, // 0x50-0x5F
+        6,6,2,8,3,3,5,5,4,2,2,2,4,4,6,6, // 0x60-0x6F
+        2,5,2,8,4,4,6,6,2,5,2,7,4,4,7,7, // 0x70-0x7F
+        2,6,2,6,3,3,3,3,2,2,2,2,4,4,4,4, // 0x80-0x8F
+        2,6,2,6,4,4,4,4,2,5,2,5,5,5,5,5, // 0x90-0x9F
+        2,6,2,6,3,3,5,5,2,2,2,2,4,4,6,6, // 0xA0-0xAF
+        2,5,2,5,4,4,6,6,2,5,2,5,5,5,7,7, // 0xB0-0xBF
+        2,6,2,8,3,3,5,5,2,2,2,2,4,4,6,6, // 0xC0-0xCF
+        2,5,2,8,4,4,6,6,2,5,2,7,4,4,7,7, // 0xD0-0xDF
+        2,6,2,8,3,3,5,5,2,2,2,2,4,4,6,6, // 0xE0-0xEF
+        2,5,2,8,4,4,6,6,2,5,2,7,4,4,7,7  // 0xF0-0xFF
+    };
+
     /*
-     * Construtor da CPU
-     * @param memory Instância de memória que a CPU irá utilizar
+     * CPU constructor
+     * @param memory Memory instance to be used by the CPU
      */
     public CPU(Memory memory) {
         this.memory = memory;
@@ -35,57 +62,95 @@ public class CPU implements iCPU {
     }
 
     /**
-     * Reseta a CPU para o estado inicial.
-     * Inicializa os registradores e o Program Counter (PC) a partir do vetor de reset.
+     * Resets the CPU to its initial state.
+     * Initializes the registers and the Program Counter (PC) from the reset vector.
      */
     public void reset() {
         a = x = y = 0;
         sp = 0xFD;
-        // PC é inicializado a partir do vetor de reset (0xFFFC/0xFFFD)
+        //PC is initialized from the reset vector (0xFFFC/0xFFFD)
         pc = (memory.read(0xFFFD) << 8) | memory.read(0xFFFC);
-        carry = zero = interruptDisable = decimal = breakFlag = unused = overflow = negative = false;
+        carry = zero = interruptDisable = decimal = breakFlag = overflow = negative = false;
+        unused = true; // Bit 5 of the status register is always set
     }
 
     /**
-     * Executa um ciclo de clock da CPU.
-     * Lê o próximo opcode da memória, decodifica e executa a instrução
+     * Executes a single CPU clock cycle. If an instruction is in progress, decrements the cycle counter.
+     * If no instruction is in progress, fetches and executes the next instruction and sets the cycle counter.
      */
     public void clock() {
-        int opcodeByte = memory.read(pc++);
-        Opcode opcode = Opcode.fromByte(opcodeByte);
-
-        // Se o opcode não for reconhecido, retorna.
-        if (opcode == null) return;
-    
-        // Obtém o modo de endereçamento e o operando
-        AddressingMode mode = getAddressingMode(opcodeByte);
-        int operand = fetchOperand(mode);
-    
-        execute(opcode, mode, operand);
+        if (cycles == 0) {
+            // Handle interrupts at instruction boundary
+            if (nmiPending) {
+                handleNMI();
+                nmiPending = false;
+                cycles = 7; // NMI takes 7 cycles
+                return;
+            } else if (irqPending && !interruptDisable) {
+                handleIRQ();
+                irqPending = false;
+                cycles = 7; // IRQ takes 7 cycles
+                return;
+            }
+            int opcodeByte = memory.read(pc++);
+            Opcode opcode = Opcode.fromByte(opcodeByte);
+            if (opcode == null) return;
+            AddressingMode mode = getAddressingMode(opcodeByte);
+            int operand = fetchOperand(mode);
+            execute(opcode, mode, operand);
+            cycles = CYCLE_TABLE[opcodeByte & 0xFF];
+        }
+        if (cycles > 0) cycles--;
     }
 
-
-    // Métodos utilitários para flags
+    /**
+     * Executes the instruction based on the opcode and addressing mode.
+     * @param value
+     */
     private void setZeroAndNegative(int value) {
         zero = (value & 0xFF) == 0;
         negative = (value & 0x80) != 0;
     }
 
-    // Métodos de interrupção
+    /**
+     * Pushes a byte onto the stack.
+     */
     public void nmi() {
-        // Implementar lógica de Non-Maskable Interrupt
-        // Salvar PC e flags, atualizar PC para vetor NMI
+        // Signal NMI to be handled at next instruction boundary
+        nmiPending = true;
     }
 
     /**
-     * Executa uma interrupção de requisição (IRQ).
-     * Se as interrupções não estiverem desabilitadas, salva o estado atual e pula para o vetor IRQ.
+     * Executes an Interrupt Request (IRQ).
+     * If interrupts are not disabled, saves the current state and jumps to the IRQ vector.
      */
     public void irq() {
-        if (!interruptDisable) {
-            // Implementar lógica de Interrupt Request
-            // Salvar PC e flags, atualizar PC para vetor IRQ
-        }
+        // Signal IRQ to be handled at next instruction boundary
+        irqPending = true;
+    }
+
+    // Handles the actual NMI sequence
+    private void handleNMI() {
+        push((pc >> 8) & 0xFF);
+        push(pc & 0xFF);
+        push(getStatusByte() & ~0x10 | 0x20);
+        interruptDisable = true;
+        int lo = memory.read(0xFFFA);
+        int hi = memory.read(0xFFFB);
+        pc = (hi << 8) | lo;
+    }
+
+    /**
+     * Handles the actual IRQ sequence.
+     */
+    private void handleIRQ() {
+        push((pc >> 8) & 0xFF);
+        push(pc & 0xFF);
+        push(getStatusByte() & ~0x10 | 0x20);
+        interruptDisable = true;
+        int lo = memory.read(0xFFFE);
+        int hi = memory.read(0xFFFF);
+        pc = (hi << 8) | lo;
     }
     
     /**
@@ -407,54 +472,72 @@ public class CPU implements iCPU {
                     // memory.write(addr, value); // Uncomment and implement address logic
                 }
                 break;
-            case BCC: 
+            case BCC: {
                 if (!carry) {
-                    // Operand is a signed 8-bit offset (relative addressing)
-                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    int offset = (byte)(operand & 0xFF);
+                    int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
+                    cycles++;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
                 }
                 break;
-            case BCS: 
+            }
+            case BCS: {
                 if (carry) {
-                    // Operand is a signed 8-bit offset (relative addressing)
-                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    int offset = (byte)(operand & 0xFF);
+                    int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
+                    cycles++;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
                 }
                 break;
-            case BEQ: 
+            }
+            case BEQ: {
                 if (zero) {
-                    // Operand is a signed 8-bit offset (relative addressing)
-                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    int offset = (byte)(operand & 0xFF);
+                    int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
+                    cycles++;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
                 }
                 break;
+            }
             case BIT: 
                 int bitResult = a & (operand & 0xFF);
                 zero = (bitResult == 0);
                 negative = ((operand & 0x80) != 0);
                 overflow = ((operand & 0x40) != 0);
                 break;
-            case BMI: 
+            case BMI: {
                 if (negative) {
-                    // Operand is a signed 8-bit offset (relative addressing)
-                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    int offset = (byte)(operand & 0xFF);
+                    int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
+                    cycles++;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
                 }
                 break;
-            case BNE: 
+            }
+            case BNE: {
                 if (!zero) {
-                    // Operand is a signed 8-bit offset (relative addressing)
-                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    int offset = (byte)(operand & 0xFF);
+                    int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
+                    cycles++;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
                 }
                 break;
-            case BPL: 
+            }
+            case BPL: {
                 if (!negative) {
-                    // Operand is a signed 8-bit offset (relative addressing)
-                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    int offset = (byte)(operand & 0xFF);
+                    int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
+                    cycles++;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
                 }
                 break;
+            }
             case BRK: 
                 pc = (pc + 1) & 0xFFFF; // BRK increments PC by 2 (already incremented by 1 in clock)
                 push((pc >> 8) & 0xFF); // Push PCH
@@ -467,20 +550,26 @@ public class CPU implements iCPU {
                 int hi = memory.read(0xFFFF);
                 pc = (hi << 8) | lo;
                 break;
-            case BVC: 
+            case BVC: {
                 if (!overflow) {
-                    // Operand is a signed 8-bit offset (relative addressing)
-                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    int offset = (byte)(operand & 0xFF);
+                    int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
+                    cycles++;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
                 }
                 break;
-            case BVS: 
+            }
+            case BVS: {
                 if (overflow) {
-                    // Operand is a signed 8-bit offset (relative addressing)
-                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    int offset = (byte)(operand & 0xFF);
+                    int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
+                    cycles++;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
                 }
                 break;
+            }
             case CLC: 
                 carry = false;
                 break;
@@ -895,8 +984,8 @@ public class CPU implements iCPU {
                 // memory.write(addr, value);
                 break;
             case SLO: 
-                // SLO: ASL valor em memória, depois ORA com A
-                // operand é o valor lido; para precisão, seria necessário o endereço de escrita
+                // SLO: ASL value in memory, then ORA with A
+                // operand is the value read; for accuracy, the write address would be needed
                 int sloValue = operand & 0xFF;
                 carry = (sloValue & 0x80) != 0;
                 sloValue = (sloValue << 1) & 0xFF;
@@ -905,8 +994,8 @@ public class CPU implements iCPU {
                 setZeroAndNegative(a);
                 break;
             case SRE: 
-                // SRE: LSR valor em memória, depois EOR com A
-                // operand é o valor lido; para precisão, seria necessário o endereço de escrita
+                // SRE: LSR value in memory, then EOR with A
+                // operand is the value read; for accuracy, the write address would be needed
                 int sreValue = operand & 0xFF;
                 carry = (sreValue & 0x01) != 0;
                 sreValue = (sreValue >> 1) & 0xFF;
@@ -915,19 +1004,19 @@ public class CPU implements iCPU {
                 setZeroAndNegative(a);
                 break;
             case TAS: 
-                // TAS (SHS): S = A & X; armazena (A & X) & (high byte do endereço + 1) em memória
-                // Implementação simplificada: S = A & X
+                // TAS (SHS): S = A & X; stores (A & X) & (high byte of address + 1) in memory
+                // Simplified implementation: S = A & X
                 sp = a & x;
-                // Emula o comportamento de armazenamento (A & X) & (high byte do endereço + 1)
-                // operand é o valor lido, mas normalmente seria o endereço absoluto
-                // Para precisão, seria necessário obter o endereço real (não disponível aqui)
+                // Emulates the storage behavior (A & X) & (high byte of address + 1)
+                // operand is the value read, but normally would be the absolute address
+                // For accuracy, the real address would be needed (not available here)
                 // memory.write(addr, (a & x) & (((addr >> 8) + 1) & 0xFF));
                 break;
             case TOP: 
-                // TOP (NOP de 2/3 bytes): não faz nada, já avançou PC ao buscar operandos
+                // TOP (2/3-byte NOP): does nothing, PC already advanced when fetching operands
                 break;
             case XAA: 
-                // XAA (unofficial): A = (A & X) & operando
+                // XAA (unofficial): A = (A & X) & operand
                 a = (a & x) & (operand & 0xFF);
                 setZeroAndNegative(a);
                 break;
@@ -999,6 +1088,7 @@ public class CPU implements iCPU {
     public int getY() { return y; }
     public int getSP() { return sp; }
     public int getPC() { return pc; }
+    public int getCycles() {return cycles;}
     public boolean isCarry() { return carry; }
     public boolean isZero() { return zero; }
     public boolean isInterruptDisable() { return interruptDisable; }
