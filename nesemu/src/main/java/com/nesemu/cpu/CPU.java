@@ -96,9 +96,27 @@ public class CPU implements iCPU {
             Opcode opcode = Opcode.fromByte(opcodeByte);
             if (opcode == null) return;
             AddressingMode mode = getAddressingMode(opcodeByte);
-            int operand = fetchOperand(mode);
-            execute(opcode, mode, operand);
+            OperandResult opRes = fetchOperand(mode);
+            // Cycle-accurate: add 1 cycle if page crossed for abs,X/Y and (zp),Y
+            boolean pageCrossed = false;
+            if (mode == AddressingMode.ABSOLUTE_X || mode == AddressingMode.ABSOLUTE_Y) {
+                int index = (mode == AddressingMode.ABSOLUTE_X) ? x : y;
+                int lo = (opRes.address - index) & 0xFFFF;
+                pageCrossed = ((lo & 0xFF00) != (opRes.address & 0xFF00));
+            } else if (mode == AddressingMode.INDIRECT_Y) {
+                int zp = memory.read(pc - 1) & 0xFF;
+                int base = (memory.read((zp + 1) & 0xFF) << 8) | memory.read(zp);
+                pageCrossed = ((base & 0xFF00) != (opRes.address & 0xFF00));
+            }
             cycles = CYCLE_TABLE[opcodeByte & 0xFF];
+            // Only some opcodes get the extra cycle (loads, ADC, SBC, CMP, AND, ORA, EOR)
+            if (pageCrossed && (
+                opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
+                opcode == Opcode.ADC || opcode == Opcode.SBC || opcode == Opcode.CMP ||
+                opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR)) {
+                cycles++;
+            }
+            execute(opcode, mode, opRes.value);
         }
         if (cycles > 0) cycles--;
     }
@@ -365,70 +383,80 @@ public class CPU implements iCPU {
      * @param mode The addressing mode to use for fetching the operand.
      * @return The value or address as required by the instruction.
      */
-    private int fetchOperand(AddressingMode mode) {
+    private static class OperandResult {
+        int value;
+        int address;
+        OperandResult(int value, int address) {
+            this.value = value;
+            this.address = address;
+        }
+    }
+
+    private OperandResult fetchOperand(AddressingMode mode) {
         switch (mode) {
             case IMMEDIATE:
-                // Operando imediato: próximo byte
-                return memory.read(pc++);
-            case ZERO_PAGE:
-                // Endereço de 8 bits (página zero)
-                return memory.read(memory.read(pc++) & 0xFF);
-            case ZERO_PAGE_X:
-                // Endereço de 8 bits + X (página zero, wrap-around)
-                return memory.read((memory.read(pc++) + x) & 0xFF);
-            case ZERO_PAGE_Y:
-                // Endereço de 8 bits + Y (página zero, wrap-around)
-                return memory.read((memory.read(pc++) + y) & 0xFF);
+                return new OperandResult(memory.read(pc++), -1);
+            case ZERO_PAGE: {
+                int addr = memory.read(pc++) & 0xFF;
+                return new OperandResult(memory.read(addr), addr);
+            }
+            case ZERO_PAGE_X: {
+                int addr = (memory.read(pc++) + x) & 0xFF;
+                return new OperandResult(memory.read(addr), addr);
+            }
+            case ZERO_PAGE_Y: {
+                int addr = (memory.read(pc++) + y) & 0xFF;
+                return new OperandResult(memory.read(addr), addr);
+            }
             case ABSOLUTE: {
-                // Endereço absoluto de 16 bits
-                int addr = memory.read(pc++) | (memory.read(pc++) << 8);
-                return memory.read(addr);
+                int lo = memory.read(pc++);
+                int hi = memory.read(pc++);
+                int addr = (hi << 8) | lo;
+                return new OperandResult(memory.read(addr), addr);
             }
             case ABSOLUTE_X: {
-                // Endereço absoluto + X
-                int addr = (memory.read(pc++) | (memory.read(pc++) << 8)) + x;
-                return memory.read(addr & 0xFFFF);
+                int lo = memory.read(pc++);
+                int hi = memory.read(pc++);
+                int base = (hi << 8) | lo;
+                int addr = (base + x) & 0xFFFF;
+                return new OperandResult(memory.read(addr), addr);
             }
             case ABSOLUTE_Y: {
-                // Endereço absoluto + Y
-                int addr = (memory.read(pc++) | (memory.read(pc++) << 8)) + y;
-                return memory.read(addr & 0xFFFF);
+                int lo = memory.read(pc++);
+                int hi = memory.read(pc++);
+                int base = (hi << 8) | lo;
+                int addr = (base + y) & 0xFFFF;
+                return new OperandResult(memory.read(addr), addr);
             }
             case INDIRECT: {
-                // Apenas JMP (ind): pega endereço de 16 bits, lê ponteiro
                 int ptr = memory.read(pc++) | (memory.read(pc++) << 8);
-                // Emula bug do 6502 para páginas cruzadas
                 int lo = memory.read(ptr);
                 int hi = memory.read((ptr & 0xFF00) | ((ptr + 1) & 0xFF));
                 int addr = lo | (hi << 8);
-                return addr;
+                return new OperandResult(addr, addr);
             }
             case INDIRECT_X: {
-                // (zp,X): lê byte, soma X, pega ponteiro de 16 bits
                 int zp = (memory.read(pc++) + x) & 0xFF;
                 int lo = memory.read(zp);
                 int hi = memory.read((zp + 1) & 0xFF);
                 int addr = lo | (hi << 8);
-                return memory.read(addr);
+                return new OperandResult(memory.read(addr), addr);
             }
             case INDIRECT_Y: {
-                // (zp),Y: lê byte, pega ponteiro de 16 bits, soma Y
                 int zp = memory.read(pc++) & 0xFF;
                 int lo = memory.read(zp);
                 int hi = memory.read((zp + 1) & 0xFF);
-                int addr = ((hi << 8) | lo) + y;
-                return memory.read(addr & 0xFFFF);
+                int base = (hi << 8) | lo;
+                int addr = (base + y) & 0xFFFF;
+                return new OperandResult(memory.read(addr), addr);
             }
             case RELATIVE:
-                // Para branches: retorna offset (signed byte)
-                return memory.read(pc++);
+                return new OperandResult(memory.read(pc++), -1);
             case ACCUMULATOR:
-                // Operação direta no acumulador
-                return a;
+                return new OperandResult(a, -1);
             case IMPLIED:
             default:
-                // Sem operando
-                return 0;
+                return new OperandResult(0, -1);
         }
     }
     
@@ -445,7 +473,7 @@ public class CPU implements iCPU {
                 // Carry flag
                 carry = result > 0xFF;
 
-                // Overflow flag (bit 7 muda de forma inesperada)
+                // Overflow flag (bit 7 change unexpectedly)
                 overflow = (~(acc ^ value) & (acc ^ result) & 0x80) != 0;
                 a = result & 0xFF;
 
@@ -610,7 +638,7 @@ public class CPU implements iCPU {
                 // DEC: decrementa valor em memória
                 int decValue = (operand - 1) & 0xFF;
                 setZeroAndNegative(decValue);
-                // memory.write(addr, decValue); // Não temos o endereço aqui
+                // memory.write(addr, decValue);
                 break;
             case DEX: 
                 x = (x - 1) & 0xFF;
@@ -625,10 +653,9 @@ public class CPU implements iCPU {
                 setZeroAndNegative(a);
                 break;
             case INC: 
-                // INC: incrementa valor em memória
                 int incValue = (operand + 1) & 0xFF;
                 setZeroAndNegative(incValue);
-                // memory.write(addr, incValue); // Não temos o endereço aqui
+                // memory.write(addr, incValue);
                 break;
             case INX: 
                 x = (x + 1) & 0xFF;
@@ -639,7 +666,6 @@ public class CPU implements iCPU {
                 setZeroAndNegative(y);
                 break;
             case JMP: 
-                // JMP: salta para o endereço fornecido
                 pc = operand & 0xFFFF;
                 break;
             case JSR: 
@@ -1053,7 +1079,7 @@ public class CPU implements iCPU {
      * This method updates the zero and negative flags based on the provided value.
      * @return
      */
-    private int getStatusByte() {
+    int getStatusByte() {
         int p = 0;
         if (carry) p |= 0x01;
         if (zero) p |= 0x02;
@@ -1071,13 +1097,13 @@ public class CPU implements iCPU {
      * This method updates the processor status flags based on the provided byte value.
      * @param value
      */
-    private void setStatusByte(int value) {
+    void setStatusByte(int value) {
         carry = (value & 0x01) != 0;
         zero = (value & 0x02) != 0;
         interruptDisable = (value & 0x04) != 0;
         decimal = (value & 0x08) != 0;
         breakFlag = (value & 0x10) != 0;
-        unused = (value & 0x20) != 0;
+        unused = true; // Bit 5 do status é sempre setado no 6502
         overflow = (value & 0x40) != 0;
         negative = (value & 0x80) != 0;
     }
