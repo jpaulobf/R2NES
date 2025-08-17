@@ -115,15 +115,287 @@ public class CPU implements iCPU {
     // Dispatcher de execução
     private void execute(Opcode opcode, AddressingMode mode, int operand) {
         switch (opcode) {
-            case LDA:
-                setA(operand);
+            // --- Official NES opcodes ---
+            case ADC: 
+                int value = operand & 0xFF;
+                int acc = a & 0xFF;
+                int carryIn = carry ? 1 : 0;
+                int result = acc + value + carryIn;
+
+                // Carry flag
+                carry = result > 0xFF;
+
+                // Overflow flag (bit 7 muda de forma inesperada)
+                overflow = (~(acc ^ value) & (acc ^ result) & 0x80) != 0;
+                a = result & 0xFF;
+
+                setZeroAndNegative(a);
                 break;
-            case TAX:
-                setX(a);
+            case AND: 
+                a = a & (operand & 0xFF);
+                setZeroAndNegative(a);
                 break;
-            // ...implemente as demais instruções...
+            case ASL: 
+                if (mode == AddressingMode.ACCUMULATOR) {
+                    carry = (a & 0x80) != 0;
+                    a = (a << 1) & 0xFF;
+                    setZeroAndNegative(a);
+                } else {
+                    // For memory, operand is the value, but we need the address to write back
+                    // This requires fetchOperand to return the address for ASL memory modes
+                    // For now, assume operand is the value and address is in a temp variable (not implemented)
+                    // int addr = ...; // get address from context (not available in current code)
+                    int valueASL = operand & 0xFF;
+                    carry = (valueASL & 0x80) != 0;
+                    valueASL = (valueASL << 1) & 0xFF;
+                    setZeroAndNegative(valueASL);
+                    // memory.write(addr, value); // Uncomment and implement address logic
+                }
+                break;
+            case BCC: 
+                if (!carry) {
+                    // Operand is a signed 8-bit offset (relative addressing)
+                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    pc = (pc + offset) & 0xFFFF;
+                }
+                break;
+            case BCS: 
+                if (carry) {
+                    // Operand is a signed 8-bit offset (relative addressing)
+                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    pc = (pc + offset) & 0xFFFF;
+                }
+                break;
+            case BEQ: 
+                if (zero) {
+                    // Operand is a signed 8-bit offset (relative addressing)
+                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    pc = (pc + offset) & 0xFFFF;
+                }
+                break;
+            case BIT: 
+                int bitResult = a & (operand & 0xFF);
+                zero = (bitResult == 0);
+                negative = ((operand & 0x80) != 0);
+                overflow = ((operand & 0x40) != 0);
+                break;
+            case BMI: 
+                if (negative) {
+                    // Operand is a signed 8-bit offset (relative addressing)
+                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    pc = (pc + offset) & 0xFFFF;
+                }
+                break;
+            case BNE: 
+                if (!zero) {
+                    // Operand is a signed 8-bit offset (relative addressing)
+                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    pc = (pc + offset) & 0xFFFF;
+                }
+                break;
+            case BPL: 
+                if (!negative) {
+                    // Operand is a signed 8-bit offset (relative addressing)
+                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    pc = (pc + offset) & 0xFFFF;
+                }
+                break;
+            case BRK: 
+                pc = (pc + 1) & 0xFFFF; // BRK increments PC by 2 (already incremented by 1 in clock)
+                push((pc >> 8) & 0xFF); // Push PCH
+                push(pc & 0xFF);        // Push PCL
+                breakFlag = true;
+                push(getStatusByte() | 0x10); // Push status with B flag set
+                interruptDisable = true;
+                // Set PC to IRQ/BRK vector
+                int lo = memory.read(0xFFFE);
+                int hi = memory.read(0xFFFF);
+                pc = (hi << 8) | lo;
+                break;
+            case BVC: 
+                if (!overflow) {
+                    // Operand is a signed 8-bit offset (relative addressing)
+                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    pc = (pc + offset) & 0xFFFF;
+                }
+                break;
+            case BVS: 
+                if (overflow) {
+                    // Operand is a signed 8-bit offset (relative addressing)
+                    int offset = (byte)(operand & 0xFF); // sign-extend
+                    pc = (pc + offset) & 0xFFFF;
+                }
+                break;
+            case CLC: 
+                carry = false;
+                break;
+            case CLD: 
+                decimal = false;
+                break;
+            case CLI: 
+                interruptDisable = false;
+                break;
+            case CLV: 
+                overflow = false;
+                break;
+            case CMP: 
+                int cmpValue = operand & 0xFF;
+                int cmpA = a & 0xFF;
+                int cmpResult = cmpA - cmpValue;
+                carry = cmpA >= cmpValue;
+                zero = (cmpResult & 0xFF) == 0;
+                negative = (cmpResult & 0x80) != 0;
+                break;
+            case CPX: 
+                int cpxValue = operand & 0xFF;
+                int cpxX = x & 0xFF;
+                int cpxResult = cpxX - cpxValue;
+                carry = cpxX >= cpxValue;
+                zero = (cpxResult & 0xFF) == 0;
+                negative = (cpxResult & 0x80) != 0;
+                break;
+            case CPY: 
+                break;
+            case DEC: 
+                break;
+            case DEX: 
+                break;
+            case DEY: 
+                break;
+            case EOR: 
+                break;
+            case INC: 
+                break;
+            case INX: 
+                break;
+            case INY: 
+                break;
+            case JMP: 
+                break;
+            case JSR: 
+                break;
+            case LDA: 
+                break;
+            case LDX: 
+                break;
+            case LDY: 
+                break;
+            case LSR: 
+                break;
+            case NOP: 
+                break;
+            case ORA: 
+                break;
+            case PHA: 
+                break;
+            case PHP: 
+                break;
+            case PLA: 
+                break;
+            case PLP: 
+                break;
+            case ROL: 
+                break;
+            case ROR: 
+                break;
+            case RTI: 
+                break;
+            case RTS: 
+                break;
+            case SBC: 
+                break;
+            case SEC: 
+                break;
+            case SED: 
+                break;
+            case SEI: 
+                break;
+            case STA: 
+                break;
+            case STX: 
+                break;
+            case STY: 
+                break;
+            case TAX: 
+                break;
+            case TAY: 
+                break;
+            case TSX: 
+                break;
+            case TXA: 
+                break;
+            case TXS: 
+                break;
+            case TYA: 
+                break;
+
+            // --- Most common undocumented (illegal) opcodes ---
+            case AAC: 
+                break;
+            case AAX: 
+                break;
+            case AHX: 
+                break;
+            case ALR: 
+                break;
+            case ANC: 
+                break;
+            case ARR: 
+                break;
+            case ASR: 
+                break;
+            case ATX: 
+                break;
+            case AXA: 
+                break;
+            case AXS: 
+                break;
+            case DCP: 
+                break;
+            case DOP: 
+                break;
+            case ISC: 
+                break;
+            case KIL: 
+                break;
+            case LAR: 
+                break;
+            case LAS: 
+                break;
+            case LAX: 
+                break;
+            case LXA: 
+                break;
+            case RLA: 
+                break;
+            case RRA: 
+                break;
+            case SAX: 
+                break;
+            case SBX: 
+                break;
+            case SHA: 
+                break;
+            case SHS: 
+                break;
+            case SHX: 
+                break;
+            case SHY: 
+                break;
+            case SLO: 
+                break;
+            case SRE: 
+                break;
+            case TAS: 
+                break;
+            case TOP: 
+                break;
+            case XAA: 
+                break;
+
+            // --- Any other opcodes (future/unknown) ---
             default:
-                // NOP ou tratamento de ilegais
+                // NOP or handle as illegal
                 break;
         }
     }
