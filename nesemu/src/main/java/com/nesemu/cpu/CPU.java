@@ -1,7 +1,7 @@
 package com.nesemu.cpu;
 
 import com.nesemu.cpu.interfaces.iCPU;
-import com.nesemu.memory.Memory;
+import com.nesemu.memory.interfaces.iMemory;
 
 /**
  * Class representing the NES CPU.
@@ -23,7 +23,7 @@ public class CPU implements iCPU {
     private boolean unused;
     private boolean overflow;
     private boolean negative;
-    private final Memory memory;
+    private final iMemory memory;
 
     // Cycle counter for instruction timing
     private int cycles;
@@ -56,7 +56,7 @@ public class CPU implements iCPU {
      * CPU constructor
      * @param memory Memory instance to be used by the CPU
      */
-    public CPU(Memory memory) {
+    public CPU(iMemory memory) {
         this.memory = memory;
         reset();
     }
@@ -116,7 +116,7 @@ public class CPU implements iCPU {
                 opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR)) {
                 cycles++;
             }
-            execute(opcode, mode, opRes.value);
+            execute(opcode, mode, opRes.value, opRes.address);
         }
         if (cycles > 0) cycles--;
     }
@@ -461,7 +461,8 @@ public class CPU implements iCPU {
     }
     
     // Dispatcher de execução
-    private void execute(Opcode opcode, AddressingMode mode, int operand) {
+    private void execute(Opcode opcode, AddressingMode mode, int operand, int memAddr) {
+        // memAddr já é passado de clock(), evitando dupla leitura
         switch (opcode) {
             // --- Official NES opcodes ---
             case ADC: 
@@ -488,16 +489,12 @@ public class CPU implements iCPU {
                     carry = (a & 0x80) != 0;
                     a = (a << 1) & 0xFF;
                     setZeroAndNegative(a);
-                } else {
-                    // For memory, operand is the value, but we need the address to write back
-                    // This requires fetchOperand to return the address for ASL memory modes
-                    // For now, assume operand is the value and address is in a temp variable (not implemented)
-                    // int addr = ...; // get address from context (not available in current code)
+                } else if (memAddr != -1) {
                     int valueASL = operand & 0xFF;
                     carry = (valueASL & 0x80) != 0;
                     valueASL = (valueASL << 1) & 0xFF;
                     setZeroAndNegative(valueASL);
-                    // memory.write(addr, value); // Uncomment and implement address logic
+                    memory.write(memAddr, valueASL);
                 }
                 break;
             case BCC: {
@@ -635,10 +632,11 @@ public class CPU implements iCPU {
                 negative = (cpyResult & 0x80) != 0;
                 break;
             case DEC: 
-                // DEC: decrementa valor em memória
-                int decValue = (operand - 1) & 0xFF;
-                setZeroAndNegative(decValue);
-                // memory.write(addr, decValue);
+                if (memAddr != -1) {
+                    int decValue = (operand - 1) & 0xFF;
+                    setZeroAndNegative(decValue);
+                    memory.write(memAddr, decValue);
+                }
                 break;
             case DEX: 
                 x = (x - 1) & 0xFF;
@@ -653,9 +651,11 @@ public class CPU implements iCPU {
                 setZeroAndNegative(a);
                 break;
             case INC: 
-                int incValue = (operand + 1) & 0xFF;
-                setZeroAndNegative(incValue);
-                // memory.write(addr, incValue);
+                if (memAddr != -1) {
+                    int incValue = (operand + 1) & 0xFF;
+                    setZeroAndNegative(incValue);
+                    memory.write(memAddr, incValue);
+                }
                 break;
             case INX: 
                 x = (x + 1) & 0xFF;
@@ -693,13 +693,12 @@ public class CPU implements iCPU {
                     carry = (a & 0x01) != 0;
                     a = (a >> 1) & 0xFF;
                     setZeroAndNegative(a);
-                } else {
-                    // Para memória, operand é o valor lido; seria necessário o endereço para escrever de volta
+                } else if (memAddr != -1) {
                     int valueLSR = operand & 0xFF;
                     carry = (valueLSR & 0x01) != 0;
                     valueLSR = (valueLSR >> 1) & 0xFF;
                     setZeroAndNegative(valueLSR);
-                    // memory.write(addr, valueLSR); // Não temos o endereço aqui
+                    memory.write(memAddr, valueLSR);
                 }
                 break;
             case NOP: 
@@ -733,14 +732,13 @@ public class CPU implements iCPU {
                     carry = (a & 0x80) != 0;
                     a = ((a << 1) | (oldCarry ? 1 : 0)) & 0xFF;
                     setZeroAndNegative(a);
-                } else {
-                    // For memory, operand is the value, but we need the address to write back
+                } else if (memAddr != -1) {
                     int valueROL = operand & 0xFF;
                     boolean oldCarry = carry;
                     carry = (valueROL & 0x80) != 0;
                     valueROL = ((valueROL << 1) | (oldCarry ? 1 : 0)) & 0xFF;
                     setZeroAndNegative(valueROL);
-                    // memory.write(addr, valueROL); // Address not available
+                    memory.write(memAddr, valueROL);
                 }
                 break;
             case ROR: 
@@ -749,13 +747,13 @@ public class CPU implements iCPU {
                     carry = (a & 0x01) != 0;
                     a = ((a >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
                     setZeroAndNegative(a);
-                } else {
+                } else if (memAddr != -1) {
                     int valueROR = operand & 0xFF;
                     boolean oldCarry = carry;
                     carry = (valueROR & 0x01) != 0;
                     valueROR = ((valueROR >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
                     setZeroAndNegative(valueROR);
-                    // memory.write(addr, valueROR); // Address not available
+                    memory.write(memAddr, valueROR);
                 }
                 break;
             case RTI: 
@@ -793,16 +791,19 @@ public class CPU implements iCPU {
                 interruptDisable = true;
                 break;
             case STA: 
-                // Store A to memory (needs address)
-                // memory.write(addr, a); // Address not available
+                if (memAddr != -1) {
+                    memory.write(memAddr, a & 0xFF);
+                }
                 break;
             case STX: 
-                // Store X to memory (needs address)
-                // memory.write(addr, x); // Address not available
+                if (memAddr != -1) {
+                    memory.write(memAddr, x & 0xFF);
+                }
                 break;
             case STY: 
-                // Store Y to memory (needs address)
-                // memory.write(addr, y); // Address not available
+                if (memAddr != -1) {
+                    memory.write(memAddr, y & 0xFF);
+                }
                 break;
             case TAX: 
                 x = a & 0xFF;
@@ -836,15 +837,18 @@ public class CPU implements iCPU {
                 carry = (a & 0x80) != 0;
                 break;
             case AAX: 
-                // AAX (SAX): Store A & X to memory (needs address)
-                // int addr = ...; // Not available
-                // memory.write(addr, a & x);
+                // AAX (SAX): Store A & X to memory
+                if (memAddr != -1) {
+                    memory.write(memAddr, a & x);
+                }
                 break;
             case AHX: 
-                // AHX: Store (A & X & (high byte + 1)) to memory (needs address)
-                // int addr = ...; // Not available
-                // int value = a & x & (((addr >> 8) + 1) & 0xFF);
-                // memory.write(addr, value);
+                // AHX: Store (A & X & (high byte of address + 1)) to memory
+                if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
+                    int high = (memAddr >> 8) + 1;
+                    int ahxValue = a & x & (high & 0xFF);
+                    memory.write(memAddr, ahxValue);
+                }
                 break;
             case ALR: 
                 // ALR: AND operand with A, then LSR
@@ -881,10 +885,12 @@ public class CPU implements iCPU {
                 setZeroAndNegative(a);
                 break;
             case AXA: 
-                // AXA: Store (A & X) & (high byte + 1) to memory (needs address)
-                // int addr = ...; // Not available
-                // int value = (a & x) & (((addr >> 8) + 1) & 0xFF);
-                // memory.write(addr, value);
+                // AXA: Store (A & X) & (high byte of address + 1) to memory
+                if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
+                    int high = (memAddr >> 8) + 1;
+                    int axaValue = (a & x) & (high & 0xFF);
+                    memory.write(memAddr, axaValue);
+                }
                 break;
             case AXS: 
                 // AXS: X = (A & X) - operand
@@ -895,31 +901,33 @@ public class CPU implements iCPU {
                 break;
             case DCP: 
                 // DCP: DEC memory, then CMP with A
-                // int addr = ...; // Not available
-                int dcpValue = (operand - 1) & 0xFF;
-                // memory.write(addr, dcpValue);
-                int dcpCmp = a - dcpValue;
-                carry = (a & 0xFF) >= dcpValue;
-                zero = (dcpCmp & 0xFF) == 0;
-                negative = (dcpCmp & 0x80) != 0;
+                if (memAddr != -1) {
+                    int dcpValue = (operand - 1) & 0xFF;
+                    memory.write(memAddr, dcpValue);
+                    int dcpCmp = a - dcpValue;
+                    carry = (a & 0xFF) >= dcpValue;
+                    zero = (dcpCmp & 0xFF) == 0;
+                    negative = (dcpCmp & 0x80) != 0;
+                }
                 break;
             case DOP: 
                 // DOP: Double NOP (2-byte NOP)
                 break;
             case ISC: 
                 // ISC: INC memory, then SBC with A
-                // int addr = ...; // Not available
-                int iscValue = (operand + 1) & 0xFF;
-                // memory.write(addr, iscValue);
-                // Now SBC: A = A - iscValue - (1 - carry)
-                int sbcVal = iscValue ^ 0xFF;
-                int accIsc = a & 0xFF;
-                int carryInIsc = carry ? 1 : 0;
-                int resultIsc = accIsc + sbcVal + carryInIsc;
-                carry = resultIsc > 0xFF;
-                overflow = ((accIsc ^ resultIsc) & (sbcVal ^ resultIsc) & 0x80) != 0;
-                a = resultIsc & 0xFF;
-                setZeroAndNegative(a);
+                if (memAddr != -1) {
+                    int iscValue = (operand + 1) & 0xFF;
+                    memory.write(memAddr, iscValue);
+                    // Now SBC: A = A - iscValue - (1 - carry)
+                    int sbcVal = iscValue ^ 0xFF;
+                    int accIsc = a & 0xFF;
+                    int carryInIsc = carry ? 1 : 0;
+                    int resultIsc = accIsc + sbcVal + carryInIsc;
+                    carry = resultIsc > 0xFF;
+                    overflow = ((accIsc ^ resultIsc) & (sbcVal ^ resultIsc) & 0x80) != 0;
+                    a = resultIsc & 0xFF;
+                    setZeroAndNegative(a);
+                }
                 break;
             case KIL: 
                 // KIL: Halts CPU (simulate by not advancing PC)
@@ -950,32 +958,35 @@ public class CPU implements iCPU {
                 break;
             case RLA: 
                 // RLA: ROL memory, then AND with A
-                // int addr = ...; // Not available
-                int rlaValue = ((operand << 1) | (carry ? 1 : 0)) & 0xFF;
-                carry = (operand & 0x80) != 0;
-                // memory.write(addr, rlaValue);
-                a = a & rlaValue;
-                setZeroAndNegative(a);
+                if (memAddr != -1) {
+                    int rlaValue = ((operand << 1) | (carry ? 1 : 0)) & 0xFF;
+                    carry = (operand & 0x80) != 0;
+                    memory.write(memAddr, rlaValue);
+                    a = a & rlaValue;
+                    setZeroAndNegative(a);
+                }
                 break;
             case RRA: 
                 // RRA: ROR memory, then ADC with A
-                // int addr = ...; // Not available
-                int rraValue = ((operand >> 1) | (carry ? 0x80 : 0)) & 0xFF;
-                carry = (operand & 0x01) != 0;
-                // memory.write(addr, rraValue);
-                int adcVal = rraValue;
-                int accRra = a & 0xFF;
-                int carryInRra = carry ? 1 : 0;
-                int resultRra = accRra + adcVal + carryInRra;
-                carry = resultRra > 0xFF;
-                overflow = (~(accRra ^ adcVal) & (accRra ^ resultRra) & 0x80) != 0;
-                a = resultRra & 0xFF;
-                setZeroAndNegative(a);
+                if (memAddr != -1) {
+                    int rraValue = ((operand >> 1) | (carry ? 0x80 : 0)) & 0xFF;
+                    carry = (operand & 0x01) != 0;
+                    memory.write(memAddr, rraValue);
+                    int adcVal = rraValue;
+                    int accRra = a & 0xFF;
+                    int carryInRra = carry ? 1 : 0;
+                    int resultRra = accRra + adcVal + carryInRra;
+                    carry = resultRra > 0xFF;
+                    overflow = (~(accRra ^ adcVal) & (accRra ^ resultRra) & 0x80) != 0;
+                    a = resultRra & 0xFF;
+                    setZeroAndNegative(a);
+                }
                 break;
             case SAX: 
-                // SAX: Store A & X to memory (needs address)
-                // int addr = ...; // Not available
-                // memory.write(addr, a & x);
+                // SAX: Store A & X to memory
+                if (memAddr != -1) {
+                    memory.write(memAddr, a & x);
+                }
                 break;
             case SBX: 
                 // SBX: X = (A & X) - operand
@@ -985,58 +996,69 @@ public class CPU implements iCPU {
                 carry = x <= 0xFF;
                 break;
             case SHA: 
-                // SHA: Store (A & X & (high byte + 1)) to memory (needs address)
-                // int addr = ...; // Not available
-                // int value = a & x & (((addr >> 8) + 1) & 0xFF);
-                // memory.write(addr, value);
+                // SHA: Store (A & X & (high byte of address + 1)) to memory
+                // Only valid for ABSOLUTE_Y and INDIRECT_Y
+                if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
+                    int high = (memAddr >> 8) + 1;
+                    int shaValue = a & x & (high & 0xFF);
+                    memory.write(memAddr, shaValue);
+                }
                 break;
             case SHS: 
-                // SHS: SP = A & X, store (A & X & (high byte + 1)) to memory (needs address)
+                // SHS: SP = A & X, store (A & X & (high byte of address + 1)) to memory
                 sp = a & x;
-                // int addr = ...; // Not available
-                // int value = sp & (((addr >> 8) + 1) & 0xFF);
-                // memory.write(addr, value);
+                if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
+                    int high = (memAddr >> 8) + 1;
+                    int shsValue = sp & (high & 0xFF);
+                    memory.write(memAddr, shsValue);
+                }
                 break;
             case SHX: 
-                // SHX: Store X & (high byte + 1) to memory (needs address)
-                // int addr = ...; // Not available
-                // int value = x & (((addr >> 8) + 1) & 0xFF);
-                // memory.write(addr, value);
+                // SHX: Store X & (high byte of address + 1) to memory
+                if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
+                    int high = (memAddr >> 8) + 1;
+                    int shxValue = x & (high & 0xFF);
+                    memory.write(memAddr, shxValue);
+                }
                 break;
             case SHY: 
-                // SHY: Store Y & (high byte + 1) to memory (needs address)
-                // int addr = ...; // Not available
-                // int value = y & (((addr >> 8) + 1) & 0xFF);
-                // memory.write(addr, value);
+                // SHY: Store Y & (high byte of address + 1) to memory
+                if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_X || mode == AddressingMode.INDIRECT_Y)) {
+                    int high = (memAddr >> 8) + 1;
+                    int shyValue = y & (high & 0xFF);
+                    memory.write(memAddr, shyValue);
+                }
                 break;
             case SLO: 
                 // SLO: ASL value in memory, then ORA with A
-                // operand is the value read; for accuracy, the write address would be needed
-                int sloValue = operand & 0xFF;
-                carry = (sloValue & 0x80) != 0;
-                sloValue = (sloValue << 1) & 0xFF;
-                // memory.write(addr, sloValue); // Não temos o endereço aqui
-                a = a | sloValue;
-                setZeroAndNegative(a);
+                if (memAddr != -1) {
+                    int sloValue = operand & 0xFF;
+                    carry = (sloValue & 0x80) != 0;
+                    sloValue = (sloValue << 1) & 0xFF;
+                    memory.write(memAddr, sloValue);
+                    a = a | sloValue;
+                    setZeroAndNegative(a);
+                }
                 break;
             case SRE: 
                 // SRE: LSR value in memory, then EOR with A
-                // operand is the value read; for accuracy, the write address would be needed
-                int sreValue = operand & 0xFF;
-                carry = (sreValue & 0x01) != 0;
-                sreValue = (sreValue >> 1) & 0xFF;
-                // memory.write(addr, sreValue); // Não temos o endereço aqui
-                a = a ^ sreValue;
-                setZeroAndNegative(a);
+                if (memAddr != -1) {
+                    int sreValue = operand & 0xFF;
+                    carry = (sreValue & 0x01) != 0;
+                    sreValue = (sreValue >> 1) & 0xFF;
+                    memory.write(memAddr, sreValue);
+                    a = a ^ sreValue;
+                    setZeroAndNegative(a);
+                }
                 break;
             case TAS: 
                 // TAS (SHS): S = A & X; stores (A & X) & (high byte of address + 1) in memory
-                // Simplified implementation: S = A & X
                 sp = a & x;
-                // Emulates the storage behavior (A & X) & (high byte of address + 1)
-                // operand is the value read, but normally would be the absolute address
-                // For accuracy, the real address would be needed (not available here)
-                // memory.write(addr, (a & x) & (((addr >> 8) + 1) & 0xFF));
+                if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
+                    int high = (memAddr >> 8) + 1;
+                    int tasValue = (a & x) & (high & 0xFF);
+                    memory.write(memAddr, tasValue);
+                }
                 break;
             case TOP: 
                 // TOP (2/3-byte NOP): does nothing, PC already advanced when fetching operands
