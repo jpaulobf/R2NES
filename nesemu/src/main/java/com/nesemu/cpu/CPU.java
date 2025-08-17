@@ -19,7 +19,6 @@ public class CPU implements iCPU {
     private boolean unused;
     private boolean overflow;
     private boolean negative;
-
     private final Memory memory;
 
     public CPU(Memory memory) {
@@ -33,16 +32,6 @@ public class CPU implements iCPU {
         // PC é inicializado a partir do vetor de reset (0xFFFC/0xFFFD)
         pc = (memory.read(0xFFFD) << 8) | memory.read(0xFFFC);
         carry = zero = interruptDisable = decimal = breakFlag = unused = overflow = negative = false;
-    }
-
-    public void clock() {
-        int opcodeByte = memory.read(pc++);
-        Opcode opcode = Opcode.fromByte(opcodeByte);
-        if (opcode == null) {
-            // Opcional: lançar exceção ou tratar como NOP
-            return;
-        }
-        // TODO: decodificar modo de endereçamento e executar instrução
     }
 
     // Métodos utilitários para flags
@@ -61,6 +50,92 @@ public class CPU implements iCPU {
             // Implementar lógica de Interrupt Request
             // Salvar PC e flags, atualizar PC para vetor IRQ
         }
+    }
+
+    // Dispatcher principal
+    public void clock() {
+        int opcodeByte = memory.read(pc++);
+        Opcode opcode = Opcode.fromByte(opcodeByte);
+        if (opcode == null) return;
+    
+        AddressingMode mode = getAddressingMode(opcodeByte);
+        int operand = fetchOperand(mode);
+    
+        execute(opcode, mode, operand);
+    }
+    
+    // Exemplo de tabela de modos de endereçamento (pode ser array ou switch)
+    private AddressingMode getAddressingMode(int opcodeByte) {
+        switch (opcodeByte) {
+            case 0xA9: return AddressingMode.IMMEDIATE; // LDA #imm
+            case 0xA5: return AddressingMode.ZERO_PAGE; // LDA zp
+            // ...adicione todos os opcodes...
+            default: return AddressingMode.IMPLIED;
+        }
+    }
+    
+    // Busca o operando conforme o modo
+    private int fetchOperand(AddressingMode mode) {
+        switch (mode) {
+            case IMMEDIATE: return memory.read(pc++);
+            case ZERO_PAGE: return memory.read(memory.read(pc++) & 0xFF);
+            case ABSOLUTE: {
+                int addr = memory.read(pc++) | (memory.read(pc++) << 8);
+                return memory.read(addr);
+            }
+            // ...outros modos...
+            default: return 0;
+        }
+    }
+    
+    // Dispatcher de execução
+    private void execute(Opcode opcode, AddressingMode mode, int operand) {
+        switch (opcode) {
+            case LDA:
+                setA(operand);
+                break;
+            case TAX:
+                setX(a);
+                break;
+            // ...implemente as demais instruções...
+            default:
+                // NOP ou tratamento de ilegais
+                break;
+        }
+    }
+    
+    // Métodos auxiliares para stack
+    private void push(int value) {
+        memory.write(0x100 + (sp & 0xFF), value & 0xFF);
+        sp = (sp - 1) & 0xFF;
+    }
+    private int pop() {
+        sp = (sp + 1) & 0xFF;
+        return memory.read(0x100 + (sp & 0xFF));
+    }
+    
+    // Status byte
+    private int getStatusByte() {
+        int p = 0;
+        if (carry) p |= 0x01;
+        if (zero) p |= 0x02;
+        if (interruptDisable) p |= 0x04;
+        if (decimal) p |= 0x08;
+        if (breakFlag) p |= 0x10;
+        if (unused) p |= 0x20;
+        if (overflow) p |= 0x40;
+        if (negative) p |= 0x80;
+        return p;
+    }
+    private void setStatusByte(int value) {
+        carry = (value & 0x01) != 0;
+        zero = (value & 0x02) != 0;
+        interruptDisable = (value & 0x04) != 0;
+        decimal = (value & 0x08) != 0;
+        breakFlag = (value & 0x10) != 0;
+        unused = (value & 0x20) != 0;
+        overflow = (value & 0x40) != 0;
+        negative = (value & 0x80) != 0;
     }
 
     // Getters and Setters 
