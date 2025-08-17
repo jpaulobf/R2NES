@@ -383,14 +383,41 @@ public class CPU implements iCPU {
             case SHY: 
                 break;
             case SLO: 
+                // SLO: ASL valor em memória, depois ORA com A
+                // operand é o valor lido; para precisão, seria necessário o endereço de escrita
+                int sloValue = operand & 0xFF;
+                carry = (sloValue & 0x80) != 0;
+                sloValue = (sloValue << 1) & 0xFF;
+                // memory.write(addr, sloValue); // Não temos o endereço aqui
+                a = a | sloValue;
+                setZeroAndNegative(a);
                 break;
             case SRE: 
+                // SRE: LSR valor em memória, depois EOR com A
+                // operand é o valor lido; para precisão, seria necessário o endereço de escrita
+                int sreValue = operand & 0xFF;
+                carry = (sreValue & 0x01) != 0;
+                sreValue = (sreValue >> 1) & 0xFF;
+                // memory.write(addr, sreValue); // Não temos o endereço aqui
+                a = a ^ sreValue;
+                setZeroAndNegative(a);
                 break;
             case TAS: 
+                // TAS (SHS): S = A & X; armazena (A & X) & (high byte do endereço + 1) em memória
+                // Implementação simplificada: S = A & X
+                sp = a & x;
+                // Emula o comportamento de armazenamento (A & X) & (high byte do endereço + 1)
+                // operand é o valor lido, mas normalmente seria o endereço absoluto
+                // Para precisão, seria necessário obter o endereço real (não disponível aqui)
+                // memory.write(addr, (a & x) & (((addr >> 8) + 1) & 0xFF));
                 break;
             case TOP: 
+                // TOP (NOP de 2/3 bytes): não faz nada, já avançou PC ao buscar operandos
                 break;
             case XAA: 
+                // XAA (unofficial): A = (A & X) & operando
+                a = (a & x) & (operand & 0xFF);
+                setZeroAndNegative(a);
                 break;
 
             // --- Any other opcodes (future/unknown) ---
