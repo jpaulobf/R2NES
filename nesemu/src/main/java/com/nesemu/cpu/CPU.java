@@ -606,94 +606,293 @@ public class CPU implements iCPU {
                 setZeroAndNegative(a);
                 break;
             case PLP: 
+                // PLP: Pull Processor Status from stack
+                int status = pop() & 0xFF;
+                setStatusByte(status);
+                // On 6502, the unused flag is always set to true after PLP
+                unused = true;
                 break;
             case ROL: 
+                if (mode == AddressingMode.ACCUMULATOR) {
+                    boolean oldCarry = carry;
+                    carry = (a & 0x80) != 0;
+                    a = ((a << 1) | (oldCarry ? 1 : 0)) & 0xFF;
+                    setZeroAndNegative(a);
+                } else {
+                    // For memory, operand is the value, but we need the address to write back
+                    int valueROL = operand & 0xFF;
+                    boolean oldCarry = carry;
+                    carry = (valueROL & 0x80) != 0;
+                    valueROL = ((valueROL << 1) | (oldCarry ? 1 : 0)) & 0xFF;
+                    setZeroAndNegative(valueROL);
+                    // memory.write(addr, valueROL); // Address not available
+                }
                 break;
             case ROR: 
+                if (mode == AddressingMode.ACCUMULATOR) {
+                    boolean oldCarry = carry;
+                    carry = (a & 0x01) != 0;
+                    a = ((a >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
+                    setZeroAndNegative(a);
+                } else {
+                    int valueROR = operand & 0xFF;
+                    boolean oldCarry = carry;
+                    carry = (valueROR & 0x01) != 0;
+                    valueROR = ((valueROR >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
+                    setZeroAndNegative(valueROR);
+                    // memory.write(addr, valueROR); // Address not available
+                }
                 break;
             case RTI: 
+                // RTI: Pull status, then pull PC (low, then high)
+                setStatusByte(pop());
+                int pcl = pop();
+                int pch = pop();
+                pc = (pch << 8) | pcl;
                 break;
             case RTS: 
+                // RTS: Pull PC (low, then high), then increment
+                int pcl_rts = pop();
+                int pch_rts = pop();
+                pc = ((pch_rts << 8) | pcl_rts) + 1;
+                pc &= 0xFFFF;
                 break;
             case SBC: 
+                // SBC: Subtract with Carry
+                int valueSBC = operand & 0xFF;
+                int accSBC = a & 0xFF;
+                int carryInSBC = carry ? 1 : 0;
+                int resultSBC = accSBC - valueSBC - (1 - carryInSBC);
+                carry = resultSBC >= 0;
+                overflow = ((accSBC ^ resultSBC) & 0x80) != 0 && ((accSBC ^ valueSBC) & 0x80) != 0;
+                a = resultSBC & 0xFF;
+                setZeroAndNegative(a);
                 break;
             case SEC: 
+                carry = true;
                 break;
             case SED: 
+                decimal = true;
                 break;
             case SEI: 
+                interruptDisable = true;
                 break;
             case STA: 
+                // Store A to memory (needs address)
+                // memory.write(addr, a); // Address not available
                 break;
             case STX: 
+                // Store X to memory (needs address)
+                // memory.write(addr, x); // Address not available
                 break;
             case STY: 
+                // Store Y to memory (needs address)
+                // memory.write(addr, y); // Address not available
                 break;
             case TAX: 
+                x = a & 0xFF;
+                setZeroAndNegative(x);
                 break;
             case TAY: 
+                y = a & 0xFF;
+                setZeroAndNegative(y);
                 break;
             case TSX: 
+                x = sp & 0xFF;
+                setZeroAndNegative(x);
                 break;
             case TXA: 
+                a = x & 0xFF;
+                setZeroAndNegative(a);
                 break;
             case TXS: 
+                sp = x & 0xFF;
                 break;
             case TYA: 
+                a = y & 0xFF;
+                setZeroAndNegative(a);
                 break;
 
             // --- Most common undocumented (illegal) opcodes ---
             case AAC: 
+                // AAC (ANC): AND operand with A, set carry = bit 7 of result
+                a = a & (operand & 0xFF);
+                setZeroAndNegative(a);
+                carry = (a & 0x80) != 0;
                 break;
             case AAX: 
+                // AAX (SAX): Store A & X to memory (needs address)
+                // int addr = ...; // Not available
+                // memory.write(addr, a & x);
                 break;
             case AHX: 
+                // AHX: Store (A & X & (high byte + 1)) to memory (needs address)
+                // int addr = ...; // Not available
+                // int value = a & x & (((addr >> 8) + 1) & 0xFF);
+                // memory.write(addr, value);
                 break;
             case ALR: 
+                // ALR: AND operand with A, then LSR
+                a = a & (operand & 0xFF);
+                carry = (a & 0x01) != 0;
+                a = (a >> 1) & 0xFF;
+                setZeroAndNegative(a);
                 break;
             case ANC: 
+                // ANC: AND operand with A, set carry = bit 7 of result
+                a = a & (operand & 0xFF);
+                setZeroAndNegative(a);
+                carry = (a & 0x80) != 0;
                 break;
             case ARR: 
+                // ARR: AND operand with A, then ROR, set flags
+                a = a & (operand & 0xFF);
+                a = ((a >> 1) | (carry ? 0x80 : 0)) & 0xFF;
+                setZeroAndNegative(a);
+                carry = (a & 0x40) != 0;
+                overflow = (((a >> 5) & 1) ^ ((a >> 6) & 1)) != 0;
                 break;
             case ASR: 
+                // ASR: AND operand with A, then LSR
+                a = a & (operand & 0xFF);
+                carry = (a & 0x01) != 0;
+                a = (a >> 1) & 0xFF;
+                setZeroAndNegative(a);
                 break;
             case ATX: 
+                // ATX: A = A & X, then A = X = A & operand
+                a = a & x;
+                a = x = a & (operand & 0xFF);
+                setZeroAndNegative(a);
                 break;
             case AXA: 
+                // AXA: Store (A & X) & (high byte + 1) to memory (needs address)
+                // int addr = ...; // Not available
+                // int value = (a & x) & (((addr >> 8) + 1) & 0xFF);
+                // memory.write(addr, value);
                 break;
             case AXS: 
+                // AXS: X = (A & X) - operand
+                x = (a & x) - (operand & 0xFF);
+                x &= 0xFF;
+                setZeroAndNegative(x);
+                carry = x <= 0xFF;
                 break;
             case DCP: 
+                // DCP: DEC memory, then CMP with A
+                // int addr = ...; // Not available
+                int dcpValue = (operand - 1) & 0xFF;
+                // memory.write(addr, dcpValue);
+                int dcpCmp = a - dcpValue;
+                carry = (a & 0xFF) >= dcpValue;
+                zero = (dcpCmp & 0xFF) == 0;
+                negative = (dcpCmp & 0x80) != 0;
                 break;
             case DOP: 
+                // DOP: Double NOP (2-byte NOP)
                 break;
             case ISC: 
+                // ISC: INC memory, then SBC with A
+                // int addr = ...; // Not available
+                int iscValue = (operand + 1) & 0xFF;
+                // memory.write(addr, iscValue);
+                // Now SBC: A = A - iscValue - (1 - carry)
+                int sbcVal = iscValue ^ 0xFF;
+                int accIsc = a & 0xFF;
+                int carryInIsc = carry ? 1 : 0;
+                int resultIsc = accIsc + sbcVal + carryInIsc;
+                carry = resultIsc > 0xFF;
+                overflow = ((accIsc ^ resultIsc) & (sbcVal ^ resultIsc) & 0x80) != 0;
+                a = resultIsc & 0xFF;
+                setZeroAndNegative(a);
                 break;
             case KIL: 
+                // KIL: Halts CPU (simulate by not advancing PC)
+                pc = (pc - 1) & 0xFFFF;
                 break;
             case LAR: 
+                // LAR: SP = A & memory, X = SP, A = SP
+                sp = a & (operand & 0xFF);
+                x = sp;
+                a = sp;
+                setZeroAndNegative(a);
                 break;
             case LAS: 
+                // LAS: SP = A & X & memory, A = X = SP
+                sp = a & x & (operand & 0xFF);
+                a = x = sp;
+                setZeroAndNegative(a);
                 break;
             case LAX: 
+                // LAX: A = X = memory
+                a = x = operand & 0xFF;
+                setZeroAndNegative(a);
                 break;
             case LXA: 
+                // LXA: A = X = (A | 0xEE) & operand (unofficial, unstable)
+                a = x = (a | 0xEE) & (operand & 0xFF);
+                setZeroAndNegative(a);
                 break;
             case RLA: 
+                // RLA: ROL memory, then AND with A
+                // int addr = ...; // Not available
+                int rlaValue = ((operand << 1) | (carry ? 1 : 0)) & 0xFF;
+                carry = (operand & 0x80) != 0;
+                // memory.write(addr, rlaValue);
+                a = a & rlaValue;
+                setZeroAndNegative(a);
                 break;
             case RRA: 
+                // RRA: ROR memory, then ADC with A
+                // int addr = ...; // Not available
+                int rraValue = ((operand >> 1) | (carry ? 0x80 : 0)) & 0xFF;
+                carry = (operand & 0x01) != 0;
+                // memory.write(addr, rraValue);
+                int adcVal = rraValue;
+                int accRra = a & 0xFF;
+                int carryInRra = carry ? 1 : 0;
+                int resultRra = accRra + adcVal + carryInRra;
+                carry = resultRra > 0xFF;
+                overflow = (~(accRra ^ adcVal) & (accRra ^ resultRra) & 0x80) != 0;
+                a = resultRra & 0xFF;
+                setZeroAndNegative(a);
                 break;
             case SAX: 
+                // SAX: Store A & X to memory (needs address)
+                // int addr = ...; // Not available
+                // memory.write(addr, a & x);
                 break;
             case SBX: 
+                // SBX: X = (A & X) - operand
+                x = (a & x) - (operand & 0xFF);
+                x &= 0xFF;
+                setZeroAndNegative(x);
+                carry = x <= 0xFF;
                 break;
             case SHA: 
+                // SHA: Store (A & X & (high byte + 1)) to memory (needs address)
+                // int addr = ...; // Not available
+                // int value = a & x & (((addr >> 8) + 1) & 0xFF);
+                // memory.write(addr, value);
                 break;
             case SHS: 
+                // SHS: SP = A & X, store (A & X & (high byte + 1)) to memory (needs address)
+                sp = a & x;
+                // int addr = ...; // Not available
+                // int value = sp & (((addr >> 8) + 1) & 0xFF);
+                // memory.write(addr, value);
                 break;
             case SHX: 
+                // SHX: Store X & (high byte + 1) to memory (needs address)
+                // int addr = ...; // Not available
+                // int value = x & (((addr >> 8) + 1) & 0xFF);
+                // memory.write(addr, value);
                 break;
             case SHY: 
+                // SHY: Store Y & (high byte + 1) to memory (needs address)
+                // int addr = ...; // Not available
+                // int value = y & (((addr >> 8) + 1) & 0xFF);
+                // memory.write(addr, value);
                 break;
             case SLO: 
                 // SLO: ASL valor em memória, depois ORA com A
@@ -740,17 +939,31 @@ public class CPU implements iCPU {
         }
     }
     
-    // Métodos auxiliares para stack
+    /**
+     * Pushes a value onto the stack.
+     * The stack is located at 0x0100 in memory, and the stack pointer (SP) is decremented before writing.
+     * @param value
+     */
     private void push(int value) {
         memory.write(0x100 + (sp & 0xFF), value & 0xFF);
         sp = (sp - 1) & 0xFF;
     }
+
+    /**
+     * Pops a value from the stack.
+     * The stack is located at 0x0100 in memory, and the stack pointer (SP) is incremented after reading.
+     * @return
+     */
     private int pop() {
         sp = (sp + 1) & 0xFF;
         return memory.read(0x100 + (sp & 0xFF));
     }
     
-    // Status byte
+    /**
+     * Sets the zero and negative flags based on the value.
+     * This method updates the zero and negative flags based on the provided value.
+     * @return
+     */
     private int getStatusByte() {
         int p = 0;
         if (carry) p |= 0x01;
@@ -763,6 +976,12 @@ public class CPU implements iCPU {
         if (negative) p |= 0x80;
         return p;
     }
+
+    /**
+     * Sets the status flags based on the provided byte value.
+     * This method updates the processor status flags based on the provided byte value.
+     * @param value
+     */
     private void setStatusByte(int value) {
         carry = (value & 0x01) != 0;
         zero = (value & 0x02) != 0;
