@@ -1,7 +1,7 @@
 package com.nesemu.emulator;
 
 import com.nesemu.cpu.CPU;
-import com.nesemu.memory.Memory;
+import com.nesemu.memory.interfaces.iMemory;
 
 /**
  * Class representing the NES emulator.
@@ -9,9 +9,9 @@ import com.nesemu.memory.Memory;
  */
 public class NesEmulator {
     private final CPU cpu;
-    private final Memory memory;
+    private final iMemory memory;
 
-    public NesEmulator(Memory memory) {
+    public NesEmulator(iMemory memory) {
         this.memory = memory;
         this.cpu = new CPU(memory);
     }
