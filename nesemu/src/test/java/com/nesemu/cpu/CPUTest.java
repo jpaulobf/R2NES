@@ -2,9 +2,7 @@ package com.nesemu.cpu;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
 import com.nesemu.memory.interfaces.iMemory;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 public class CPUTest {
@@ -15,6 +13,37 @@ public class CPUTest {
     public void setUp() {
         memory = new TestMemory();
         cpu = new CPU(memory);
+    }
+
+    @Test
+    public void testIllegalSHY_AbsoluteX() {
+        // SHY (opcode 0x9C): armazena Y & (high(address)+1) no endereço abs,X
+        // Fórmula no nosso código: valor = Y & ( (addr>>8)+1 & 0xFF ).
+        // Cenário 1: base=0x12F0, X=0x0A => endereço efetivo=0x12FA; high=0x12; high+1=0x13; Y=0xFF => escrito 0x13
+        // Cenário 2: base=0x80F0, X=0x0F => endereço=0x80FF; high=0x80; high+1=0x81; Y=0x7E => 0x7E & 0x81 = 0x00
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0xF2); // PC=0xF200
+        int pc = 0xF200;
+        // Caso 1
+        memory.write(pc++, 0xA0); memory.write(pc++, 0xFF); // LDY #$FF
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x0A); // LDX #$0A
+        memory.write(pc++, 0x9C); memory.write(pc++, 0xF0); memory.write(pc++, 0x12); // SHY $12F0,X -> $12FA
+        // Caso 2
+        memory.write(pc++, 0xA0); memory.write(pc++, 0x7E); // LDY #$7E
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x0F); // LDX #$0F
+        memory.write(pc++, 0x9C); memory.write(pc++, 0xF0); memory.write(pc++, 0x80); // SHY $80F0,X -> $80FF
+        cpu.reset();
+        // Caso 1 execuções
+        runOne(); // LDY
+        runOne(); // LDX
+        int cyc = runMeasured(); // SHY
+        assertEquals(5, cyc, "SHY abs,X deve consumir 5 ciclos (como STA abs,X base)" );
+        assertEquals(0x13, memory.read(0x12FA), "SHY caso1 valor incorreto");
+        // Caso 2
+        runOne(); // LDY #$7E
+        runOne(); // LDX #$0F
+        cyc = runMeasured(); // SHY segundo
+        assertEquals(5, cyc);
+        assertEquals(0x00, memory.read(0x80FF), "SHY caso2 valor incorreto (esperado 0x00)");
     }
 
     @Test
@@ -58,7 +87,6 @@ public class CPUTest {
     runOne(); // LDA abs,Y
     assertEquals(0x4D, cpu.getA());
     }
-
 
     @Test
     public void testRORAllAddressingModesAndFlags() {
@@ -154,7 +182,7 @@ public class CPUTest {
             assertEquals(0x01, memory.read(0x2010));
         assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
     }
-    // --- Testes extensos ---
+
     @Test
     public void testLDA_NegativeFlag() {
         memory.write(0xFFFC, 0x00); // low byte do vetor de reset
@@ -223,21 +251,21 @@ public class CPUTest {
 
     @Test
     public void testJSRAndRTS() {
-    memory.write(0xFFFC, 0x00); // low byte do vetor de reset
-    memory.write(0xFFFD, 0x80); // high byte do vetor de reset
-    memory.write(0x8000, 0x20); // JSR $9000
-    memory.write(0x8001, 0x00);
-    memory.write(0x8002, 0x90);
-    memory.write(0x9000, 0x60); // RTS
-    cpu.reset();
-    cpu.clock(); // JSR
-    while (cpu.getCycles() > 0) cpu.clock();
-    System.err.printf("[TEST] Após JSR, PC=%04X\n", cpu.getPC());
-    assertEquals(0x9000, cpu.getPC());
-    cpu.clock(); // RTS
-    while (cpu.getCycles() > 0) cpu.clock();
-    System.err.printf("[TEST] Após RTS, PC=%04X\n", cpu.getPC());
-    assertEquals(0x8003, cpu.getPC());
+        memory.write(0xFFFC, 0x00); // low byte do vetor de reset
+        memory.write(0xFFFD, 0x80); // high byte do vetor de reset
+        memory.write(0x8000, 0x20); // JSR $9000
+        memory.write(0x8001, 0x00);
+        memory.write(0x8002, 0x90);
+        memory.write(0x9000, 0x60); // RTS
+        cpu.reset();
+        cpu.clock(); // JSR
+        while (cpu.getCycles() > 0) cpu.clock();
+        System.err.printf("[TEST] Após JSR, PC=%04X\n", cpu.getPC());
+        assertEquals(0x9000, cpu.getPC());
+        cpu.clock(); // RTS
+        while (cpu.getCycles() > 0) cpu.clock();
+        System.err.printf("[TEST] Após RTS, PC=%04X\n", cpu.getPC());
+        assertEquals(0x8003, cpu.getPC());
     }
 
     @Test
@@ -354,24 +382,22 @@ public class CPUTest {
         assertTrue(cpu.isUnused());
     }
 
-    // --- Testes adicionais sugeridos ---
-
     @Test
     public void testSTAZeroPage() {
-    System.out.println("[TEST] testSTAZeroPage start");
-    memory.write(0xFFFC, 0x00); // low byte do vetor de reset
-    memory.write(0xFFFD, 0x80); // high byte do vetor de reset
-    memory.write(0x8000, 0xA9); // LDA #$77
-    memory.write(0x8001, 0x77);
-    memory.write(0x8002, 0x85); // STA $10
-    memory.write(0x8003, 0x10);
-    cpu.reset();
-    System.out.println("[TEST] After reset, PC=" + String.format("%04X", cpu.getPC()));
-    runOne(); // LDA #$77
-    System.out.println("[TEST] After LDA, A=" + String.format("%02X", cpu.getA()) + ", PC=" + String.format("%04X", cpu.getPC()));
-    runOne(); // STA $10
-    System.out.println("[TEST] After STA, memory[0x10]=" + String.format("%02X", memory.read(0x10)) + ", PC=" + String.format("%04X", cpu.getPC()));
-    assertEquals(0x77, memory.read(0x10));
+        System.out.println("[TEST] testSTAZeroPage start");
+        memory.write(0xFFFC, 0x00); // low byte do vetor de reset
+        memory.write(0xFFFD, 0x80); // high byte do vetor de reset
+        memory.write(0x8000, 0xA9); // LDA #$77
+        memory.write(0x8001, 0x77);
+        memory.write(0x8002, 0x85); // STA $10
+        memory.write(0x8003, 0x10);
+        cpu.reset();
+        System.out.println("[TEST] After reset, PC=" + String.format("%04X", cpu.getPC()));
+        runOne(); // LDA #$77
+        System.out.println("[TEST] After LDA, A=" + String.format("%02X", cpu.getA()) + ", PC=" + String.format("%04X", cpu.getPC()));
+        runOne(); // STA $10
+        System.out.println("[TEST] After STA, memory[0x10]=" + String.format("%02X", memory.read(0x10)) + ", PC=" + String.format("%04X", cpu.getPC()));
+        assertEquals(0x77, memory.read(0x10));
     }
 
     @Test
@@ -397,7 +423,7 @@ public class CPUTest {
         memory.write(0x8001, 0x34);
         memory.write(0x8002, 0x12);
         cpu.reset();
-    runOne();
+        runOne();
         assertEquals(0x11, memory.read(0x1234));
         // DEC $1234
         memory.write(0xFFFC, 0x00);
@@ -406,7 +432,7 @@ public class CPUTest {
         memory.write(0x8001, 0x34);
         memory.write(0x8002, 0x12);
         cpu.reset();
-    runOne();
+        runOne();
         assertEquals(0x10, memory.read(0x1234));
     }
 
@@ -416,24 +442,24 @@ public class CPUTest {
         memory.write(0xFFFC, 0xA9); memory.write(0xFFFD, 0xF0);
         memory.write(0xFFFE, 0x29); memory.write(0xFFFF, 0x0F);
         cpu.reset();
-    runOne(); // LDA
-    runOne(); // AND
+        runOne(); // LDA
+        runOne(); // AND
         assertEquals(0x00, cpu.getA());
         // ORA #$AA
         memory.write(0x0000, 0x09); memory.write(0x0001, 0xAA);
         cpu.setPC(0x0000);
-    runOne(); // ORA
+          runOne(); // ORA
         assertEquals(0xAA, cpu.getA());
         // EOR #$FF
         memory.write(0x0002, 0x49); memory.write(0x0003, 0xFF);
         cpu.setPC(0x0002);
-    runOne(); // EOR
+        runOne(); // EOR
         assertEquals(0x55, cpu.getA());
         // BIT $10 (A=0x55, mem=0x80)
         memory.write(0x0010, 0x80);
         memory.write(0x0004, 0x24); memory.write(0x0005, 0x10);
         cpu.setPC(0x0004);
-    runOne(); // BIT
+        runOne(); // BIT
         assertTrue(cpu.isNegative());
     }
 
@@ -451,17 +477,17 @@ public class CPUTest {
         cpu.setX(0x00);
         cpu.setY(0x00);
         // TAY: Y = A (0x22)
-    runOne();
+        runOne();
         assertEquals(0x22, cpu.getY(), "TAY failed: Y should be 0x22");
         // TXA: A = X (0)
         cpu.setX(0x33); // Set X to 0x33 before TXA
-    runOne();
+        runOne();
         assertEquals(0x33, cpu.getA(), "TXA failed: A should be 0x33");
         // TYA: A = Y (0x22)
-    runOne();
+        runOne();
         assertEquals(0x22, cpu.getA(), "TYA failed: A should be 0x22");
         // TAX: X = A (0x22)
-    runOne();
+        runOne();
         assertEquals(0x22, cpu.getX(), "TAX failed: X should be 0x22");
     }
 
@@ -480,14 +506,14 @@ public class CPUTest {
         assertEquals(2, cyc, "TSX consome 2 ciclos");
         assertEquals(0x80, cpu.getX());
         assertTrue(cpu.isNegative()); assertFalse(cpu.isZero());
-    // Modificamos X para 0x00 (isso MUDA as flags: Z=1, N=0) e executamos TXS: SP vira 0x00 e flags permanecem (TXS não altera flags)
-    cpu.setX(0x00); // agora Zero=1, Negative=0
-    assertTrue(cpu.isZero()); assertFalse(cpu.isNegative()); // pré-condição
-    cyc = runMeasured(); // TXS
-    assertEquals(2, cyc, "TXS consome 2 ciclos");
-    assertEquals(0x00, cpu.getSP());
-    // Flags devem permanecer conforme estavam antes do TXS (Z=1, N=0)
-    assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+        // Modificamos X para 0x00 (isso MUDA as flags: Z=1, N=0) e executamos TXS: SP vira 0x00 e flags permanecem (TXS não altera flags)
+        cpu.setX(0x00); // agora Zero=1, Negative=0
+        assertTrue(cpu.isZero()); assertFalse(cpu.isNegative()); // pré-condição
+        cyc = runMeasured(); // TXS
+        assertEquals(2, cyc, "TXS consome 2 ciclos");
+        assertEquals(0x00, cpu.getSP());
+        // Flags devem permanecer conforme estavam antes do TXS (Z=1, N=0)
+        assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
         // Segunda TSX lê SP=0x00 => X=0x00, Z=1, N=0
         cyc = runMeasured();
         assertEquals(2, cyc);
@@ -506,13 +532,13 @@ public class CPUTest {
         memory.write(0xFFFD, 0x00); // high byte do vetor de reset
         cpu.reset();
         cpu.setX(0x01); // Set X after reset
-    runOne(); // INX
+        runOne(); // INX
         assertEquals(0x02, cpu.getX());
-    runOne(); // INY
+        runOne(); // INY
         assertEquals(0x01, cpu.getY());
-    runOne(); // DEX
+        runOne(); // DEX
         assertEquals(0x01, cpu.getX());
-    runOne(); // DEY
+        runOne(); // DEY
         assertEquals(0x00, cpu.getY());
     }
 
@@ -620,26 +646,26 @@ public class CPUTest {
     @Test
     public void testIndirectXZeroPageWrap() {
         // Exercita wrap de índice: operand + X ultrapassa 0xFF
-    // Usa vetor de reset para 0x0200 para não sobrescrever zero-page $00/$01
-    memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x02); // PC=0x0200
-    int base = 0x0200;
-    // LDX #$10
-    memory.write(base + 0, 0xA2); memory.write(base + 1, 0x10);
-    // LDA ($F0,X) -> ($F0 + $10) = $100 -> wrap = $00
-    memory.write(base + 2, 0xA1); memory.write(base + 3, 0xF0);
-    // Pointer em $00/$01 -> 0x2345
-    memory.write(0x0000, 0x45); // low target
-    memory.write(0x0001, 0x23); // high target
-    // Valor alvo
-    memory.write(0x2345, 0x9A);
+        // Usa vetor de reset para 0x0200 para não sobrescrever zero-page $00/$01
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x02); // PC=0x0200
+        int base = 0x0200;
+        // LDX #$10
+        memory.write(base + 0, 0xA2); memory.write(base + 1, 0x10);
+        // LDA ($F0,X) -> ($F0 + $10) = $100 -> wrap = $00
+        memory.write(base + 2, 0xA1); memory.write(base + 3, 0xF0);
+        // Pointer em $00/$01 -> 0x2345
+        memory.write(0x0000, 0x45); // low target
+        memory.write(0x0001, 0x23); // high target
+        // Valor alvo
+        memory.write(0x2345, 0x9A);
 
-    cpu.reset();
-    // Executa LDX
-    cpu.clock(); while (cpu.getCycles() > 0) cpu.clock();
-    // Executa LDA (zp,X) com wrap
-    cpu.clock(); while (cpu.getCycles() > 0) cpu.clock();
+        cpu.reset();
+        // Executa LDX
+        cpu.clock(); while (cpu.getCycles() > 0) cpu.clock();
+        // Executa LDA (zp,X) com wrap
+        cpu.clock(); while (cpu.getCycles() > 0) cpu.clock();
 
-    assertEquals(0x9A, cpu.getA(), "LDA (zp,X) com wrap não carregou valor correto");
+        assertEquals(0x9A, cpu.getA(), "LDA (zp,X) com wrap não carregou valor correto");
     }
 
     @Test
@@ -718,43 +744,43 @@ public class CPUTest {
         cpu.reset();
 
         // LDA #$80
-    runOne(); // LDA #$80
+        runOne(); // LDA #$80
         assertEquals(0x80, cpu.getA());
         // ASL A
-    runOne(); // ASL A
+        runOne(); // ASL A
         assertEquals(0x00, cpu.getA(), "ASL A resultado incorreto");
         assertTrue(cpu.isCarry(), "ASL A deveria setar carry");
         assertTrue(cpu.isZero(), "ASL A deveria setar zero");
         assertFalse(cpu.isNegative(), "ASL A não deveria setar negativo");
         // LDA #$01
-    runOne(); // LDA #$01
+        runOne(); // LDA #$01
         assertEquals(0x01, cpu.getA());
         // LSR A
-    runOne(); // LSR A
+        runOne(); // LSR A
         assertEquals(0x00, cpu.getA(), "LSR A resultado incorreto");
         assertTrue(cpu.isCarry(), "LSR A deveria setar carry (bit0=1)");
         assertTrue(cpu.isZero(), "LSR A deveria setar zero");
         assertFalse(cpu.isNegative());
         // LDA #$81
-    runOne(); // LDA #$81
+        runOne(); // LDA #$81
         assertEquals(0x81, cpu.getA());
         // CLC
-    runOne(); // CLC
+        runOne(); // CLC
         assertFalse(cpu.isCarry());
         // ROL A
-    runOne(); // ROL A
+        runOne(); // ROL A
         assertEquals(0x02, cpu.getA(), "ROL A resultado incorreto");
         assertTrue(cpu.isCarry(), "ROL A deveria setar carry (bit7 original)");
         assertFalse(cpu.isZero());
         assertFalse(cpu.isNegative());
         // LDA #$01
-    runOne(); // LDA #$01
+        runOne(); // LDA #$01
         assertEquals(0x01, cpu.getA());
         // SEC
-    runOne(); // SEC
+        runOne(); // SEC
         assertTrue(cpu.isCarry());
         // ROR A
-    runOne(); // ROR A
+        runOne(); // ROR A
         assertEquals(0x80, cpu.getA(), "ROR A deveria produzir 0x80");
         assertTrue(cpu.isCarry(), "ROR A deveria manter carry=1 (bit0 original=1)");
         assertFalse(cpu.isZero());
@@ -889,36 +915,36 @@ public class CPUTest {
         cpu.reset();
 
         // 1)
-    runOne(); runOne(); runOne();
+        runOne(); runOne(); runOne();
         assertEquals(0x00, memory.read(0x0010));
         assertTrue(cpu.isCarry());
         assertTrue(cpu.isZero());
         assertFalse(cpu.isNegative());
         // 2)
-    runOne(); runOne(); runOne();
+        runOne(); runOne(); runOne();
         assertEquals(0x80, memory.read(0x0011));
         assertFalse(cpu.isCarry());
         assertFalse(cpu.isZero());
         assertTrue(cpu.isNegative());
         // 3)
-    runOne(); runOne(); runOne();
+        runOne(); runOne(); runOne();
         assertEquals(0x00, memory.read(0x0012));
         assertFalse(cpu.isCarry());
         assertTrue(cpu.isZero());
         assertFalse(cpu.isNegative());
         // 4)
-    runOne(); runOne(); runOne(); runOne();
+        runOne(); runOne(); runOne(); runOne();
         assertEquals(0x00, memory.read(0x0020));
         assertTrue(cpu.isCarry());
         assertTrue(cpu.isZero());
         // 5)
-    runOne(); runOne(); runOne();
+        runOne(); runOne(); runOne();
         assertEquals(0x80, memory.read(0x1234));
         assertFalse(cpu.isCarry());
         assertFalse(cpu.isZero());
         assertTrue(cpu.isNegative());
         // 6)
-    runOne(); runOne(); runOne(); runOne();
+        runOne(); runOne(); runOne(); runOne();
         assertEquals(0x00, memory.read(0x1300));
         assertTrue(cpu.isCarry());
         assertTrue(cpu.isZero());
@@ -1030,19 +1056,19 @@ public class CPUTest {
         cpu.setCarry(true); // carry não deve ser afetado por AND
 
         // LDA #$F0
-    runOne(); // LDA #$F0
+        runOne(); // LDA #$F0
         assertEquals(0xF0, cpu.getA());
         // AND #$0F => 0x00
-    runOne(); // AND #$0F
+        runOne(); // AND #$0F
         assertEquals(0x00, cpu.getA(), "AND imediato não aplicou máscara corretamente (esperado 0x00)");
         assertTrue(cpu.isZero(), "Flag Z deveria estar setado após resultado 0");
         assertFalse(cpu.isNegative(), "Flag N não deveria estar setado para 0x00");
         assertTrue(cpu.isCarry(), "Flag C deveria permanecer inalterado");
         // LDA #$80
-    runOne(); // LDA #$80
+        runOne(); // LDA #$80
         assertEquals(0x80, cpu.getA());
         // AND #$C0 => 0x80
-    runOne(); // AND #$C0
+        runOne(); // AND #$C0
         assertEquals(0x80, cpu.getA(), "AND imediato não preservou bit 7");
         assertFalse(cpu.isZero(), "Flag Z não deveria estar setado (resultado != 0)");
         assertTrue(cpu.isNegative(), "Flag N deveria estar setado (bit7=1)");
@@ -1388,14 +1414,14 @@ public class CPUTest {
         assertEquals(0x2104, cpu.getPC(), "PC deve apontar para destino do branch sem crossing");
 
         // Caso 3: tomado com crossing
-    // Colocar instrução no início da página 0x8100 para que PC após fetch fique em 0x8102
-    // e usar offset negativo para ir para página anterior 0x80xx
-    cpu.setPC(0x8100);
-    memory.write(0x8100, 0xD0); // BNE
-    memory.write(0x8101, 0xE0); // offset = -0x20 (0xE0) -> destino = 0x8102 + (-0x20) = 0x80E2 (página diferente)
-    cpu.setZero(false);
-    int takenCross = runMeasured();
-    assertEquals(4, takenCross, "Branch tomado com crossing deve consumir 4 ciclos");
+        // Colocar instrução no início da página 0x8100 para que PC após fetch fique em 0x8102
+        // e usar offset negativo para ir para página anterior 0x80xx
+        cpu.setPC(0x8100);
+        memory.write(0x8100, 0xD0); // BNE
+        memory.write(0x8101, 0xE0); // offset = -0x20 (0xE0) -> destino = 0x8102 + (-0x20) = 0x80E2 (página diferente)
+        cpu.setZero(false);
+        int takenCross = runMeasured();
+        assertEquals(4, takenCross, "Branch tomado com crossing deve consumir 4 ciclos");
     }
 
     @Test
@@ -1630,141 +1656,141 @@ public class CPUTest {
 
     @Test
     public void testROLVariantsAccumulatorAndMemory() {
-    // Programa completo para validar todos os modos/combinações principais de ROL:
-    // 1) ROL A com bit7=1 e carry=0
-    // 2) ROL A com bit7=0 e carry=1 (inserindo 1 em bit0)
-    // 3) ROL $30 (zero page) valor 0x40
-    // 4) ROL $31 (zero page) valor 0x80
-    // 5) ROL $32 (zero page) valor 0x01 com carry=1
-    // 6) ROL $20,X (zero page,X) onde X=5 e memória $25 = 0x80
-    // 7) ROL $1234 (absolute) valor 0x40
-    // 8) ROL $1235 (absolute) valor 0x80 carry=1
-    // 9) ROL $2000,X (absolute,X) X=0x10 valor em $2010 = 0x81
-    // Ciclos esperados: A=2, zp=5, zp,X=6, abs=6, abs,X=7
+        // Programa completo para validar todos os modos/combinações principais de ROL:
+        // 1) ROL A com bit7=1 e carry=0
+        // 2) ROL A com bit7=0 e carry=1 (inserindo 1 em bit0)
+        // 3) ROL $30 (zero page) valor 0x40
+        // 4) ROL $31 (zero page) valor 0x80
+        // 5) ROL $32 (zero page) valor 0x01 com carry=1
+        // 6) ROL $20,X (zero page,X) onde X=5 e memória $25 = 0x80
+        // 7) ROL $1234 (absolute) valor 0x40
+        // 8) ROL $1235 (absolute) valor 0x80 carry=1
+        // 9) ROL $2000,X (absolute,X) X=0x10 valor em $2010 = 0x81
+        // Ciclos esperados: A=2, zp=5, zp,X=6, abs=6, abs,X=7
 
-    memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80); // reset -> 0x8000
-    int pc = 0x8000;
-    // 1) LDA #$80 ; CLC ; ROL A
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x80); // LDA #$80
-    memory.write(pc++, 0x18); // CLC
-    memory.write(pc++, 0x2A); // ROL A
-    // 2) LDA #$01 ; SEC ; ROL A
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x01); // LDA #$01
-    memory.write(pc++, 0x38); // SEC
-    memory.write(pc++, 0x2A); // ROL A => (1<<1)|1 = 3
-    // 3) LDA #$40 ; STA $30 ; CLC ; ROL $30
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x40);
-    memory.write(pc++, 0x85); memory.write(pc++, 0x30);
-    memory.write(pc++, 0x18); // CLC
-    memory.write(pc++, 0x26); memory.write(pc++, 0x30); // ROL $30
-    // 4) LDA #$80 ; STA $31 ; CLC ; ROL $31
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x80);
-    memory.write(pc++, 0x85); memory.write(pc++, 0x31);
-    memory.write(pc++, 0x18);
-    memory.write(pc++, 0x26); memory.write(pc++, 0x31); // ROL $31
-    // 5) LDA #$01 ; STA $32 ; SEC ; ROL $32  (usa carry=1 para inserir 1)
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x01);
-    memory.write(pc++, 0x85); memory.write(pc++, 0x32);
-    memory.write(pc++, 0x38); // SEC
-    memory.write(pc++, 0x26); memory.write(pc++, 0x32);
-    // 6) LDX #$05 ; LDA #$80 ; STA $20,X (-> $25) ; CLC ; ROL $20,X
-    memory.write(pc++, 0xA2); memory.write(pc++, 0x05); // LDX #$05
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x80); // LDA #$80
-    memory.write(pc++, 0x95); memory.write(pc++, 0x20); // STA $20,X -> $25
-    memory.write(pc++, 0x18); // CLC
-    memory.write(pc++, 0x36); memory.write(pc++, 0x20); // ROL $20,X
-    // 7) LDA #$40 ; STA $1234 ; CLC ; ROL $1234
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x40);
-    memory.write(pc++, 0x8D); memory.write(pc++, 0x34); memory.write(pc++, 0x12); // STA $1234
-    memory.write(pc++, 0x18); // CLC
-    memory.write(pc++, 0x2E); memory.write(pc++, 0x34); memory.write(pc++, 0x12); // ROL $1234
-    // 8) LDA #$80 ; STA $1235 ; SEC ; ROL $1235
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x80);
-    memory.write(pc++, 0x8D); memory.write(pc++, 0x35); memory.write(pc++, 0x12); // STA $1235
-    memory.write(pc++, 0x38); // SEC
-    memory.write(pc++, 0x2E); memory.write(pc++, 0x35); memory.write(pc++, 0x12); // ROL $1235
-    // 9) LDX #$10 ; LDA #$81 ; STA $2000,X (-> $2010) ; CLC ; ROL $2000,X
-    memory.write(pc++, 0xA2); memory.write(pc++, 0x10); // LDX #$10
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x81); // LDA #$81
-    memory.write(pc++, 0x9D); memory.write(pc++, 0x00); memory.write(pc++, 0x20); // STA $2000,X
-    memory.write(pc++, 0x18); // CLC
-    memory.write(pc++, 0x3E); memory.write(pc++, 0x00); memory.write(pc++, 0x20); // ROL $2000,X
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80); // reset -> 0x8000
+        int pc = 0x8000;
+        // 1) LDA #$80 ; CLC ; ROL A
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x80); // LDA #$80
+        memory.write(pc++, 0x18); // CLC
+        memory.write(pc++, 0x2A); // ROL A
+        // 2) LDA #$01 ; SEC ; ROL A
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x01); // LDA #$01
+        memory.write(pc++, 0x38); // SEC
+        memory.write(pc++, 0x2A); // ROL A => (1<<1)|1 = 3
+        // 3) LDA #$40 ; STA $30 ; CLC ; ROL $30
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x40);
+        memory.write(pc++, 0x85); memory.write(pc++, 0x30);
+        memory.write(pc++, 0x18); // CLC
+        memory.write(pc++, 0x26); memory.write(pc++, 0x30); // ROL $30
+        // 4) LDA #$80 ; STA $31 ; CLC ; ROL $31
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x80);
+        memory.write(pc++, 0x85); memory.write(pc++, 0x31);
+        memory.write(pc++, 0x18);
+        memory.write(pc++, 0x26); memory.write(pc++, 0x31); // ROL $31
+        // 5) LDA #$01 ; STA $32 ; SEC ; ROL $32  (usa carry=1 para inserir 1)
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x01);
+        memory.write(pc++, 0x85); memory.write(pc++, 0x32);
+        memory.write(pc++, 0x38); // SEC
+        memory.write(pc++, 0x26); memory.write(pc++, 0x32);
+        // 6) LDX #$05 ; LDA #$80 ; STA $20,X (-> $25) ; CLC ; ROL $20,X
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x05); // LDX #$05
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x80); // LDA #$80
+        memory.write(pc++, 0x95); memory.write(pc++, 0x20); // STA $20,X -> $25
+        memory.write(pc++, 0x18); // CLC
+        memory.write(pc++, 0x36); memory.write(pc++, 0x20); // ROL $20,X
+        // 7) LDA #$40 ; STA $1234 ; CLC ; ROL $1234
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x40);
+        memory.write(pc++, 0x8D); memory.write(pc++, 0x34); memory.write(pc++, 0x12); // STA $1234
+        memory.write(pc++, 0x18); // CLC
+        memory.write(pc++, 0x2E); memory.write(pc++, 0x34); memory.write(pc++, 0x12); // ROL $1234
+        // 8) LDA #$80 ; STA $1235 ; SEC ; ROL $1235
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x80);
+        memory.write(pc++, 0x8D); memory.write(pc++, 0x35); memory.write(pc++, 0x12); // STA $1235
+        memory.write(pc++, 0x38); // SEC
+        memory.write(pc++, 0x2E); memory.write(pc++, 0x35); memory.write(pc++, 0x12); // ROL $1235
+        // 9) LDX #$10 ; LDA #$81 ; STA $2000,X (-> $2010) ; CLC ; ROL $2000,X
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x10); // LDX #$10
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x81); // LDA #$81
+        memory.write(pc++, 0x9D); memory.write(pc++, 0x00); memory.write(pc++, 0x20); // STA $2000,X
+        memory.write(pc++, 0x18); // CLC
+        memory.write(pc++, 0x3E); memory.write(pc++, 0x00); memory.write(pc++, 0x20); // ROL $2000,X
 
-    cpu.reset();
+        cpu.reset();
 
-    int cyc;
-    // 1) ROL A (A=0x80, CLC)
-    runOne(); // LDA #$80
-    runOne(); // CLC
-    cyc = runMeasured();
-    assertEquals(2, cyc, "ROL A consome 2 ciclos");
-    assertEquals(0x00, cpu.getA());
-    assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
-    // 2) ROL A (A=0x01, SEC)
-    runOne(); // LDA #$01
-    runOne(); // SEC
-    cyc = runMeasured();
-    assertEquals(2, cyc);
-    assertEquals(0x03, cpu.getA());
-    assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
-    // 3) ROL $30 (0x40, CLC)
-    runOne(); // LDA #$40
-    runOne(); // STA $30
-    runOne(); // CLC
-    cyc = runMeasured();
-    assertEquals(5, cyc);
-    assertEquals(0x80, memory.read(0x30));
-    assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
-    // 4) ROL $31 (0x80, CLC)
-    runOne(); // LDA #$80
-    runOne(); // STA $31
-    runOne(); // CLC
-    cyc = runMeasured();
-    assertEquals(5, cyc);
-    assertEquals(0x00, memory.read(0x31));
-    assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
-    // 5) ROL $32 (0x01, SEC)
-    runOne(); // LDA #$01
-    runOne(); // STA $32
-    runOne(); // SEC
-    cyc = runMeasured();
-    assertEquals(5, cyc);
-    assertEquals(0x03, memory.read(0x32));
-    assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
-    // 6) ROL $20,X (mem $25=0x80, CLC)
-    runOne(); // LDX #$05
-    runOne(); // LDA #$80
-    runOne(); // STA $20,X -> $25
-    runOne(); // CLC
-    cyc = runMeasured();
-    assertEquals(6, cyc);
-    assertEquals(0x00, memory.read(0x25));
-    assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
-    // 7) ROL $1234 (0x40, CLC)
-    runOne(); // LDA #$40
-    runOne(); // STA $1234
-    runOne(); // CLC
-    cyc = runMeasured();
-    assertEquals(6, cyc);
-    assertEquals(0x80, memory.read(0x1234));
-    assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
-    // 8) ROL $1235 (0x80, SEC)
-    runOne(); // LDA #$80
-    runOne(); // STA $1235
-    runOne(); // SEC
-    cyc = runMeasured();
-    assertEquals(6, cyc);
-    assertEquals(0x01, memory.read(0x1235)); // (0x80<<1)|1 => 0x01
-    assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
-    // 9) ROL $2000,X (0x81, CLC)
-    runOne(); // LDX #$10
-    runOne(); // LDA #$81
-    runOne(); // STA $2000,X -> $2010 (valor 0x81)
-    runOne(); // CLC
-    cyc = runMeasured();
-    assertEquals(7, cyc);
-    assertEquals(0x02, memory.read(0x2010)); // (0x81<<1)&0xFF = 0x02
-    assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
+        int cyc;
+        // 1) ROL A (A=0x80, CLC)
+        runOne(); // LDA #$80
+        runOne(); // CLC
+        cyc = runMeasured();
+        assertEquals(2, cyc, "ROL A consome 2 ciclos");
+        assertEquals(0x00, cpu.getA());
+        assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+        // 2) ROL A (A=0x01, SEC)
+        runOne(); // LDA #$01
+        runOne(); // SEC
+        cyc = runMeasured();
+        assertEquals(2, cyc);
+        assertEquals(0x03, cpu.getA());
+        assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
+        // 3) ROL $30 (0x40, CLC)
+        runOne(); // LDA #$40
+        runOne(); // STA $30
+        runOne(); // CLC
+        cyc = runMeasured();
+        assertEquals(5, cyc);
+        assertEquals(0x80, memory.read(0x30));
+        assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
+        // 4) ROL $31 (0x80, CLC)
+        runOne(); // LDA #$80
+        runOne(); // STA $31
+        runOne(); // CLC
+        cyc = runMeasured();
+        assertEquals(5, cyc);
+        assertEquals(0x00, memory.read(0x31));
+        assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+        // 5) ROL $32 (0x01, SEC)
+        runOne(); // LDA #$01
+        runOne(); // STA $32
+        runOne(); // SEC
+        cyc = runMeasured();
+        assertEquals(5, cyc);
+        assertEquals(0x03, memory.read(0x32));
+        assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
+        // 6) ROL $20,X (mem $25=0x80, CLC)
+        runOne(); // LDX #$05
+        runOne(); // LDA #$80
+        runOne(); // STA $20,X -> $25
+        runOne(); // CLC
+        cyc = runMeasured();
+        assertEquals(6, cyc);
+        assertEquals(0x00, memory.read(0x25));
+        assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+        // 7) ROL $1234 (0x40, CLC)
+        runOne(); // LDA #$40
+        runOne(); // STA $1234
+        runOne(); // CLC
+        cyc = runMeasured();
+        assertEquals(6, cyc);
+        assertEquals(0x80, memory.read(0x1234));
+        assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
+        // 8) ROL $1235 (0x80, SEC)
+        runOne(); // LDA #$80
+        runOne(); // STA $1235
+        runOne(); // SEC
+        cyc = runMeasured();
+        assertEquals(6, cyc);
+        assertEquals(0x01, memory.read(0x1235)); // (0x80<<1)|1 => 0x01
+        assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
+        // 9) ROL $2000,X (0x81, CLC)
+        runOne(); // LDX #$10
+        runOne(); // LDA #$81
+        runOne(); // STA $2000,X -> $2010 (valor 0x81)
+        runOne(); // CLC
+        cyc = runMeasured();
+        assertEquals(7, cyc);
+        assertEquals(0x02, memory.read(0x2010)); // (0x81<<1)&0xFF = 0x02
+        assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
     }
 
     // ================== Testes para opcodes ilegais solicitados (AAC, AAX, AHX, ALR) ==================
@@ -1794,71 +1820,71 @@ public class CPUTest {
 
     @Test
     public void testIllegalAAX_SAX_StoresMask_NoFlagChange() {
-    // Testa todas as variantes conhecidas de AAX (SAX): 0x87 (zp), 0x97 (zp,Y), 0x83 (indirect,X), 0x8F (abs)
-    // Comportamento: escreve (A & X) em memória, não altera flags.
-    // Ciclos esperados (análogos ao STA/SAX): zp=3, zp,Y=4, (zp,X)=6, abs=4
-    memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0xC1); // PC=0xC100
-    int pc = 0xC100;
-    // 1) AAX zp $10: A=F0, X=CC => C0
-    memory.write(pc++, 0xA9); memory.write(pc++, 0xF0); // LDA #$F0
-    memory.write(pc++, 0xA2); memory.write(pc++, 0xCC); // LDX #$CC
-    memory.write(pc++, 0x87); memory.write(pc++, 0x10); // AAX $10
-    // 2) AAX zp,Y base $20,Y=5 => destino $25 : A=3F, X=0F => 0x0F
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x3F); // LDA #$3F
-    memory.write(pc++, 0xA2); memory.write(pc++, 0x0F); // LDX #$0F
-    memory.write(pc++, 0xA0); memory.write(pc++, 0x05); // LDY #$05
-    memory.write(pc++, 0x97); memory.write(pc++, 0x20); // AAX $20,Y -> $25
-    // 3) AAX ($10,X) com X=0x34 -> pointer em ($10+X)=0x44 -> 0x2468 ; A=F3, X=34 => 0x30
-    memory.write(pc++, 0xA9); memory.write(pc++, 0xF3); // LDA #$F3
-    memory.write(pc++, 0xA2); memory.write(pc++, 0x34); // LDX #$34
-    memory.write(pc++, 0x83); memory.write(pc++, 0x10); // AAX ($10,X)
-    // 4) AAX abs $3000 : A=5A, X=3C => 0x18
-    memory.write(pc++, 0xA9); memory.write(pc++, 0x5A); // LDA #$5A
-    memory.write(pc++, 0xA2); memory.write(pc++, 0x3C); // LDX #$3C
-    memory.write(pc++, 0x8F); memory.write(pc++, 0x00); memory.write(pc++, 0x30); // AAX $3000
+        // Testa todas as variantes conhecidas de AAX (SAX): 0x87 (zp), 0x97 (zp,Y), 0x83 (indirect,X), 0x8F (abs)
+        // Comportamento: escreve (A & X) em memória, não altera flags.
+        // Ciclos esperados (análogos ao STA/SAX): zp=3, zp,Y=4, (zp,X)=6, abs=4
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0xC1); // PC=0xC100
+        int pc = 0xC100;
+        // 1) AAX zp $10: A=F0, X=CC => C0
+        memory.write(pc++, 0xA9); memory.write(pc++, 0xF0); // LDA #$F0
+        memory.write(pc++, 0xA2); memory.write(pc++, 0xCC); // LDX #$CC
+        memory.write(pc++, 0x87); memory.write(pc++, 0x10); // AAX $10
+        // 2) AAX zp,Y base $20,Y=5 => destino $25 : A=3F, X=0F => 0x0F
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x3F); // LDA #$3F
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x0F); // LDX #$0F
+        memory.write(pc++, 0xA0); memory.write(pc++, 0x05); // LDY #$05
+        memory.write(pc++, 0x97); memory.write(pc++, 0x20); // AAX $20,Y -> $25
+        // 3) AAX ($10,X) com X=0x34 -> pointer em ($10+X)=0x44 -> 0x2468 ; A=F3, X=34 => 0x30
+        memory.write(pc++, 0xA9); memory.write(pc++, 0xF3); // LDA #$F3
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x34); // LDX #$34
+        memory.write(pc++, 0x83); memory.write(pc++, 0x10); // AAX ($10,X)
+        // 4) AAX abs $3000 : A=5A, X=3C => 0x18
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x5A); // LDA #$5A
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x3C); // LDX #$3C
+        memory.write(pc++, 0x8F); memory.write(pc++, 0x00); memory.write(pc++, 0x30); // AAX $3000
 
-    // Preparar ponteiro para caso indireto: endereço alvo 0x2468 em zero page 0x44/0x45
-    memory.write(0x0044, 0x68); // low
-    memory.write(0x0045, 0x24); // high
+        // Preparar ponteiro para caso indireto: endereço alvo 0x2468 em zero page 0x44/0x45
+        memory.write(0x0044, 0x68); // low
+        memory.write(0x0045, 0x24); // high
 
-    cpu.reset();
+        cpu.reset();
 
-    // ---- 1) AAX zp ----
-    runOne(); // LDA
-    runOne(); // LDX
-    boolean c = cpu.isCarry(), z = cpu.isZero(), n = cpu.isNegative(), v = cpu.isOverflow();
-    int cyc = runMeasured();
-    assertEquals(3, cyc, "AAX zp deve consumir 3 ciclos");
-    assertEquals(0xC0, memory.read(0x0010));
-    assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
+        // ---- 1) AAX zp ----
+        runOne(); // LDA
+        runOne(); // LDX
+        boolean c = cpu.isCarry(), z = cpu.isZero(), n = cpu.isNegative(), v = cpu.isOverflow();
+        int cyc = runMeasured();
+        assertEquals(3, cyc, "AAX zp deve consumir 3 ciclos");
+        assertEquals(0xC0, memory.read(0x0010));
+        assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
 
-    // ---- 2) AAX zp,Y ----
-    runOne(); // LDA #$3F
-    runOne(); // LDX #$0F
-    runOne(); // LDY #$05
-    c = cpu.isCarry(); z = cpu.isZero(); n = cpu.isNegative(); v = cpu.isOverflow();
-    cyc = runMeasured();
-    assertEquals(4, cyc, "AAX zp,Y deve consumir 4 ciclos");
-    assertEquals(0x0F, memory.read(0x0025));
-    assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
+        // ---- 2) AAX zp,Y ----
+        runOne(); // LDA #$3F
+        runOne(); // LDX #$0F
+        runOne(); // LDY #$05
+        c = cpu.isCarry(); z = cpu.isZero(); n = cpu.isNegative(); v = cpu.isOverflow();
+        cyc = runMeasured();
+        assertEquals(4, cyc, "AAX zp,Y deve consumir 4 ciclos");
+        assertEquals(0x0F, memory.read(0x0025));
+        assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
 
-    // ---- 3) AAX (zp,X) ----
-    runOne(); // LDA #$F3
-    runOne(); // LDX #$34
-    c = cpu.isCarry(); z = cpu.isZero(); n = cpu.isNegative(); v = cpu.isOverflow();
-    cyc = runMeasured();
-    assertEquals(6, cyc, "AAX (zp,X) deve consumir 6 ciclos");
-    assertEquals(0x30, memory.read(0x2468));
-    assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
+        // ---- 3) AAX (zp,X) ----
+        runOne(); // LDA #$F3
+        runOne(); // LDX #$34
+        c = cpu.isCarry(); z = cpu.isZero(); n = cpu.isNegative(); v = cpu.isOverflow();
+        cyc = runMeasured();
+        assertEquals(6, cyc, "AAX (zp,X) deve consumir 6 ciclos");
+        assertEquals(0x30, memory.read(0x2468));
+        assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
 
-    // ---- 4) AAX abs ----
-    runOne(); // LDA #$5A
-    runOne(); // LDX #$3C
-    c = cpu.isCarry(); z = cpu.isZero(); n = cpu.isNegative(); v = cpu.isOverflow();
-    cyc = runMeasured();
-    assertEquals(4, cyc, "AAX abs deve consumir 4 ciclos");
-    assertEquals(0x18, memory.read(0x3000));
-    assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
+        // ---- 4) AAX abs ----
+        runOne(); // LDA #$5A
+        runOne(); // LDX #$3C
+        c = cpu.isCarry(); z = cpu.isZero(); n = cpu.isNegative(); v = cpu.isOverflow();
+        cyc = runMeasured();
+        assertEquals(4, cyc, "AAX abs deve consumir 4 ciclos");
+        assertEquals(0x18, memory.read(0x3000));
+        assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
     }
 
     @Test
@@ -1952,8 +1978,8 @@ public class CPUTest {
         runOne(); // LDX
         int cyc = runMeasured();
         assertEquals(2, cyc, "ATX imediato deve consumir 2 ciclos (como imediato padrão)" );
-    assertEquals(0x00, cpu.getA(), "ATX caso1 A incorreto (esperado 0x00)");
-    assertEquals(0x00, cpu.getX(), "ATX caso1 X incorreto (esperado 0x00)");
+        assertEquals(0x00, cpu.getA(), "ATX caso1 A incorreto (esperado 0x00)");
+        assertEquals(0x00, cpu.getX(), "ATX caso1 X incorreto (esperado 0x00)");
         // Caso 2
         runOne(); // LDA
         runOne(); // LDX

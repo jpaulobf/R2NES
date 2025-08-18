@@ -301,6 +301,7 @@ public class CPU implements iCPU {
             case 0x5F: // SRE abs,X (ilegal)
             case 0x1F: // SLO abs,X (ilegal)
             case 0x9D: // STA abs,X
+            case 0x9C: // SHY abs,X (ilegal)
             case 0xDE: // DEC abs,X
             case 0xFE: // INC abs,X
                 return AddressingMode.ABSOLUTE_X;
