@@ -99,7 +99,6 @@ public class CPU implements iCPU {
             return;
         }
         int opcodeByte = memory.read(pc);
-        System.out.println("[DEBUG] clock: PC=" + String.format("%04X", pc) + " Opcode Byte=" + String.format("%02X", opcodeByte));
         pc++;
         Opcode opcode = Opcode.fromByte(opcodeByte);
         if (opcode == null) return;
@@ -125,10 +124,10 @@ public class CPU implements iCPU {
             remaining += 1;
         }
         // Execute instruction work on this first cycle
-    extraCycles = 0; // reset dynamic
+        extraCycles = 0; // reset dynamic
         execute(opcode, mode, opRes.value, opRes.address);
         // Set remaining cycles minus the one we just spent
-    cycles = Math.max(0, remaining - 1 + extraCycles);
+        cycles = Math.max(0, remaining - 1 + extraCycles);
     }
 
     /**
@@ -408,9 +407,7 @@ public class CPU implements iCPU {
                 return new OperandResult(memory.read(pc++), -1);
             case ZERO_PAGE: {
                 int addr = memory.read(pc) & 0xFF;
-                System.out.println("[DEBUG] fetchOperand ZERO_PAGE: addr=" + String.format("%02X", addr) + ", pc=" + String.format("%04X", pc));
                 int value = memory.read(addr);
-                System.out.println("[DEBUG] fetchOperand ZERO_PAGE: value at addr=" + String.format("%02X", value));
                 pc++;
                 return new OperandResult(value, addr);
             }
@@ -476,8 +473,6 @@ public class CPU implements iCPU {
     
     // Dispatcher de execução
     private void execute(Opcode opcode, AddressingMode mode, int operand, int memAddr) {
-        // DEBUG: Log opcode recebido
-        System.out.println("[DEBUG] Executando opcode: " + opcode + " (" + (opcode != null ? opcode.name() : "null") + ")");
         // memAddr já é passado de clock(), evitando dupla leitura
         switch (opcode) {
             // --- Official NES opcodes ---
@@ -812,7 +807,6 @@ public class CPU implements iCPU {
                 break;
             case STA: 
                 if (memAddr != -1) {
-                    System.out.println("[DEBUG] STA: Writing " + String.format("%02X", a & 0xFF) + " to addr=" + String.format("%04X", memAddr));
                     memory.write(memAddr, a & 0xFF);
                 }
                 break;

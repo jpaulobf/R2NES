@@ -975,6 +975,47 @@ public class CPUTest {
         assertTrue(cpu.isNegative(), "Flag N deveria estar setado (bit7=1)");
     }
 
+    // ================== Testes para opcodes ilegais específicos (TOP e XAA) ==================
+
+    @Test
+    public void testIllegalTOPDoesNothing() {
+        // Usamos opcode 0x0C (TOP variante de NOP de 3 bytes, mas implementação atual trata como NOP simples)
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80); // reset -> 0x8000
+        memory.write(0x8000, 0x0C); // TOP
+        memory.write(0x8001, 0x34); memory.write(0x8002, 0x12); // operandos que deveriam ser ignorados
+        cpu.reset();
+        // Snapshot flags e registradores
+        int a0 = cpu.getA(); int x0 = cpu.getX(); int y0 = cpu.getY(); int sp0 = cpu.getSP();
+        boolean c0 = cpu.isCarry(), z0 = cpu.isZero(), n0 = cpu.isNegative(), v0 = cpu.isOverflow();
+        runOne();
+        // Verifica que nada mudou (de acordo com implementação atual: PC avança 1 apenas)
+        assertEquals(a0, cpu.getA(), "TOP não deve alterar A");
+        assertEquals(x0, cpu.getX(), "TOP não deve alterar X");
+        assertEquals(y0, cpu.getY(), "TOP não deve alterar Y");
+        assertEquals(sp0, cpu.getSP(), "TOP não deve alterar SP");
+        assertEquals(c0, cpu.isCarry(), "TOP não deve alterar Carry");
+        assertEquals(z0, cpu.isZero(), "TOP não deve alterar Zero");
+        assertEquals(n0, cpu.isNegative(), "TOP não deve alterar Negative");
+        assertEquals(v0, cpu.isOverflow(), "TOP não deve alterar Overflow");
+        assertEquals(0x8001, cpu.getPC(), "Implementação atual de TOP avança apenas 1 byte");
+    }
+
+    @Test
+    public void testIllegalXAAProducesMaskedA() {
+        // XAA (0x8B) implementação atual: modo IMPLIED -> operand = 0 => A=(A & X) & 0 => 0
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80);
+        memory.write(0x8000, 0x8B); // XAA
+        memory.write(0x8001, 0xFF); // byte seguinte (ignorado na implementação atual)
+        cpu.reset();
+        cpu.setA(0xF3); // A & X não-zero para mostrar efeito do AND final com 0
+        cpu.setX(0xF7);
+        runOne();
+        assertEquals(0x00, cpu.getA(), "XAA atual deve zerar A por AND com 0");
+        assertTrue(cpu.isZero(), "Zero flag deve ser setada após resultado 0");
+        assertFalse(cpu.isNegative(), "Negative não deve ser setado em 0");
+        assertEquals(0x8001, cpu.getPC(), "PC deve avançar 1 para XAA na implementação atual");
+    }
+
     // ================== Testes de ciclos ==================
 
     @Test
