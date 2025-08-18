@@ -1016,6 +1016,250 @@ public class CPUTest {
         assertEquals(0x8001, cpu.getPC(), "PC deve avançar 1 para XAA na implementação atual");
     }
 
+    @Test
+    public void testIllegalTASStoresMaskedValueAndUpdatesSP() {
+        // TAS (0x9B): implementação atual:
+        // sp = a & x;
+        // se modo ABSOLUTE_Y: escreve (a & x & (high(addr)+1)) em memAddr
+        // Configurar cenário com crossing previsível do high-byte
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80); // reset -> 0x8000
+        // Colocar opcode TAS abs,Y (usamos endereço 0x1234 + Y)
+        memory.write(0x8000, 0x9B); // TAS
+        memory.write(0x8001, 0x34); // low
+        memory.write(0x8002, 0x12); // high -> base 0x1234
+        cpu.reset();
+        cpu.setA(0xF0); // 1111 0000
+        cpu.setX(0xCC); // 1100 1100 => A & X = 0xC0
+        cpu.setY(0x10); // endereço alvo = 0x1244 (high=0x12)
+        runOne();
+        int targetAddr = 0x1234 + cpu.getY(); // 0x1244
+        int highPlus1Mask = ((targetAddr >> 8) + 1) & 0xFF; // (0x12 +1)=0x13
+        int expectedStore = (0xF0 & 0xCC) & highPlus1Mask; // 0xC0 & 0x13 = 0x00
+        assertEquals(expectedStore, memory.read(targetAddr), "TAS deve armazenar (A & X & (high+1))");
+        assertEquals(0xC0 & 0xFF, cpu.getSP(), "SP deve ser A & X");
+        assertEquals(0x8003, cpu.getPC(), "PC deve avançar 3 bytes após TAS abs,Y");
+    }
+
+    @Test
+    public void testIllegalSRE_ShiftThenEORAccumulator() {
+        // SRE: LSR memória (salva), depois EOR com A
+        // Usar forma Zero Page (0x47)
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80); // reset -> 0x8000
+        memory.write(0x8000, 0xA9); memory.write(0x8001, 0x55); // LDA #$55 (0101 0101)
+        memory.write(0x8002, 0xA9); memory.write(0x8003, 0x00); // LDA #$00 para depois setar manualmente A antes de SRE
+        memory.write(0x8004, 0x47); memory.write(0x8005, 0x10); // SRE $10
+        memory.write(0x0010, 0x8B); // 1000 1011 -> após LSR = 0100 0101 (0x45), carry=1
+        cpu.reset();
+        // Executa primeiro LDA #$55
+        runOne();
+        assertEquals(0x55, cpu.getA());
+        // Segundo LDA #$00
+        runOne();
+        assertEquals(0x00, cpu.getA());
+        // Ajusta A para valor inicial customizado (ex: 0x55) antes de SRE
+        cpu.setA(0x55); // 0101 0101
+        // Executa SRE $10: LSR 0x8B -> 0x45, A = 0x55 EOR 0x45 = 0x10
+        runOne();
+        assertEquals(0x45, memory.read(0x0010), "Memória deve conter valor shiftado");
+        assertEquals(0x10, cpu.getA(), "A deve ser resultado do EOR após SRE");
+        assertTrue(cpu.isCarry(), "Carry deve refletir bit0 original (1)");
+        assertFalse(cpu.isZero(), "Resultado 0x10 não deve ser zero");
+        assertFalse(cpu.isNegative(), "Bit7 do resultado 0x10 é 0");
+    }
+
+    @Test
+    public void testIllegalSLO_ASLThenORAAccumulator() {
+        // SLO: ASL memória, depois ORA com A
+        // Usar zero page (0x07)
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80); // reset
+        memory.write(0x8000, 0xA9); memory.write(0x8001, 0x12); // LDA #$12 (0001 0010)
+        memory.write(0x8002, 0x07); memory.write(0x8003, 0x20); // SLO $20 ; mem $20 = 0x81 -> ASL => 0x02, carry=1
+        memory.write(0x0020, 0x81); // 1000 0001
+        cpu.reset();
+        // LDA #$12
+        runOne();
+        assertEquals(0x12, cpu.getA());
+        // Executa SLO
+        runOne();
+        // Após SLO: memória $20 = 0x02; A = 0x12 OR 0x02 = 0x12 (bit já set) -> continua 0x12
+        assertEquals(0x02, memory.read(0x0020), "SLO deve armazenar valor shiftado (ASL)");
+        assertEquals(0x12, cpu.getA(), "A deve ser OR entre acumulador inicial e valor shiftado");
+        assertTrue(cpu.isCarry(), "Carry deve refletir bit7 original (1)");
+        assertFalse(cpu.isZero(), "Resultado 0x12 não é zero");
+        assertFalse(cpu.isNegative(), "Bit7 do resultado 0x12 é 0");
+    }
+
+    @Test
+    public void testLSRAccumulatorAndZeroPageMemory() {
+        // Cenário:
+        //  - LDA #$01; LSR A  => A=0x00, carry=1, zero=1, negative=0
+        //  - LDA #$FF; STA $30; LSR $30 => mem=0x7F, carry=1, zero=0, negative=0
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80); // reset -> 0x8000
+        int pc = 0x8000;
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x01); // LDA #$01
+        memory.write(pc++, 0x4A); // LSR A
+        memory.write(pc++, 0xA9); memory.write(pc++, 0xFF); // LDA #$FF
+        memory.write(pc++, 0x85); memory.write(pc++, 0x30); // STA $30
+        memory.write(pc++, 0x46); memory.write(pc++, 0x30); // LSR $30
+        cpu.reset();
+        // LDA #$01
+        runOne();
+        // LSR A
+        runOne();
+        assertEquals(0x00, cpu.getA(), "LSR A deve resultar 0x00 a partir de 0x01");
+        assertTrue(cpu.isCarry(), "Carry deve carregar bit0 original=1");
+        assertTrue(cpu.isZero(), "Zero deve ser setado");
+        assertFalse(cpu.isNegative(), "Negative deve ser 0");
+        // LDA #$FF
+        runOne();
+        assertEquals(0xFF, cpu.getA());
+        // STA $30
+        runOne();
+        assertEquals(0xFF, memory.read(0x30));
+        // LSR $30
+        runOne();
+        assertEquals(0x7F, memory.read(0x30), "LSR $30 deve armazenar 0x7F");
+        assertTrue(cpu.isCarry(), "Carry deve refletir bit0 original=1");
+        assertFalse(cpu.isZero(), "Resultado 0x7F não é zero");
+        assertFalse(cpu.isNegative(), "Bit7 do resultado 0x7F é 0");
+    }
+
+    @Test
+    public void testCyclesBCCTakenAndPageCross() {
+        // Caso 1: BCC não tomado (carry=1) => 2 ciclos
+        cpu.setPC(0x4000);
+        memory.write(0x4000, 0x90); memory.write(0x4001, 0x02); // BCC +2
+        cpu.setCarry(true); // condição falha
+        int notTaken = runMeasured();
+        assertEquals(2, notTaken, "BCC não tomado deve consumir 2 ciclos");
+
+        // Caso 2: BCC tomado sem crossing (carry=0) => 3 ciclos
+        cpu.setPC(0x4100);
+        memory.write(0x4100, 0x90); memory.write(0x4101, 0x02); // destino 0x4104 mesma página
+        cpu.setCarry(false);
+        int takenNoCross = runMeasured();
+        assertEquals(3, takenNoCross, "BCC tomado sem crossing deve consumir 3 ciclos");
+        assertEquals(0x4104, cpu.getPC(), "PC deve apontar para destino do branch sem crossing");
+
+        // Caso 3: BCC tomado com crossing => 4 ciclos
+        // Colocamos em 0x8200 e usamos offset negativo para ir para 0x81E2 (mudança de página 0x82 -> 0x81)
+        cpu.setPC(0x8200);
+        memory.write(0x8200, 0x90); // BCC
+        memory.write(0x8201, 0xE0); // offset -0x20
+        cpu.setCarry(false);
+        int takenCross = runMeasured();
+        assertEquals(4, takenCross, "BCC tomado com crossing deve consumir 4 ciclos");
+        assertEquals(0x81E2, cpu.getPC(), "PC deve refletir destino com crossing de página");
+    }
+
+    @Test
+    public void testCyclesBCSTakenAndPageCross() {
+        // Caso 1: BCS não tomado (carry=0) => 2 ciclos
+        cpu.setPC(0x5000);
+        memory.write(0x5000, 0xB0); memory.write(0x5001, 0x02); // BCS +2
+        cpu.setCarry(false); // condição falha
+        int notTaken = runMeasured();
+        assertEquals(2, notTaken, "BCS não tomado deve consumir 2 ciclos");
+
+        // Caso 2: BCS tomado sem crossing (carry=1) => 3 ciclos
+        cpu.setPC(0x5100);
+        memory.write(0x5100, 0xB0); memory.write(0x5101, 0x02); // destino 0x5104 mesma página
+        cpu.setCarry(true);
+        int takenNoCross = runMeasured();
+        assertEquals(3, takenNoCross, "BCS tomado sem crossing deve consumir 3 ciclos");
+        assertEquals(0x5104, cpu.getPC(), "PC deve apontar para destino do BCS sem crossing");
+
+        // Caso 3: BCS tomado com crossing => 4 ciclos
+        cpu.setPC(0x8500);
+        memory.write(0x8500, 0xB0); // BCS
+        memory.write(0x8501, 0xF0); // offset -0x10: destino = 0x8502 - 0x10 = 0x84F2 (mudança de página 0x85 -> 0x84)
+        cpu.setCarry(true);
+        int takenCross = runMeasured();
+        assertEquals(4, takenCross, "BCS tomado com crossing deve consumir 4 ciclos");
+        assertEquals(0x84F2, cpu.getPC(), "PC deve refletir destino de BCS com crossing de página");
+    }
+
+    @Test
+    public void testCyclesBEQTakenAndPageCross() {
+        // Caso 1: BEQ não tomado (Z=0) => 2 ciclos
+        cpu.setPC(0x6000);
+        memory.write(0x6000, 0xF0); memory.write(0x6001, 0x02); // BEQ +2
+        cpu.setZero(false); // condição falha (Z=0)
+        int notTaken = runMeasured();
+        assertEquals(2, notTaken, "BEQ não tomado deve consumir 2 ciclos");
+
+        // Caso 2: BEQ tomado sem crossing (Z=1) => 3 ciclos
+        cpu.setPC(0x6100);
+        memory.write(0x6100, 0xF0); memory.write(0x6101, 0x02); // destino 0x6104
+        cpu.setZero(true);
+        int takenNoCross = runMeasured();
+        assertEquals(3, takenNoCross, "BEQ tomado sem crossing deve consumir 3 ciclos");
+        assertEquals(0x6104, cpu.getPC(), "PC deve apontar para destino do BEQ sem crossing");
+
+        // Caso 3: BEQ tomado com crossing (Z=1) => 4 ciclos
+        cpu.setPC(0x8600);
+        memory.write(0x8600, 0xF0); // BEQ
+        memory.write(0x8601, 0xE0); // offset -0x20 => destino = 0x8602 - 0x20 = 0x85E2 (cross page)
+        cpu.setZero(true);
+        int takenCross = runMeasured();
+        assertEquals(4, takenCross, "BEQ tomado com crossing deve consumir 4 ciclos");
+        assertEquals(0x85E2, cpu.getPC(), "PC deve refletir destino de BEQ com crossing");
+    }
+
+    @Test
+    public void testCyclesBVCTakenAndPageCross() {
+        // Caso 1: BVC não tomado (V=1) => 2 ciclos
+        cpu.setPC(0xA000);
+        memory.write(0xA000, 0x50); memory.write(0xA001, 0x02); // BVC +2
+        cpu.setOverflow(true); // condição falha
+        int notTaken = runMeasured();
+        assertEquals(2, notTaken, "BVC não tomado deve consumir 2 ciclos");
+
+        // Caso 2: BVC tomado sem crossing (V=0) => 3 ciclos
+        cpu.setPC(0xA100);
+        memory.write(0xA100, 0x50); memory.write(0xA101, 0x02); // destino 0xA104 mesma página
+        cpu.setOverflow(false);
+        int takenNoCross = runMeasured();
+        assertEquals(3, takenNoCross, "BVC tomado sem crossing deve consumir 3 ciclos");
+        assertEquals(0xA104, cpu.getPC(), "PC deve apontar para destino do BVC sem crossing");
+
+        // Caso 3: BVC tomado com crossing => 4 ciclos
+        cpu.setPC(0x8A00);
+        memory.write(0x8A00, 0x50); // BVC
+        memory.write(0x8A01, 0xE0); // offset -0x20 => destino = 0x8A02 - 0x20 = 0x89E2 (cross page)
+        cpu.setOverflow(false);
+        int takenCross = runMeasured();
+        assertEquals(4, takenCross, "BVC tomado com crossing deve consumir 4 ciclos");
+        assertEquals(0x89E2, cpu.getPC(), "PC deve refletir destino de BVC com crossing");
+    }
+
+    @Test
+    public void testCyclesBVSTakenAndPageCross() {
+        // Caso 1: BVS não tomado (V=0) => 2 ciclos
+        cpu.setPC(0xB000);
+        memory.write(0xB000, 0x70); memory.write(0xB001, 0x02); // BVS +2
+        cpu.setOverflow(false); // condição falha
+        int notTaken = runMeasured();
+        assertEquals(2, notTaken, "BVS não tomado deve consumir 2 ciclos");
+
+        // Caso 2: BVS tomado sem crossing (V=1) => 3 ciclos
+        cpu.setPC(0xB100);
+        memory.write(0xB100, 0x70); memory.write(0xB101, 0x02); // destino 0xB104
+        cpu.setOverflow(true);
+        int takenNoCross = runMeasured();
+        assertEquals(3, takenNoCross, "BVS tomado sem crossing deve consumir 3 ciclos");
+        assertEquals(0xB104, cpu.getPC(), "PC deve apontar para destino do BVS sem crossing");
+
+        // Caso 3: BVS tomado com crossing => 4 ciclos
+        cpu.setPC(0x8B00);
+        memory.write(0x8B00, 0x70); // BVS
+        memory.write(0x8B01, 0xF0); // offset -0x10 => destino = 0x8B02 - 0x10 = 0x8AF2 (cross page)
+        cpu.setOverflow(true);
+        int takenCross = runMeasured();
+        assertEquals(4, takenCross, "BVS tomado com crossing deve consumir 4 ciclos");
+        assertEquals(0x8AF2, cpu.getPC(), "PC deve refletir destino de BVS com crossing");
+    }
+
     // ================== Testes de ciclos ==================
 
     @Test
@@ -1035,6 +1279,7 @@ public class CPUTest {
         // Programa: LDA $1234,X
         memory.write(0x8000, 0xBD); // LDA abs,X
         memory.write(0x8001, 0x34); // low
+
         memory.write(0x8002, 0x12); // high (end = 0x1234)
         memory.write(0x1235, 0x77); // valor lido (X=1)
         cpu.reset();
@@ -1067,6 +1312,7 @@ public class CPUTest {
         cpu.setZero(false);
     int takenNoCross = runMeasured();
     assertEquals(3, takenNoCross, "Branch tomado sem crossing deve consumir 3 ciclos");
+        assertEquals(0x2104, cpu.getPC(), "PC deve apontar para destino do branch sem crossing");
 
         // Caso 3: tomado com crossing
     // Colocar instrução no início da página 0x8100 para que PC após fetch fique em 0x8102
@@ -1077,5 +1323,316 @@ public class CPUTest {
     cpu.setZero(false);
     int takenCross = runMeasured();
     assertEquals(4, takenCross, "Branch tomado com crossing deve consumir 4 ciclos");
+    }
+
+    @Test
+    public void testCyclesBMITakenAndPageCross() {
+        // Caso 1: BMI não tomado (N=0) => 2 ciclos
+        cpu.setPC(0x7000);
+        memory.write(0x7000, 0x30); memory.write(0x7001, 0x02); // BMI +2
+        cpu.setNegative(false); // condição falha
+        int notTaken = runMeasured();
+        assertEquals(2, notTaken, "BMI não tomado deve consumir 2 ciclos");
+
+        // Caso 2: BMI tomado sem crossing (N=1) => 3 ciclos
+        cpu.setPC(0x7100);
+        memory.write(0x7100, 0x30); memory.write(0x7101, 0x02); // destino 0x7104 mesma página
+        cpu.setNegative(true);
+        int takenNoCross = runMeasured();
+        assertEquals(3, takenNoCross, "BMI tomado sem crossing deve consumir 3 ciclos");
+        assertEquals(0x7104, cpu.getPC(), "PC deve apontar para destino do BMI sem crossing");
+
+        // Caso 3: BMI tomado com crossing => 4 ciclos
+        cpu.setPC(0x8700);
+        memory.write(0x8700, 0x30); // BMI
+        memory.write(0x8701, 0xE0); // offset -0x20 => destino = 0x8702 - 0x20 = 0x86E2 (cross page)
+        cpu.setNegative(true);
+        int takenCross = runMeasured();
+        assertEquals(4, takenCross, "BMI tomado com crossing deve consumir 4 ciclos");
+        assertEquals(0x86E2, cpu.getPC(), "PC deve refletir destino de BMI com crossing");
+    }
+
+    @Test
+    public void testCyclesBPLTakenAndPageCross() {
+        // Caso 1: BPL não tomado (N=1) => 2 ciclos
+        cpu.setPC(0x9000);
+        memory.write(0x9000, 0x10); memory.write(0x9001, 0x02); // BPL +2
+        cpu.setNegative(true); // condição falha
+        int notTaken = runMeasured();
+        assertEquals(2, notTaken, "BPL não tomado deve consumir 2 ciclos");
+
+        // Caso 2: BPL tomado sem crossing (N=0) => 3 ciclos
+        cpu.setPC(0x9100);
+        memory.write(0x9100, 0x10); memory.write(0x9101, 0x02); // destino 0x9104 mesma página
+        cpu.setNegative(false);
+        int takenNoCross = runMeasured();
+        assertEquals(3, takenNoCross, "BPL tomado sem crossing deve consumir 3 ciclos");
+        assertEquals(0x9104, cpu.getPC(), "PC deve apontar para destino do BPL sem crossing");
+
+        // Caso 3: BPL tomado com crossing => 4 ciclos
+        cpu.setPC(0x8800);
+        memory.write(0x8800, 0x10); // BPL
+        memory.write(0x8801, 0xF0); // offset -0x10 => destino = 0x8802 - 0x10 = 0x87F2 (cross page 0x88 -> 0x87)
+        cpu.setNegative(false);
+        int takenCross = runMeasured();
+        assertEquals(4, takenCross, "BPL tomado com crossing deve consumir 4 ciclos");
+        assertEquals(0x87F2, cpu.getPC(), "PC deve refletir destino de BPL com crossing");
+    }
+
+    @Test
+    public void testCLDAndCLIFlagClearingAndCycles() {
+        // Programa: SED; SEI; CLD; CLI
+        // Preparação vetor reset
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x90); // start 0x9000
+        int pc = 0x9000;
+        memory.write(pc++, 0xF8); // SED - set decimal
+        memory.write(pc++, 0x78); // SEI - set interrupt disable
+        memory.write(pc++, 0xD8); // CLD - clear decimal
+        memory.write(pc++, 0x58); // CLI - clear interrupt disable
+        cpu.reset();
+
+        // Antes: flags devem estar limpos por reset
+        assertFalse(cpu.isDecimal(), "Reset deve iniciar decimal=0");
+        assertFalse(cpu.isInterruptDisable(), "Reset deve iniciar I=0");
+
+        // SED
+        int cyclesSED = runMeasured();
+        assertTrue(cpu.isDecimal(), "SED deve setar decimal");
+        assertEquals(2, cyclesSED, "SED consome 2 ciclos");
+        // SEI
+        int cyclesSEI = runMeasured();
+        assertTrue(cpu.isInterruptDisable(), "SEI deve setar I");
+        assertEquals(2, cyclesSEI, "SEI consome 2 ciclos");
+        // CLD
+        int cyclesCLD = runMeasured();
+        assertFalse(cpu.isDecimal(), "CLD deve limpar decimal");
+        assertEquals(2, cyclesCLD, "CLD consome 2 ciclos");
+        // CLI
+        int cyclesCLI = runMeasured();
+        assertFalse(cpu.isInterruptDisable(), "CLI deve limpar I");
+        assertEquals(2, cyclesCLI, "CLI consome 2 ciclos");
+    }
+
+    @Test
+    public void testCMP_CPX_CPY_FlagBehaviorAndCycles() {
+        // Programa:
+        // LDA #$40 ; CMP #$40 (igual)
+        // CMP #$41 (A < op)
+        // CMP #$3F (A > op)
+        // STA $20 ; CMP $20 (igual via zp)
+        // LDX #$10 ; CPX #$10 ; CPX #$11 ; CPX #$0F
+        // STX $21 ; CPX $21
+        // LDY #$80 ; CPY #$80 ; CPY #$81 ; CPY #$7F
+        // STY $22 ; CPY $22
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0xA0); // start 0xA000
+        int pc = 0xA000;
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x40); // LDA #$40
+        memory.write(pc++, 0xC9); memory.write(pc++, 0x40); // CMP #$40 (igual)
+        memory.write(pc++, 0xC9); memory.write(pc++, 0x41); // CMP #$41 (A < op)
+        memory.write(pc++, 0xC9); memory.write(pc++, 0x3F); // CMP #$3F (A > op)
+        memory.write(pc++, 0x85); memory.write(pc++, 0x20); // STA $20
+        memory.write(pc++, 0xC5); memory.write(pc++, 0x20); // CMP $20 (igual)
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x10); // LDX #$10
+        memory.write(pc++, 0xE0); memory.write(pc++, 0x10); // CPX #$10 (igual)
+        memory.write(pc++, 0xE0); memory.write(pc++, 0x11); // CPX #$11 (X < op)
+        memory.write(pc++, 0xE0); memory.write(pc++, 0x0F); // CPX #$0F (X > op)
+        memory.write(pc++, 0x86); memory.write(pc++, 0x21); // STX $21
+        memory.write(pc++, 0xE4); memory.write(pc++, 0x21); // CPX $21 (igual)
+        memory.write(pc++, 0xA0); memory.write(pc++, 0x80); // LDY #$80
+        memory.write(pc++, 0xC0); memory.write(pc++, 0x80); // CPY #$80 (igual)
+        memory.write(pc++, 0xC0); memory.write(pc++, 0x81); // CPY #$81 (Y < op)
+        memory.write(pc++, 0xC0); memory.write(pc++, 0x7F); // CPY #$7F (Y > op)
+        memory.write(pc++, 0x84); memory.write(pc++, 0x22); // STY $22
+        memory.write(pc++, 0xC4); memory.write(pc++, 0x22); // CPY $22 (igual)
+        cpu.reset();
+
+        // LDA #$40
+        runOne();
+        // CMP #$40 (igual) => Carry=1, Zero=1, Negative= (0x40-0x40)=0 => N=0
+        int cyc = runMeasured();
+        assertEquals(2, cyc, "CMP # imediato consome 2 ciclos");
+        assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+        assertEquals(0x40, cpu.getA(), "CMP não altera A");
+        // CMP #$41 (A < op) => resultado negativo => Carry=0, Zero=0, N=1 (0x40-0x41=0xFF)
+        runOne();
+        assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
+        // CMP #$3F (A > op) => Carry=1, Zero=0, N=0
+        runOne();
+        assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
+        // STA $20
+        runOne(); assertEquals(0x40, memory.read(0x20));
+        // CMP $20 (igual) => 3 ciclos zp read
+        int cycCmpZp = runMeasured();
+        assertEquals(3, cycCmpZp, "CMP zp consome 3 ciclos");
+        assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+
+        // LDX #$10
+        runOne(); assertEquals(0x10, cpu.getX());
+        // CPX #$10 igual
+        int cycCpxEq = runMeasured(); assertEquals(2, cycCpxEq); assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+        // CPX #$11 X < op => Carry=0, N=1
+        runOne(); assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
+        // CPX #$0F X > op => Carry=1, N=0
+        runOne(); assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
+        // STX $21
+        runOne(); assertEquals(0x10, memory.read(0x21));
+        // CPX $21 igual => 3 ciclos
+        int cycCpxZp = runMeasured(); assertEquals(3, cycCpxZp); assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+
+        // LDY #$80
+        runOne(); assertEquals(0x80, cpu.getY());
+        // CPY #$80 igual
+        int cycCpyEq = runMeasured(); assertEquals(2, cycCpyEq); assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+        // CPY #$81 Y < op => Carry=0, N=1
+        runOne(); assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
+        // CPY #$7F Y > op => Carry=1, N=0
+        runOne(); assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
+        // STY $22
+        runOne(); assertEquals(0x80, memory.read(0x22));
+        // CPY $22 igual => 3 ciclos
+        int cycCpyZp = runMeasured(); assertEquals(3, cycCpyZp); assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+    }
+
+    @Test
+    public void testPHP_PLA_PLP_StatusAndStackCycles() {
+        // Programa em 0xA200: SED ; SEI ; LDA #$3C ; PHP ; LDA #$00 ; PLA ; CLV? (não altera V) ; PLP
+        // Vamos: setar algumas flags, empurrar status, modificar A, recuperar A via PLA (que deve ser status pushed? Atenção: PLA retorna dado empilhado por PHA, não por PHP) então precisamos empilhar um valor com PHA também para validar PLA. Ajuste:
+        // Novo programa: LDA #$3C ; PHA ; SED ; SEI ; PHP ; LDA #$00 ; PLA ; LDA #$00 ; PLP
+        // Objetivos:
+        // 1) PHA armazena 0x3C na pilha
+        // 2) PHP armazena status com bits B e U forçados
+        // 3) PLA recupera 0x3C
+        // 4) PLP restaura flags originais (exceto B e U comportamento pós-PLP: U=1, B conforme empilhado)
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0xA2); // reset -> 0xA200
+        int pc = 0xA200;
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x3C); // LDA #$3C
+        memory.write(pc++, 0x48); // PHA
+        memory.write(pc++, 0xF8); // SED
+        memory.write(pc++, 0x78); // SEI
+        memory.write(pc++, 0x08); // PHP
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x00); // LDA #$00 (limpa N/Z via setZeroAndNegative)
+        memory.write(pc++, 0x68); // PLA -> recupera 0x3C
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x00); // LDA #$00 novamente
+        memory.write(pc++, 0x28); // PLP
+        cpu.reset();
+        int initialSP = cpu.getSP();
+
+        // LDA #$3C
+        int cyc = runMeasured();
+        assertEquals(2, cyc);
+        assertEquals(0x3C, cpu.getA());
+        // PHA
+        cyc = runMeasured();
+        assertEquals(3, cyc, "PHA deve consumir 3 ciclos");
+        assertEquals((initialSP - 1) & 0xFF, cpu.getSP());
+        int spAfterPHA = cpu.getSP();
+        // SED (decimal=1)
+        runMeasured(); assertTrue(cpu.isDecimal());
+        // SEI (I=1)
+        runMeasured(); assertTrue(cpu.isInterruptDisable());
+        // PHP push status (com B|U forçados). SP deve decrementar.
+        int spBeforePHP = cpu.getSP();
+        cyc = runMeasured();
+        assertEquals(3, cyc, "PHP deve consumir 3 ciclos");
+        assertEquals((spBeforePHP - 1) & 0xFF, cpu.getSP());
+        int spAfterPHP = cpu.getSP();
+        int pushedStatus = memory.read(0x0100 | ((spAfterPHP + 1) & 0xFF));
+        assertTrue((pushedStatus & 0x10) != 0, "Flag B deve estar setada no byte empilhado por PHP");
+        assertTrue((pushedStatus & 0x20) != 0, "Flag U (unused) deve estar setada no byte empilhado por PHP");
+        // LDA #$00
+        runMeasured(); assertEquals(0x00, cpu.getA());
+        // PLA -> recupera 0x3C
+        cyc = runMeasured();
+        assertEquals(4, cyc, "PLA deve consumir 4 ciclos");
+        assertEquals(0x3C, cpu.getA());
+        assertEquals(spAfterPHA, cpu.getSP(), "Após PLA SP volta ao valor pós-PHA");
+        // LDA #$00 de novo
+        runMeasured(); assertEquals(0x00, cpu.getA());
+        // PLP -> restaura flags que estavam no status empilhado (decimal e interruptDisable devem voltar a 1)
+        cyc = runMeasured();
+        assertEquals(4, cyc, "PLP deve consumir 4 ciclos");
+        assertTrue(cpu.isDecimal(), "Decimal deve ser restaurado");
+        assertTrue(cpu.isInterruptDisable(), "Interrupt disable deve ser restaurado");
+    }
+
+    @Test
+    public void testROLVariantsAccumulatorAndMemory() {
+        // Programa em 0xB000:
+        // LDA #$80 ; CLC ; ROL A        (bit7=1 -> carry=1; resultado 0x00 -> Z=1, N=0)
+        // LDA #$01 ; SEC ; ROL A        (oldCarry=1 -> resultado 0x03; carry=0)
+        // LDA #$80 ; STA $20 ; SEC ; ROL $20  (mem: 0x80 com carry=1 -> 0x01, carry=1)
+        // LDA #$00 ; STA $21 ; CLC ; ROL $21  (mem: 0x00 com carry=0 -> 0x00, Z=1, carry=0)
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0xB0); // reset -> 0xB000
+        int pc = 0xB000;
+        // Seq 1 (A=80 -> ROL -> 00, carry=1, zero=1)
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x80); // LDA #$80
+        memory.write(pc++, 0x18); // CLC
+        memory.write(pc++, 0x2A); // ROL A
+        // Seq 2 (A=01, SEC, ROL A => 0x03, carry=0)
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x01); // LDA #$01
+        memory.write(pc++, 0x38); // SEC
+        memory.write(pc++, 0x2A); // ROL A
+        // Seq 3 (mem $20 = 0x80, SEC, ROL $20 => 0x01, carry=1)
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x80); // LDA #$80
+        memory.write(pc++, 0x85); memory.write(pc++, 0x20); // STA $20
+        memory.write(pc++, 0x38); // SEC
+        memory.write(pc++, 0x26); memory.write(pc++, 0x20); // ROL $20
+        // Seq 4 (mem $21 = 0x00, CLC, ROL $21 => 0x00, carry=0, zero=1)
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x00); // LDA #$00
+        memory.write(pc++, 0x85); memory.write(pc++, 0x21); // STA $21
+        memory.write(pc++, 0x18); // CLC
+        memory.write(pc++, 0x26); memory.write(pc++, 0x21); // ROL $21
+
+        cpu.reset();
+
+        // Seq 1
+        runOne(); // LDA #$80
+        assertEquals(0x80, cpu.getA());
+        runOne(); // CLC
+        assertFalse(cpu.isCarry());
+        int cyc = runMeasured(); // ROL A
+        assertEquals(2, cyc, "ROL A deve consumir 2 ciclos");
+        assertEquals(0x00, cpu.getA(), "ROL A (0x80) deveria resultar 0x00");
+        assertTrue(cpu.isCarry(), "ROL A (0x80) deveria setar carry");
+        assertTrue(cpu.isZero(), "ROL A (0x80) deveria setar zero");
+        assertFalse(cpu.isNegative(), "ROL A (0x80) não deveria setar negativo");
+
+        // Seq 2
+        runOne(); // LDA #$01
+        assertEquals(0x01, cpu.getA());
+        runOne(); // SEC
+        assertTrue(cpu.isCarry());
+        cyc = runMeasured(); // ROL A
+        assertEquals(2, cyc);
+        assertEquals(0x03, cpu.getA(), "ROL A (0x01 com carry=1) deveria resultar 0x03");
+        assertFalse(cpu.isCarry(), "ROL A (0x01) não deveria deixar carry=1 (bit7=0)");
+        assertFalse(cpu.isZero());
+        assertFalse(cpu.isNegative());
+
+        // Seq 3
+        runOne(); // LDA #$80
+        runOne(); // STA $20
+        assertEquals(0x80, memory.read(0x20));
+        runOne(); // SEC
+        assertTrue(cpu.isCarry());
+        cyc = runMeasured(); // ROL $20
+        assertEquals(5, cyc, "ROL zp deve consumir 5 ciclos");
+        assertEquals(0x01, memory.read(0x20), "ROL $20 (0x80 com carry=1) deveria resultar 0x01");
+        assertTrue(cpu.isCarry(), "ROL $20 deveria setar carry (bit7 original=1)");
+        assertFalse(cpu.isZero());
+        assertFalse(cpu.isNegative());
+
+        // Seq 4
+        runOne(); // LDA #$00
+        runOne(); // STA $21
+        assertEquals(0x00, memory.read(0x21));
+        runOne(); // CLC
+        assertFalse(cpu.isCarry());
+        cyc = runMeasured(); // ROL $21
+        assertEquals(5, cyc);
+        assertEquals(0x00, memory.read(0x21));
+        assertFalse(cpu.isCarry());
+        assertTrue(cpu.isZero(), "Resultado zero deve setar Z");
+        assertFalse(cpu.isNegative());
     }
 }

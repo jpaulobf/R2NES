@@ -9,8 +9,8 @@ import com.nesemu.memory.interfaces.iMemory;
  */
 public class CPU implements iCPU {
     private int a;      // Acumulador
-    private int x;      // Registrador X
-    private int y;      // Registrador Y
+    private int x;      // Register X
+    private int y;      // Register Y
     private int sp;     // Stack Pointer
     private int pc;     // Program Counter
 
@@ -216,6 +216,8 @@ public class CPU implements iCPU {
             case 0x26: // ROL zp
             case 0x46: // LSR zp
             case 0x66: // ROR zp
+            case 0x47: // SRE zp (ilegal)
+            case 0x07: // SLO zp (ilegal)
             case 0x85: // STA zp
             case 0x86: // STX zp
             case 0x84: // STY zp
@@ -237,6 +239,8 @@ public class CPU implements iCPU {
             case 0x36: // ROL zp,X
             case 0x56: // LSR zp,X
             case 0x76: // ROR zp,X
+            case 0x57: // SRE zp,X (ilegal)
+            case 0x17: // SLO zp,X (ilegal)
             case 0x95: // STA zp,X
             case 0x94: // STY zp,X
             case 0xD6: // DEC zp,X
@@ -264,6 +268,8 @@ public class CPU implements iCPU {
             case 0x2E: // ROL abs
             case 0x4E: // LSR abs
             case 0x6E: // ROR abs
+            case 0x4F: // SRE abs (ilegal)
+            case 0x0F: // SLO abs (ilegal)
             case 0x8D: // STA abs
             case 0x8E: // STX abs
             case 0x8C: // STY abs
@@ -285,6 +291,8 @@ public class CPU implements iCPU {
             case 0x3E: // ROL abs,X
             case 0x5E: // LSR abs,X
             case 0x7E: // ROR abs,X
+            case 0x5F: // SRE abs,X (ilegal)
+            case 0x1F: // SLO abs,X (ilegal)
             case 0x9D: // STA abs,X
             case 0xDE: // DEC abs,X
             case 0xFE: // INC abs,X
@@ -300,6 +308,9 @@ public class CPU implements iCPU {
             case 0x19: // ORA abs,Y
             case 0xF9: // SBC abs,Y
             case 0x99: // STA abs,Y
+            case 0x9B: // TAS (ilegal) abs,Y
+            case 0x5B: // SRE abs,Y (ilegal)
+            case 0x1B: // SLO abs,Y (ilegal)
                 return AddressingMode.ABSOLUTE_Y;
 
             // --- Indireto ---
@@ -315,6 +326,8 @@ public class CPU implements iCPU {
             case 0x01: // ORA (zp,X)
             case 0xE1: // SBC (zp,X)
             case 0x81: // STA (zp,X)
+            case 0x43: // SRE (zp,X) ilegal
+            case 0x03: // SLO (zp,X) ilegal
                 return AddressingMode.INDIRECT_X;
 
             // --- Indireto,Y ---
@@ -326,6 +339,8 @@ public class CPU implements iCPU {
             case 0x11: // ORA (zp),Y
             case 0xF1: // SBC (zp),Y
             case 0x91: // STA (zp),Y
+            case 0x53: // SRE (zp),Y ilegal
+            case 0x13: // SLO (zp),Y ilegal
                 return AddressingMode.INDIRECT_Y;
 
             // --- Relativo (branches) ---
