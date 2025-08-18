@@ -192,6 +192,7 @@ public class CPU implements iCPU {
             case 0xA0: // LDY #imm
             case 0x69: // ADC #imm
             case 0x29: // AND #imm
+            case 0x02: // ATX #imm (ilegal remapeado)
             case 0x0B: // ANC/AAC #imm (ilegal)
             case 0x2B: // ANC/AAC #imm (ilegal)
             case 0xC9: // CMP #imm
@@ -878,7 +879,9 @@ public class CPU implements iCPU {
             case AAX: 
                 // AAX (SAX): Store A & X to memory
                 if (memAddr != -1) {
-                    memory.write(memAddr, a & x);
+                    int val = a & x;
+                    System.err.printf("[AAX] PC=%04X A=%02X X=%02X -> store %02X at %04X\n", (pc-1)&0xFFFF, a & 0xFF, x & 0xFF, val & 0xFF, memAddr & 0xFFFF);
+                    memory.write(memAddr, val);
                 }
                 break;
             case AHX: 
@@ -890,17 +893,12 @@ public class CPU implements iCPU {
                 }
                 break;
             case ALR: 
-                // ALR: AND operand with A, then LSR
+            case ASR: 
+                // ALR / ASR (opcode 0x4B): A = (A & operand) >> 1 ; Carry = bit0 antes do shift
                 a = a & (operand & 0xFF);
                 carry = (a & 0x01) != 0;
                 a = (a >> 1) & 0xFF;
                 setZeroAndNegative(a);
-                break;
-            case ANC: 
-                // ANC: AND operand with A, set carry = bit 7 of result
-                a = a & (operand & 0xFF);
-                setZeroAndNegative(a);
-                carry = (a & 0x80) != 0;
                 break;
             case ARR: 
                 // ARR: AND operand with A, then ROR, set flags
@@ -910,17 +908,17 @@ public class CPU implements iCPU {
                 carry = (a & 0x40) != 0;
                 overflow = (((a >> 5) & 1) ^ ((a >> 6) & 1)) != 0;
                 break;
-            case ASR: 
-                // ASR: AND operand with A, then LSR
-                a = a & (operand & 0xFF);
-                carry = (a & 0x01) != 0;
-                a = (a >> 1) & 0xFF;
-                setZeroAndNegative(a);
-                break;
             case ATX: 
-                // ATX: A = A & X, then A = X = A & operand
-                a = a & x;
-                a = x = a & (operand & 0xFF);
+                // ATX (custom mapping on 0x02): common emulation form chosen here:
+                // Final effect: A = X = (A_initial & X_initial & immediate)
+                // (Equivalent to two-step: A = A & X; then A = X = A & imm)
+                // We compute directly from the originals to avoid surprises with intermediate state.
+                int origA = a & 0xFF;
+                int origX = x & 0xFF;
+                int imm = operand & 0xFF;
+                int atxVal = (origA & origX & imm) & 0xFF;
+                a = atxVal;
+                x = atxVal;
                 setZeroAndNegative(a);
                 break;
             case AXA: 

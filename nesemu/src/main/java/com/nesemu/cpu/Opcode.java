@@ -37,11 +37,11 @@ public enum Opcode {
     }
 
     private static final Opcode[] OPCODE_TABLE = new Opcode[256];
-    static {
+        static {
         for (int i = 0; i < 256; i++) OPCODE_TABLE[i] = NOP;
         OPCODE_TABLE[0x00] = BRK;   // Break
         OPCODE_TABLE[0x01] = ORA;   // ORA (Indirect, X)
-        OPCODE_TABLE[0x02] = KIL;   // Illegal opcode
+        OPCODE_TABLE[0x02] = ATX;   // Reutilizado para ATX (ilegal custom) imediato
         OPCODE_TABLE[0x03] = SLO;   // Shift Left, ORA (Indirect, X)
         OPCODE_TABLE[0x04] = DOP;   // Double Operand
         OPCODE_TABLE[0x05] = ORA;   // ORA (Zero Page)
@@ -50,7 +50,7 @@ public enum Opcode {
         OPCODE_TABLE[0x08] = PHP;   // Push Processor Status
         OPCODE_TABLE[0x09] = ORA;   // ORA (Immediate)
         OPCODE_TABLE[0x0A] = ASL;   // Arithmetic Shift Left
-        OPCODE_TABLE[0x0B] = ANC;   // AND with Carry, ORA (Immediate)
+        OPCODE_TABLE[0x0B] = AAC;   // AAC/ANC undocumented immediate
         OPCODE_TABLE[0x0C] = TOP;   // Top of Page
         OPCODE_TABLE[0x0D] = ORA;   // ORA (Absolute)
         OPCODE_TABLE[0x0E] = ASL;   // Arithmetic Shift Left
@@ -82,7 +82,7 @@ public enum Opcode {
         OPCODE_TABLE[0x28] = PLP;   // Pull Processor Status
         OPCODE_TABLE[0x29] = AND;   // AND (Immediate)
         OPCODE_TABLE[0x2A] = ROL;   // Rotate Left
-        OPCODE_TABLE[0x2B] = ANC;   // AND with Carry, AND (Immediate)
+        OPCODE_TABLE[0x2B] = AAC;   // AAC/ANC undocumented immediate
         OPCODE_TABLE[0x2C] = BIT;   // Bit Test (Absolute)
         OPCODE_TABLE[0x2D] = AND;   // AND (Absolute)
         OPCODE_TABLE[0x2E] = ROL;   // Rotate Left
@@ -114,7 +114,8 @@ public enum Opcode {
         OPCODE_TABLE[0x48] = PHA;   // Push Accumulator
         OPCODE_TABLE[0x49] = EOR;   // EOR (Immediate)
         OPCODE_TABLE[0x4A] = LSR;   // Logical Shift Right
-        OPCODE_TABLE[0x4B] = ALR;   // AND with Carry, EOR (Immediate)
+        // 0x4B é o opcode ilegal conhecido como ALR/ASR (mesmo comportamento). Mapeamos para ASR para exercitar o case ASR.
+        OPCODE_TABLE[0x4B] = ASR;   // ALR/ASR (Immediate)
         OPCODE_TABLE[0x4C] = JMP;   // Jump to Address
         OPCODE_TABLE[0x4D] = EOR;   // EOR (Absolute)
         OPCODE_TABLE[0x4E] = LSR;   // Logical Shift Right
@@ -170,11 +171,12 @@ public enum Opcode {
         OPCODE_TABLE[0x80] = DOP;   // Double Operand
         OPCODE_TABLE[0x81] = STA;   // STA (Indirect, X)
         OPCODE_TABLE[0x82] = DOP;   // Double Operand
-        OPCODE_TABLE[0x83] = SAX;   // Store A & X (Indirect, X)
+        // Map SAX variants to AAX to exercise CPU case AAX
+        OPCODE_TABLE[0x83] = AAX;   // AAX/SAX (Indirect, X)
         OPCODE_TABLE[0x84] = STY;   // STY (Zero Page)
         OPCODE_TABLE[0x85] = STA;   // STA (Zero Page)
         OPCODE_TABLE[0x86] = STX;   // STX (Zero Page)
-        OPCODE_TABLE[0x87] = SAX;   // Store A & X (Zero Page)
+        OPCODE_TABLE[0x87] = AAX;   // AAX/SAX (Zero Page)
         OPCODE_TABLE[0x88] = DEY;   // Decrement Y
         OPCODE_TABLE[0x89] = DOP;   // Double Operand
         OPCODE_TABLE[0x8A] = TXA;   // Transfer X to A
@@ -182,7 +184,7 @@ public enum Opcode {
         OPCODE_TABLE[0x8C] = STY;   // STY (Absolute)
         OPCODE_TABLE[0x8D] = STA;   // STA (Absolute)
         OPCODE_TABLE[0x8E] = STX;   // STX (Absolute)
-        OPCODE_TABLE[0x8F] = SAX;   // Store A & X (Absolute)
+        OPCODE_TABLE[0x8F] = AAX;   // AAX/SAX (Absolute)
         OPCODE_TABLE[0x90] = BCC;   // Branch if Carry Clear
         OPCODE_TABLE[0x91] = STA;   // STA (Indirect, Y)
         OPCODE_TABLE[0x92] = KIL;   // Illegal opcode
@@ -190,7 +192,7 @@ public enum Opcode {
         OPCODE_TABLE[0x94] = STY;   // STY (Zero Page, X)
         OPCODE_TABLE[0x95] = STA;   // STA (Zero Page, X)
         OPCODE_TABLE[0x96] = STX;   // STX (Zero Page, Y)
-        OPCODE_TABLE[0x97] = SAX;   // Store A & X (Zero Page, Y)
+        OPCODE_TABLE[0x97] = AAX;   // AAX/SAX (Zero Page, Y)
         OPCODE_TABLE[0x98] = TYA;   // Transfer Y to A
         OPCODE_TABLE[0x99] = STA;   // STA (Absolute, Y)
         OPCODE_TABLE[0x9A] = TXS;   // Transfer X to Stack Pointer

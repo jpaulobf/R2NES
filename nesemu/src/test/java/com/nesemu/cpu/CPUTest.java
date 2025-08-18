@@ -1794,7 +1794,71 @@ public class CPUTest {
 
     @Test
     public void testIllegalAAX_SAX_StoresMask_NoFlagChange() {
-    // Removido: teste AAX/SAX instável. Mantemos cobertura para AAC, AHX, ALR conforme solicitado.
+    // Testa todas as variantes conhecidas de AAX (SAX): 0x87 (zp), 0x97 (zp,Y), 0x83 (indirect,X), 0x8F (abs)
+    // Comportamento: escreve (A & X) em memória, não altera flags.
+    // Ciclos esperados (análogos ao STA/SAX): zp=3, zp,Y=4, (zp,X)=6, abs=4
+    memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0xC1); // PC=0xC100
+    int pc = 0xC100;
+    // 1) AAX zp $10: A=F0, X=CC => C0
+    memory.write(pc++, 0xA9); memory.write(pc++, 0xF0); // LDA #$F0
+    memory.write(pc++, 0xA2); memory.write(pc++, 0xCC); // LDX #$CC
+    memory.write(pc++, 0x87); memory.write(pc++, 0x10); // AAX $10
+    // 2) AAX zp,Y base $20,Y=5 => destino $25 : A=3F, X=0F => 0x0F
+    memory.write(pc++, 0xA9); memory.write(pc++, 0x3F); // LDA #$3F
+    memory.write(pc++, 0xA2); memory.write(pc++, 0x0F); // LDX #$0F
+    memory.write(pc++, 0xA0); memory.write(pc++, 0x05); // LDY #$05
+    memory.write(pc++, 0x97); memory.write(pc++, 0x20); // AAX $20,Y -> $25
+    // 3) AAX ($10,X) com X=0x34 -> pointer em ($10+X)=0x44 -> 0x2468 ; A=F3, X=34 => 0x30
+    memory.write(pc++, 0xA9); memory.write(pc++, 0xF3); // LDA #$F3
+    memory.write(pc++, 0xA2); memory.write(pc++, 0x34); // LDX #$34
+    memory.write(pc++, 0x83); memory.write(pc++, 0x10); // AAX ($10,X)
+    // 4) AAX abs $3000 : A=5A, X=3C => 0x18
+    memory.write(pc++, 0xA9); memory.write(pc++, 0x5A); // LDA #$5A
+    memory.write(pc++, 0xA2); memory.write(pc++, 0x3C); // LDX #$3C
+    memory.write(pc++, 0x8F); memory.write(pc++, 0x00); memory.write(pc++, 0x30); // AAX $3000
+
+    // Preparar ponteiro para caso indireto: endereço alvo 0x2468 em zero page 0x44/0x45
+    memory.write(0x0044, 0x68); // low
+    memory.write(0x0045, 0x24); // high
+
+    cpu.reset();
+
+    // ---- 1) AAX zp ----
+    runOne(); // LDA
+    runOne(); // LDX
+    boolean c = cpu.isCarry(), z = cpu.isZero(), n = cpu.isNegative(), v = cpu.isOverflow();
+    int cyc = runMeasured();
+    assertEquals(3, cyc, "AAX zp deve consumir 3 ciclos");
+    assertEquals(0xC0, memory.read(0x0010));
+    assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
+
+    // ---- 2) AAX zp,Y ----
+    runOne(); // LDA #$3F
+    runOne(); // LDX #$0F
+    runOne(); // LDY #$05
+    c = cpu.isCarry(); z = cpu.isZero(); n = cpu.isNegative(); v = cpu.isOverflow();
+    cyc = runMeasured();
+    assertEquals(4, cyc, "AAX zp,Y deve consumir 4 ciclos");
+    assertEquals(0x0F, memory.read(0x0025));
+    assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
+
+    // ---- 3) AAX (zp,X) ----
+    runOne(); // LDA #$F3
+    runOne(); // LDX #$34
+    c = cpu.isCarry(); z = cpu.isZero(); n = cpu.isNegative(); v = cpu.isOverflow();
+    cyc = runMeasured();
+    assertEquals(6, cyc, "AAX (zp,X) deve consumir 6 ciclos");
+    assertEquals(0x30, memory.read(0x2468));
+    assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
+
+    // ---- 4) AAX abs ----
+    runOne(); // LDA #$5A
+    runOne(); // LDX #$3C
+    c = cpu.isCarry(); z = cpu.isZero(); n = cpu.isNegative(); v = cpu.isOverflow();
+    cyc = runMeasured();
+    assertEquals(4, cyc, "AAX abs deve consumir 4 ciclos");
+    assertEquals(0x18, memory.read(0x3000));
+    assertEquals(c, cpu.isCarry()); assertEquals(z, cpu.isZero()); assertEquals(n, cpu.isNegative()); assertEquals(v, cpu.isOverflow());
     }
 
     @Test
@@ -1863,6 +1927,87 @@ public class CPUTest {
         // ALR #$01 -> (0x01 & 0x01)=0x01 carry=1 -> >>1=0x00 Z=1
         cyc = runMeasured(); assertEquals(2, cyc);
         assertEquals(0x00, cpu.getA()); assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+    }
+
+    @Test
+    public void testIllegalATX_Immediate() {
+    // ATX (mapeado aqui no opcode 0x02) semântica adotada: A = A & X; em seguida A = X = A & operando.
+    // Isso equivale a A_final = X_final = (A_inicial & X_inicial & imediato).
+    // Cenários calculados:
+    // 1) A=0xF0, X=0xCC, imm=0x3C => (F0 & CC)=C0; C0 & 3C = 0x00 => resultado final 0x00
+    // 2) A=0x55, X=0x0F, imm=0x01 => (55 & 0F)=05; 05 & 01 = 0x01 => resultado final 0x01
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0xF1); // PC=0xF100
+        int pc = 0xF100;
+        // Caso 1
+        memory.write(pc++, 0xA9); memory.write(pc++, 0xF0); // LDA #$F0
+        memory.write(pc++, 0xA2); memory.write(pc++, 0xCC); // LDX #$CC
+        memory.write(pc++, 0x02); memory.write(pc++, 0x3C); // ATX #$3C
+        // Caso 2
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x55); // LDA #$55
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x0F); // LDX #$0F
+        memory.write(pc++, 0x02); memory.write(pc++, 0x01); // ATX #$01
+        cpu.reset();
+        // Caso 1
+        runOne(); // LDA
+        runOne(); // LDX
+        int cyc = runMeasured();
+        assertEquals(2, cyc, "ATX imediato deve consumir 2 ciclos (como imediato padrão)" );
+    assertEquals(0x00, cpu.getA(), "ATX caso1 A incorreto (esperado 0x00)");
+    assertEquals(0x00, cpu.getX(), "ATX caso1 X incorreto (esperado 0x00)");
+        // Caso 2
+        runOne(); // LDA
+        runOne(); // LDX
+        cyc = runMeasured();
+        assertEquals(2, cyc);
+        assertEquals(0x01, cpu.getA(), "ATX caso2 A incorreto");
+        assertEquals(0x01, cpu.getX(), "ATX caso2 X incorreto");
+    }
+
+    @Test
+    public void testIllegalASR_AliasBehaviorImmediate() {
+        // ASR é um alias comum usado em documentação para o mesmo opcode 0x4B (também chamado ALR): A = (A & imm) >> 1
+        // Aqui repetimos cenários diferentes do teste de ALR para cobrir explicitamente o nome ASR.
+        // Casos:
+        // 1) LDA #$FF ; ASR #$01 -> (0xFF & 0x01)=0x01 -> C=1 -> >>1 => 0x00 (Z=1, N=0, C=1)
+        // 2) LDA #$AA ; ASR #$0F -> (0xAA & 0x0F)=0x0A -> C=0 -> >>1 => 0x05 (Z=0, N=0, C=0)
+        // 3) LDA #$03 ; ASR #$03 -> (0x03 & 0x03)=0x03 -> C=1 -> >>1 => 0x01 (Z=0, N=0, C=1)
+        memory.write(0xFFFC, 0x20); memory.write(0xFFFD, 0xF0); // PC=0xF020 para separar dos outros testes
+        int pc2 = 0xF020;
+        // Caso 1
+        memory.write(pc2++, 0xA9); memory.write(pc2++, 0xFF); // LDA #$FF
+        memory.write(pc2++, 0x4B); memory.write(pc2++, 0x01); // ASR #$01 (opcode 0x4B)
+        // Caso 2
+        memory.write(pc2++, 0xA9); memory.write(pc2++, 0xAA); // LDA #$AA
+        memory.write(pc2++, 0x4B); memory.write(pc2++, 0x0F); // ASR #$0F
+        // Caso 3
+        memory.write(pc2++, 0xA9); memory.write(pc2++, 0x03); // LDA #$03
+        memory.write(pc2++, 0x4B); memory.write(pc2++, 0x03); // ASR #$03
+        cpu.reset();
+
+        // Caso 1
+        runOne(); // LDA #$FF
+        int cyc = runMeasured();
+        assertEquals(2, cyc, "ASR imediato deve consumir 2 ciclos");
+        assertEquals(0x00, cpu.getA(), "ASR caso1 resultado incorreto");
+        assertTrue(cpu.isCarry(), "ASR caso1 deveria setar Carry (bit0 do AND=1)");
+        assertTrue(cpu.isZero(), "ASR caso1 deveria setar Zero");
+        assertFalse(cpu.isNegative(), "ASR caso1 não deveria setar Negative");
+        // Caso 2
+        runOne(); // LDA #$AA
+        cyc = runMeasured();
+        assertEquals(2, cyc);
+        assertEquals(0x05, cpu.getA(), "ASR caso2 resultado incorreto (esperado 0x05)");
+        assertFalse(cpu.isCarry(), "ASR caso2 não deveria setar Carry");
+        assertFalse(cpu.isZero(), "ASR caso2 não deveria setar Zero");
+        assertFalse(cpu.isNegative(), "ASR caso2 não deveria setar Negative");
+        // Caso 3
+        runOne(); // LDA #$03
+        cyc = runMeasured();
+        assertEquals(2, cyc);
+        assertEquals(0x01, cpu.getA(), "ASR caso3 resultado incorreto (esperado 0x01)");
+        assertTrue(cpu.isCarry(), "ASR caso3 deveria setar Carry");
+        assertFalse(cpu.isZero(), "ASR caso3 não deveria setar Zero");
+        assertFalse(cpu.isNegative(), "ASR caso3 não deveria setar Negative");
     }
 
     // --- Helpers & Test Memory ---
