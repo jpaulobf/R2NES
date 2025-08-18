@@ -27,6 +27,8 @@ public class CPU implements iCPU {
 
     // Cycle counter for instruction timing
     private int cycles;
+    // Dynamic extra cycles (branch taken, page crossing in branches, etc.) aplicados após execução
+    private int extraCycles;
 
     // Interrupt pending flags
     private boolean nmiPending = false;
@@ -68,8 +70,8 @@ public class CPU implements iCPU {
     public void reset() {
         a = x = y = 0;
         sp = 0xFD;
-        //PC is initialized from the reset vector (0xFFFC/0xFFFD)
-        pc = (memory.read(0xFFFD) << 8) | memory.read(0xFFFC);
+        // PC is initialized from the reset vector (0xFFFC/0xFFFD) - low byte first, then high byte
+        pc = (memory.read(0xFFFC) | (memory.read(0xFFFD) << 8));
         carry = zero = interruptDisable = decimal = breakFlag = overflow = negative = false;
         unused = true; // Bit 5 of the status register is always set
     }
@@ -79,46 +81,54 @@ public class CPU implements iCPU {
      * If no instruction is in progress, fetches and executes the next instruction and sets the cycle counter.
      */
     public void clock() {
-        if (cycles == 0) {
-            // Handle interrupts at instruction boundary
-            if (nmiPending) {
-                handleNMI();
-                nmiPending = false;
-                cycles = 7; // NMI takes 7 cycles
-                return;
-            } else if (irqPending && !interruptDisable) {
-                handleIRQ();
-                irqPending = false;
-                cycles = 7; // IRQ takes 7 cycles
-                return;
-            }
-            int opcodeByte = memory.read(pc++);
-            Opcode opcode = Opcode.fromByte(opcodeByte);
-            if (opcode == null) return;
-            AddressingMode mode = getAddressingMode(opcodeByte);
-            OperandResult opRes = fetchOperand(mode);
-            // Cycle-accurate: add 1 cycle if page crossed for abs,X/Y and (zp),Y
-            boolean pageCrossed = false;
-            if (mode == AddressingMode.ABSOLUTE_X || mode == AddressingMode.ABSOLUTE_Y) {
-                int index = (mode == AddressingMode.ABSOLUTE_X) ? x : y;
-                int lo = (opRes.address - index) & 0xFFFF;
-                pageCrossed = ((lo & 0xFF00) != (opRes.address & 0xFF00));
-            } else if (mode == AddressingMode.INDIRECT_Y) {
-                int zp = memory.read(pc - 1) & 0xFF;
-                int base = (memory.read((zp + 1) & 0xFF) << 8) | memory.read(zp);
-                pageCrossed = ((base & 0xFF00) != (opRes.address & 0xFF00));
-            }
-            cycles = CYCLE_TABLE[opcodeByte & 0xFF];
-            // Only some opcodes get the extra cycle (loads, ADC, SBC, CMP, AND, ORA, EOR)
-            if (pageCrossed && (
-                opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
-                opcode == Opcode.ADC || opcode == Opcode.SBC || opcode == Opcode.CMP ||
-                opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR)) {
-                cycles++;
-            }
-            execute(opcode, mode, opRes.value, opRes.address);
+        // If instruction in progress, just consume a cycle
+        if (cycles > 0) {
+            cycles--;
+            return;
         }
-        if (cycles > 0) cycles--;
+        // Instruction boundary: check interrupts first
+        if (nmiPending) {
+            handleNMI();
+            nmiPending = false;
+            cycles = 7 - 1; // we've spent this initiating cycle
+            return;
+        } else if (irqPending && !interruptDisable) {
+            handleIRQ();
+            irqPending = false;
+            cycles = 7 - 1;
+            return;
+        }
+        int opcodeByte = memory.read(pc);
+        System.out.println("[DEBUG] clock: PC=" + String.format("%04X", pc) + " Opcode Byte=" + String.format("%02X", opcodeByte));
+        pc++;
+        Opcode opcode = Opcode.fromByte(opcodeByte);
+        if (opcode == null) return;
+        AddressingMode mode = getAddressingMode(opcodeByte);
+        OperandResult opRes = fetchOperand(mode);
+        // Page crossing detection (only relevant for indexed modes)
+        boolean pageCrossed = false;
+        if (mode == AddressingMode.ABSOLUTE_X || mode == AddressingMode.ABSOLUTE_Y) {
+            int index = (mode == AddressingMode.ABSOLUTE_X) ? x : y;
+            int lo = (opRes.address - index) & 0xFFFF;
+            pageCrossed = ((lo & 0xFF00) != (opRes.address & 0xFF00));
+        } else if (mode == AddressingMode.INDIRECT_Y) {
+            int zp = memory.read(pc - 1) & 0xFF;
+            int base = (memory.read((zp + 1) & 0xFF) << 8) | memory.read(zp);
+            pageCrossed = ((base & 0xFF00) != (opRes.address & 0xFF00));
+        }
+        int baseCycles = CYCLE_TABLE[opcodeByte & 0xFF];
+        int remaining = baseCycles;
+        if (pageCrossed && (
+            opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
+            opcode == Opcode.ADC || opcode == Opcode.SBC || opcode == Opcode.CMP ||
+            opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR)) {
+            remaining += 1;
+        }
+        // Execute instruction work on this first cycle
+    extraCycles = 0; // reset dynamic
+        execute(opcode, mode, opRes.value, opRes.address);
+        // Set remaining cycles minus the one we just spent
+    cycles = Math.max(0, remaining - 1 + extraCycles);
     }
 
     /**
@@ -397,8 +407,12 @@ public class CPU implements iCPU {
             case IMMEDIATE:
                 return new OperandResult(memory.read(pc++), -1);
             case ZERO_PAGE: {
-                int addr = memory.read(pc++) & 0xFF;
-                return new OperandResult(memory.read(addr), addr);
+                int addr = memory.read(pc) & 0xFF;
+                System.out.println("[DEBUG] fetchOperand ZERO_PAGE: addr=" + String.format("%02X", addr) + ", pc=" + String.format("%04X", pc));
+                int value = memory.read(addr);
+                System.out.println("[DEBUG] fetchOperand ZERO_PAGE: value at addr=" + String.format("%02X", value));
+                pc++;
+                return new OperandResult(value, addr);
             }
             case ZERO_PAGE_X: {
                 int addr = (memory.read(pc++) + x) & 0xFF;
@@ -462,6 +476,8 @@ public class CPU implements iCPU {
     
     // Dispatcher de execução
     private void execute(Opcode opcode, AddressingMode mode, int operand, int memAddr) {
+        // DEBUG: Log opcode recebido
+        System.out.println("[DEBUG] Executando opcode: " + opcode + " (" + (opcode != null ? opcode.name() : "null") + ")");
         // memAddr já é passado de clock(), evitando dupla leitura
         switch (opcode) {
             // --- Official NES opcodes ---
@@ -471,8 +487,8 @@ public class CPU implements iCPU {
                 int carryIn = carry ? 1 : 0;
                 int result = acc + value + carryIn;
 
-                // Carry flag
-                carry = result > 0xFF;
+                // Carry flag: set if result >= 0x100
+                carry = result >= 0x100;
 
                 // Overflow flag (bit 7 change unexpectedly)
                 overflow = (~(acc ^ value) & (acc ^ result) & 0x80) != 0;
@@ -502,8 +518,8 @@ public class CPU implements iCPU {
                     int offset = (byte)(operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
-                    cycles++;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
+                    extraCycles += 1; // branch taken
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1; // page cross
                 }
                 break;
             }
@@ -512,8 +528,8 @@ public class CPU implements iCPU {
                     int offset = (byte)(operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
-                    cycles++;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
+                    extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
                 }
                 break;
             }
@@ -522,8 +538,8 @@ public class CPU implements iCPU {
                     int offset = (byte)(operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
-                    cycles++;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
+                    extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
                 }
                 break;
             }
@@ -538,8 +554,8 @@ public class CPU implements iCPU {
                     int offset = (byte)(operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
-                    cycles++;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
+                    extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
                 }
                 break;
             }
@@ -548,8 +564,8 @@ public class CPU implements iCPU {
                     int offset = (byte)(operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
-                    cycles++;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
+                    extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
                 }
                 break;
             }
@@ -558,8 +574,8 @@ public class CPU implements iCPU {
                     int offset = (byte)(operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
-                    cycles++;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
+                    extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
                 }
                 break;
             }
@@ -580,8 +596,8 @@ public class CPU implements iCPU {
                     int offset = (byte)(operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
-                    cycles++;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
+                    extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
                 }
                 break;
             }
@@ -590,8 +606,8 @@ public class CPU implements iCPU {
                     int offset = (byte)(operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
-                    cycles++;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) cycles++;
+                    extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
                 }
                 break;
             }
@@ -666,15 +682,18 @@ public class CPU implements iCPU {
                 setZeroAndNegative(y);
                 break;
             case JMP: 
-                pc = operand & 0xFFFF;
+                // Para JMP absoluto precisamos usar o endereço calculado (memAddr), não o valor lido.
+                // Para JMP indireto (modo INDIRECT) memAddr também contém o destino correto.
+                pc = memAddr & 0xFFFF;
                 break;
             case JSR: 
                 // JSR: Jump to SubRoutine
-                // Push (PC-1) onto stack (high byte first, then low byte)
+                // Push (PC-1) onto stack (high byte first, then low byte) - 6502 real behavior
                 int returnAddr = (pc - 1) & 0xFFFF;
-                push((returnAddr >> 8) & 0xFF); // High byte
-                push(returnAddr & 0xFF);        // Low byte
-                pc = operand & 0xFFFF;
+                System.err.printf("[JSR] PC=%04X, returnAddr=%04X, push high=%02X, low=%02X, SP=%02X\n", pc, returnAddr, (returnAddr >> 8) & 0xFF, returnAddr & 0xFF, sp);
+                push((returnAddr >> 8) & 0xFF);   // High byte
+                push(returnAddr & 0xFF);          // Low byte
+                pc = memAddr & 0xFFFF;
                 break;
             case LDA: 
                 a = operand & 0xFF;
@@ -767,8 +786,9 @@ public class CPU implements iCPU {
                 // RTS: Pull PC (low, then high), then increment
                 int pcl_rts = pop();
                 int pch_rts = pop();
-                pc = ((pch_rts << 8) | pcl_rts) + 1;
-                pc &= 0xFFFF;
+                int retAddr = ((pch_rts << 8) | pcl_rts);
+                System.err.printf("[RTS] pop low=%02X, high=%02X, retAddr=%04X, PC=%04X, SP=%02X\n", pcl_rts, pch_rts, retAddr, pc, sp);
+                pc = (retAddr + 1) & 0xFFFF;
                 break;
             case SBC: 
                 // SBC: Subtract with Carry
@@ -792,6 +812,7 @@ public class CPU implements iCPU {
                 break;
             case STA: 
                 if (memAddr != -1) {
+                    System.out.println("[DEBUG] STA: Writing " + String.format("%02X", a & 0xFF) + " to addr=" + String.format("%04X", memAddr));
                     memory.write(memAddr, a & 0xFF);
                 }
                 break;
