@@ -196,11 +196,12 @@ public enum Opcode {
         OPCODE_TABLE[0x98] = TYA;   // Transfer Y to A
         OPCODE_TABLE[0x99] = STA;   // STA (Absolute, Y)
         OPCODE_TABLE[0x9A] = TXS;   // Transfer X to Stack Pointer
-        OPCODE_TABLE[0x9B] = TAS;   // Transfer A & X to Stack Pointer (Illegal)
+        // 0x9B known as SHS/TAS: choose SHS to hit SHS case in CPU (aliases TAS)
+        OPCODE_TABLE[0x9B] = SHS;   // SHS/TAS: Transfer A & X to SP; store (A & X & (high+1))
         OPCODE_TABLE[0x9C] = SHY;   // Store Y & (High Byte + 1) (Absolute, X) (Illegal)
         OPCODE_TABLE[0x9D] = STA;   // STA (Absolute, X)
         OPCODE_TABLE[0x9E] = SHX;   // Store X & (High Byte + 1) (Absolute, Y) (Illegal)
-        OPCODE_TABLE[0x9F] = AHX;   // Store A & X & (High Byte + 1) (Absolute, Y) (Illegal)
+    OPCODE_TABLE[0x9F] = AXA;   // Store (A & X) & (High Byte + 1) (Absolute, Y) (Illegal) remapeado
         OPCODE_TABLE[0xA0] = LDY;   // LDY (Immediate)
         OPCODE_TABLE[0xA1] = LDA;   // LDA (Indirect, X)
         OPCODE_TABLE[0xA2] = LDX;   // LDX (Immediate)
@@ -244,7 +245,7 @@ public enum Opcode {
         OPCODE_TABLE[0xC8] = INY;   // Increment Y
         OPCODE_TABLE[0xC9] = CMP;   // CMP (Immediate)
         OPCODE_TABLE[0xCA] = DEX;   // Decrement X
-        OPCODE_TABLE[0xCB] = SBX;   // AND A & X, then subtract Immediate (Illegal)
+    OPCODE_TABLE[0xCB] = AXS;   // AXS (SBX variante) Immediate
         OPCODE_TABLE[0xCC] = CPY;   // CPY (Absolute)
         OPCODE_TABLE[0xCD] = CMP;   // CMP (Absolute)
         OPCODE_TABLE[0xCE] = DEC;   // Decrement (Absolute)

@@ -202,6 +202,7 @@ public class CPU implements iCPU {
             case 0x09: // ORA #imm
             case 0xE9: // SBC #imm
             case 0x4B: // ALR #imm (ilegal)
+            case 0xCB: // AXS #imm (ilegal)
                 return AddressingMode.IMMEDIATE;
 
             // --- Zero Page ---
@@ -316,8 +317,9 @@ public class CPU implements iCPU {
             case 0x19: // ORA abs,Y
             case 0xF9: // SBC abs,Y
             case 0x99: // STA abs,Y
-            case 0x9B: // TAS (ilegal) abs,Y
+            case 0x9B: // SHS/TAS (ilegal) abs,Y
             case 0x9F: // AHX abs,Y (ilegal)
+            case 0x9E: // SHX abs,Y (ilegal)
             case 0x5B: // SRE abs,Y (ilegal)
             case 0x1B: // SLO abs,Y (ilegal)
                 return AddressingMode.ABSOLUTE_Y;
@@ -1043,12 +1045,13 @@ public class CPU implements iCPU {
                 }
                 break;
             case SHS: 
-                // SHS: SP = A & X, store (A & X & (high byte of address + 1)) to memory
+            case TAS: 
+                // SHS/TAS: SP = A & X; store (A & X & (high byte of address + 1)) at effective address (ABSOLUTE_Y / INDIRECT_Y)
                 sp = a & x;
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
-                    int shsValue = sp & (high & 0xFF);
-                    memory.write(memAddr, shsValue);
+                    int storeVal = (a & x) & (high & 0xFF);
+                    memory.write(memAddr, storeVal);
                 }
                 break;
             case SHX: 
@@ -1087,15 +1090,6 @@ public class CPU implements iCPU {
                     memory.write(memAddr, sreValue);
                     a = a ^ sreValue;
                     setZeroAndNegative(a);
-                }
-                break;
-            case TAS: 
-                // TAS (SHS): S = A & X; stores (A & X) & (high byte of address + 1) in memory
-                sp = a & x;
-                if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
-                    int high = (memAddr >> 8) + 1;
-                    int tasValue = (a & x) & (high & 0xFF);
-                    memory.write(memAddr, tasValue);
                 }
                 break;
             case TOP: 

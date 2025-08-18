@@ -47,6 +47,74 @@ public class CPUTest {
     }
 
     @Test
+    public void testIllegalSHX_AbsoluteY() {
+        // SHX (opcode 0x9E): X & (high(address)+1) armazenado em abs,Y
+        // Cenário 1: base=0x20F0,Y=0x05 => addr=0x20F5 high=0x20 -> high+1=0x21; X=0xFF -> 0x21
+        // Cenário 2: base=0x45F0,Y=0x0F => addr=0x45FF high=0x45 -> high+1=0x46; X=0x33 -> 0x02
+        memory.write(0xFFFC, 0x50); memory.write(0xFFFD, 0xF2); // PC=0xF250
+        int pc = 0xF250;
+        // Caso 1
+        memory.write(pc++, 0xA2); memory.write(pc++, 0xFF); // LDX #$FF
+        memory.write(pc++, 0xA0); memory.write(pc++, 0x05); // LDY #$05
+        memory.write(pc++, 0x9E); memory.write(pc++, 0xF0); memory.write(pc++, 0x20); // SHX $20F0,Y -> $20F5
+        // Caso 2
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x33); // LDX #$33
+        memory.write(pc++, 0xA0); memory.write(pc++, 0x0F); // LDY #$0F
+        memory.write(pc++, 0x9E); memory.write(pc++, 0xF0); memory.write(pc++, 0x45); // SHX $45F0,Y -> $45FF
+        cpu.reset();
+        // Caso 1
+        runOne(); // LDX
+        runOne(); // LDY
+        int cyc = runMeasured(); // SHX
+        assertEquals(5, cyc, "SHX abs,Y deve consumir 5 ciclos (como STA abs,Y base)" );
+        assertEquals(0x21, memory.read(0x20F5), "SHX caso1 valor incorreto");
+        // Caso 2
+        runOne(); // LDX
+        runOne(); // LDY
+        cyc = runMeasured();
+        assertEquals(5, cyc);
+        assertEquals(0x02, memory.read(0x45FF), "SHX caso2 valor incorreto");
+    }
+
+    @Test
+    public void testIllegalSHS_AbsoluteY() {
+        // SHS/TAS (opcode 0x9B): SP = A & X; memória = (A & X) & (high(addr)+1)
+        // Cenário 1: A=0xFF X=0x0F base=0x12F0,Y=0x0A -> addr=0x12FA high=0x12 high+1=0x13
+        //   A&X = 0x0F; valor = 0x0F & 0x13 = 0x03; SP final = 0x0F
+        // Cenário 2: A=0x5A X=0x3C base=0x34F8,Y=0x07 -> addr=0x34FF high=0x34 high+1=0x35
+        //   A&X = 0x18; valor = 0x18 & 0x35 = 0x10; SP final = 0x18
+        memory.write(0xFFFC, 0xA0); memory.write(0xFFFD, 0xF2); // PC=0xF2A0
+        int pc2 = 0xF2A0;
+        // Caso 1
+        memory.write(pc2++, 0xA9); memory.write(pc2++, 0xFF); // LDA #$FF
+        memory.write(pc2++, 0xA2); memory.write(pc2++, 0x0F); // LDX #$0F
+        memory.write(pc2++, 0xA0); memory.write(pc2++, 0x0A); // LDY #$0A
+    memory.write(pc2++, 0x9B); memory.write(pc2++, 0xF0); memory.write(pc2++, 0x12); // SHS $12F0,Y -> $12FA
+        // Caso 2
+        memory.write(pc2++, 0xA9); memory.write(pc2++, 0x5A); // LDA #$5A
+        memory.write(pc2++, 0xA2); memory.write(pc2++, 0x3C); // LDX #$3C
+        memory.write(pc2++, 0xA0); memory.write(pc2++, 0x07); // LDY #$07
+    memory.write(pc2++, 0x9B); memory.write(pc2++, 0xF8); memory.write(pc2++, 0x34); // SHS $34F8,Y -> $34FF
+        cpu.reset();
+        // Caso 1
+        runOne(); // LDA
+        runOne(); // LDX
+        runOne(); // LDY
+    int cyc = runMeasured(); // SHS
+    assertEquals(5, cyc, "SHS (0x9B) abs,Y deve consumir 5 ciclos (como STA abs,Y)");
+    assertEquals(0x03, memory.read(0x12FA), "SHS caso1 valor incorreto");
+    assertEquals(0x0F, cpu.getSP(), "SHS caso1 SP incorreto");
+        // Caso 2
+        runOne(); // LDA
+        runOne(); // LDX
+        runOne(); // LDY
+    cyc = runMeasured(); // SHS
+    assertEquals(5, cyc);
+    assertEquals(0x10, memory.read(0x34FF), "SHS caso2 valor incorreto");
+    assertEquals(0x18, cpu.getSP(), "SHS caso2 SP incorreto");
+    }
+
+    @Test
     public void testReset() {
         memory.write(0xFFFC, 0x34);
         memory.write(0xFFFD, 0x12);
@@ -1004,6 +1072,40 @@ public class CPUTest {
     }
 
     @Test
+    public void testNmiPriorityDuringMultiCycleInstructionAndDeferredIrq() {
+        // Configura vetores
+        memory.write(0xFFFA, 0x00); memory.write(0xFFFB, 0x90); // NMI -> 0x9000
+        memory.write(0xFFFE, 0x00); memory.write(0xFFFF, 0xA0); // IRQ -> 0xA000
+        // Programa: INC $1234 (6 ciclos) seguido de NOP
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x80); // reset -> 0x8000
+        memory.write(0x8000, 0xEE); // INC $1234 (abs)
+        memory.write(0x8001, 0x34); memory.write(0x8002, 0x12);
+        memory.write(0x8003, 0xEA); // NOP (não deverá executar antes das interrupções)
+        memory.write(0x1234, 0x01);
+        cpu.reset();
+        cpu.setInterruptDisable(false);
+        // Inicia execução da INC (primeiro ciclo inicia instrução e carrega ciclos restantes)
+        cpu.clock();
+        int remaining = cpu.getCycles();
+        assertTrue(remaining > 0, "INC deve ser multi-ciclo");
+        // Agenda ambas as interrupções enquanto a instrução ainda está em progresso
+        cpu.irq();
+        cpu.nmi();
+        // Consome os ciclos restantes da INC
+        while (cpu.getCycles() > 0) cpu.clock();
+        // Próximo clock atinge boundary e deve pegar NMI (prioridade)
+        cpu.clock();
+        assertEquals(0x9000, cpu.getPC(), "Ao término da instrução, NMI deve disparar primeiro");
+        assertTrue(cpu.isInterruptDisable(), "NMI deve setar interruptDisable");
+        // IRQ não deve ter sido atendido ainda (I=1). Limpar I e garantir que IRQ pendente executa.
+        while (cpu.getCycles() > 0) cpu.clock(); // termina latência da sequência de NMI
+        cpu.setInterruptDisable(false);
+        // Próximo boundary deve agora tratar IRQ pendente
+        cpu.clock();
+        assertEquals(0xA000, cpu.getPC(), "IRQ pendente deve disparar após limpar I");
+    }
+
+    @Test
     public void testBRKPushesPCAndStatus() {
         // Vetor IRQ/BRK -> 0x9000
         memory.write(0xFFFE, 0x00); memory.write(0xFFFF, 0x90);
@@ -1166,6 +1268,63 @@ public class CPUTest {
         assertFalse(cpu.isNegative(), "Bit7 do resultado 0x10 é 0");
     }
 
+    @Test
+    public void testIllegalAXAAbsoluteYStoresMasked() {
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0x91); // PC=0x9100
+        int pc = 0x9100;
+        // Caso 1
+        memory.write(pc++, 0xA9); memory.write(pc++, 0xF0); // LDA
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x0F); // LDX
+        memory.write(pc++, 0xA0); memory.write(pc++, 0x05); // LDY
+        memory.write(pc++, 0x9F); memory.write(pc++, 0xF0); memory.write(pc++, 0x20); // AXA $20F0,Y -> $20F5
+        // Caso 2
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x5A); // LDA
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x3C); // LDX
+        memory.write(pc++, 0xA0); memory.write(pc++, 0x07); // LDY
+        memory.write(pc++, 0x9F); memory.write(pc++, 0xF8); memory.write(pc++, 0x34); // AXA $34F8,Y -> $34FF
+        cpu.reset();
+        runOne(); runOne(); runOne();
+        int cyc = runMeasured();
+        assertEquals(5, cyc);
+        assertEquals(0x00, memory.read(0x20F5));
+        runOne(); runOne(); runOne();
+        cyc = runMeasured();
+        assertEquals(5, cyc);
+        assertEquals(0x10, memory.read(0x34FF));
+    }
+
+    @Test
+    public void testIllegalAXSSubtractsImmediate() {
+        // AXS: X = (A & X) - operando (imediato) opcode 0xCB
+        // Casos: 1) resultado zero; 2) underflow
+        memory.write(0xFFFC, 0x00); memory.write(0xFFFD, 0xA0); // PC=0xA000
+        int pc = 0xA000;
+        // Caso 1
+        memory.write(pc++, 0xA9); memory.write(pc++, 0xF0); // LDA #$F0
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x3C); // LDX #$3C
+        memory.write(pc++, 0xCB); memory.write(pc++, 0x30); // AXS #$30
+        // Caso 2
+        memory.write(pc++, 0xA9); memory.write(pc++, 0x0F); // LDA #$0F
+        memory.write(pc++, 0xA2); memory.write(pc++, 0x0F); // LDX #$0F
+        memory.write(pc++, 0xCB); memory.write(pc++, 0x20); // AXS #$20
+        cpu.reset();
+        // Caso 1
+        runOne(); runOne();
+        int cyc2 = runMeasured();
+        assertEquals(2, cyc2);
+        assertEquals(0x00, cpu.getX());
+        assertTrue(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        assertTrue(cpu.isCarry());
+        // Caso 2
+        runOne(); runOne();
+        cyc2 = runMeasured();
+        assertEquals(2, cyc2);
+        assertEquals(0xEF, cpu.getX());
+        assertFalse(cpu.isZero());
+        assertTrue(cpu.isNegative());
+        assertTrue(cpu.isCarry());
+    }
     @Test
     public void testIllegalSLO_ASLThenORAAccumulator() {
         // SLO: ASL memória, depois ORA com A
