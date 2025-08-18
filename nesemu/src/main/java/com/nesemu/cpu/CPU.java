@@ -192,12 +192,15 @@ public class CPU implements iCPU {
             case 0xA0: // LDY #imm
             case 0x69: // ADC #imm
             case 0x29: // AND #imm
+            case 0x0B: // ANC/AAC #imm (ilegal)
+            case 0x2B: // ANC/AAC #imm (ilegal)
             case 0xC9: // CMP #imm
             case 0xE0: // CPX #imm
             case 0xC0: // CPY #imm
             case 0x49: // EOR #imm
             case 0x09: // ORA #imm
             case 0xE9: // SBC #imm
+            case 0x4B: // ALR #imm (ilegal)
                 return AddressingMode.IMMEDIATE;
 
             // --- Zero Page ---
@@ -221,6 +224,7 @@ public class CPU implements iCPU {
             case 0x85: // STA zp
             case 0x86: // STX zp
             case 0x84: // STY zp
+            case 0x87: // SAX/AAX zp (ilegal)
             case 0x24: // BIT zp
             case 0xC6: // DEC zp
             case 0xE6: // INC zp
@@ -250,6 +254,7 @@ public class CPU implements iCPU {
             // --- Zero Page,Y ---
             case 0xB6: // LDX zp,Y
             case 0x96: // STX zp,Y
+            case 0x97: // SAX/AAX zp,Y (ilegal)
                 return AddressingMode.ZERO_PAGE_Y;
 
             // --- Absoluto ---
@@ -273,6 +278,7 @@ public class CPU implements iCPU {
             case 0x8D: // STA abs
             case 0x8E: // STX abs
             case 0x8C: // STY abs
+            case 0x8F: // SAX/AAX abs (ilegal)
             case 0x2C: // BIT abs
             case 0xCE: // DEC abs
             case 0xEE: // INC abs
@@ -309,6 +315,7 @@ public class CPU implements iCPU {
             case 0xF9: // SBC abs,Y
             case 0x99: // STA abs,Y
             case 0x9B: // TAS (ilegal) abs,Y
+            case 0x9F: // AHX abs,Y (ilegal)
             case 0x5B: // SRE abs,Y (ilegal)
             case 0x1B: // SLO abs,Y (ilegal)
                 return AddressingMode.ABSOLUTE_Y;
@@ -326,6 +333,7 @@ public class CPU implements iCPU {
             case 0x01: // ORA (zp,X)
             case 0xE1: // SBC (zp,X)
             case 0x81: // STA (zp,X)
+            case 0x83: // SAX/AAX (zp,X) (ilegal)
             case 0x43: // SRE (zp,X) ilegal
             case 0x03: // SLO (zp,X) ilegal
                 return AddressingMode.INDIRECT_X;
@@ -339,6 +347,7 @@ public class CPU implements iCPU {
             case 0x11: // ORA (zp),Y
             case 0xF1: // SBC (zp),Y
             case 0x91: // STA (zp),Y
+            case 0x93: // AHX (zp),Y (ilegal)
             case 0x53: // SRE (zp),Y ilegal
             case 0x13: // SLO (zp),Y ilegal
                 return AddressingMode.INDIRECT_Y;
