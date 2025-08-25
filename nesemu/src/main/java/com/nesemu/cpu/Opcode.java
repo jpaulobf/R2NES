@@ -192,7 +192,7 @@ public enum Opcode {
         OPCODE_TABLE[0x90] = BCC; // Branch if Carry Clear
         OPCODE_TABLE[0x91] = STA; // STA (Indirect, Y)
         OPCODE_TABLE[0x92] = KIL; // Illegal opcode
-        OPCODE_TABLE[0x93] = AXA; // AXA (Indirect, Y) para testar case AXA
+        OPCODE_TABLE[0x93] = AHX; // AHX (Indirect, Y)
         OPCODE_TABLE[0x94] = STY; // STY (Zero Page, X)
         OPCODE_TABLE[0x95] = STA; // STA (Zero Page, X)
         OPCODE_TABLE[0x96] = STX; // STX (Zero Page, Y)
