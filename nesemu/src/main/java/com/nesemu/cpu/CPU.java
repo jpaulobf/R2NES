@@ -974,11 +974,11 @@ public class CPU implements iCPU {
                 }
                 break;
             case AHX:
-                // AHX: Store (A & X & (high byte of address + 1)) to memory
+            case SHA:
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
-                    int ahxValue = a & x & (high & 0xFF);
-                    memory.write(memAddr, ahxValue);
+                    int value_r = a & x & (high & 0xFF);
+                    memory.write(memAddr, value_r);
                 }
                 break;
             case ALR:
@@ -1020,7 +1020,8 @@ public class CPU implements iCPU {
                 }
                 break;
             case AXS:
-                // AXS: X = (A & X) - operand
+            case SBX:
+                // SBX: X = (A & X) - operand
                 x = (a & x) - (operand & 0xFF);
                 x &= 0xFF;
                 setZeroAndNegative(x);
@@ -1109,22 +1110,6 @@ public class CPU implements iCPU {
                     overflow = (~(accRra ^ adcVal) & (accRra ^ resultRra) & 0x80) != 0;
                     a = resultRra & 0xFF;
                     setZeroAndNegative(a);
-                }
-                break;
-            case SBX:
-                // SBX: X = (A & X) - operand
-                x = (a & x) - (operand & 0xFF);
-                x &= 0xFF;
-                setZeroAndNegative(x);
-                carry = x <= 0xFF;
-                break;
-            case SHA:
-                // SHA: Store (A & X & (high byte of address + 1)) to memory
-                // Only valid for ABSOLUTE_Y and INDIRECT_Y
-                if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
-                    int high = (memAddr >> 8) + 1;
-                    int shaValue = a & x & (high & 0xFF);
-                    memory.write(memAddr, shaValue);
                 }
                 break;
             case SHS:
