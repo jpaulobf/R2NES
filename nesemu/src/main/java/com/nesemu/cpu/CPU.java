@@ -24,26 +24,26 @@ public class CPU implements iCPU {
     private boolean overflow;
     private boolean negative;
     private final iMemory memory;
-    // Flag de crossing de página para instruções que desejam aplicar ciclo extra
+    // Page crossing flag for instructions that may apply an extra cycle
     // (ex: TOP abs,X em modo fiel)
     private boolean lastPageCrossed = false;
 
     // Cycle counter for instruction timing
     private int cycles;
     // Dynamic extra cycles (branch taken, page crossing in branches, etc.)
-    // aplicados após execução
+    // applied after execution
     private int extraCycles;
     // Total executed CPU cycles (for tracing / nestest log)
     private long totalCycles;
 
     // --- RMW (Read-Modify-Write) micro handling state ---
-    private boolean rmwActive = false; // true enquanto uma instrução RMW em memória ainda precisa fazer dummy/final
+    private boolean rmwActive = false; // true while a memory RMW instruction still needs dummy/final
                                        // write
-    private int rmwAddress; // endereço alvo
+    private int rmwAddress; // target address
     private int rmwOriginal; // valor original lido
     private int rmwModified; // valor final a gravar (usado para debug)
-    private RmwKind rmwKind; // tipo de operação para commit
-    private int rmwCarryIn; // carry de entrada (antes da modificação)
+    private RmwKind rmwKind; // operation type for commit
+    private int rmwCarryIn; // input carry (prior to modification)
 
     private enum RmwKind {
         ASL, ROL, LSR, ROR, INC, DEC,
@@ -72,7 +72,7 @@ public class CPU implements iCPU {
      */
     private void performRmwCommit() {
         int original = rmwOriginal & 0xFF;
-        int newVal = original; // será recalculado
+        int newVal = original; // will be recomputed
         switch (rmwKind) {
             case ASL: {
                 carry = (original & 0x80) != 0;
@@ -170,7 +170,7 @@ public class CPU implements iCPU {
                 memory.write(rmwAddress, newVal);
                 int value = newVal ^ 0xFF; // invert para usar mesmo caminho de ADC
                 int acc = a & 0xFF;
-                int cIn = carry ? 1 : 0; // carry antes da SBC (não alterado ainda nesta instrução até agora)
+                int cIn = carry ? 1 : 0; // carry before SBC (not yet altered within this instruction so far)
                 int result = acc + value + cIn;
                 carry = result > 0xFF; // carry = NOT borrow
                 overflow = ((acc ^ result) & (value ^ result) & 0x80) != 0;
@@ -182,7 +182,7 @@ public class CPU implements iCPU {
         this.rmwModified = newVal & 0xFF; // armazenar caso debugging futuro
     }
 
-    // Expor valor final RMW para possível debug externo evitando warning de não uso
+    // Expose final RMW value for possible external debug avoiding unused warning
     public int getLastRmwModified() {
         return rmwModified;
     }
@@ -244,16 +244,17 @@ public class CPU implements iCPU {
      */
     public void clock() {
         totalCycles++; // count every cycle
-        // Se há ciclos pendentes, tratar possíveis fases de RMW e consumir um ciclo
+        // If cycles remain, process possible RMW phases and consume one cycle
         if (cycles > 0) {
             if (rmwActive) {
-                // Padrão 6502 para instruções RMW de memória: ... read -> dummy write -> final
+                // 6502 pattern for memory RMW instructions: ... read -> dummy write -> final
                 // write
-                // Nosso contador 'cycles' inclui já todos os ciclos restantes desta instrução.
+                // Our 'cycles' counter already includes all remaining cycles for this
+                // instruction.
                 // Vamos disparar dummy write quando restarem 2 ciclos, e commit final quando
                 // restar 1.
                 if (cycles == 2) {
-                    // Dummy write do valor original (sem efeitos lógicos adicionais)
+                    // Dummy write of the original value (no logical side effects)
                     memory.write(rmwAddress, rmwOriginal & 0xFF);
                 } else if (cycles == 1) {
                     // Commit final (grava valor modificado e aplica efeitos em A/flags conforme
@@ -684,7 +685,7 @@ public class CPU implements iCPU {
             case 0x6A: // ROR A
                 return AddressingMode.ACCUMULATOR;
 
-            // --- Implied (implícito) ---
+            // --- Implied ---
             case 0x00: // BRK
             case 0x08: // PHP
             case 0x18: // CLC
@@ -816,9 +817,9 @@ public class CPU implements iCPU {
         }
     }
 
-    // Dispatcher de execução
+    // Execution dispatcher
     private void execute(Opcode opcode, AddressingMode mode, int operand, int memAddr) {
-        // memAddr já é passado de clock(), evitando dupla leitura
+        // memAddr already passed from clock(), avoiding double read
         switch (opcode) {
             // --- Official NES opcodes ---
             case ADC:
@@ -1022,9 +1023,10 @@ public class CPU implements iCPU {
                 setZeroAndNegative(y);
                 break;
             case JMP:
-                // Para JMP absoluto precisamos usar o endereço calculado (memAddr), não o valor
+                // For absolute JMP we must use the computed address (memAddr), not the read
+                // value
                 // lido.
-                // Para JMP indireto (modo INDIRECT) memAddr também contém o destino correto.
+                // For indirect JMP (INDIRECT mode) memAddr also holds the correct destination
                 pc = memAddr & 0xFFFF;
                 break;
             case JSR:
@@ -1244,7 +1246,7 @@ public class CPU implements iCPU {
                 }
                 break;
             case DOP:
-                // DOP: Double NOP (2-byte) - operand já consumido conforme addressing mode.
+                // DOP: Double NOP (2-byte) - operand already consumed per addressing mode
                 break;
             case TOP:
                 // TOP: Triple NOP (abs ou abs,X). Se abs,X e houve page crossing detectado no
@@ -1264,8 +1266,8 @@ public class CPU implements iCPU {
                 break;
             case LAR:
             case LAS:
-                // Alias LAR / LAS: adotamos semântica de LAS (SP = A & X & mem; A = X = SP)
-                // (LAR tradicional = A & mem; se quiser comport. distinto, separar novamente)
+                // Alias LAR / LAS: we adopt LAS semantics (SP = A & X & mem; A = X = SP)
+                // (Traditional LAR = A & mem; if distinct behavior desired, separate later)
                 sp = a & x & (operand & 0xFF);
                 a = x = sp;
                 setZeroAndNegative(a);
@@ -1384,7 +1386,7 @@ public class CPU implements iCPU {
         interruptDisable = (value & 0x04) != 0;
         decimal = (value & 0x08) != 0;
         breakFlag = (value & 0x10) != 0;
-        unused = true; // Bit 5 do status é sempre setado no 6502
+        unused = true; // Status bit 5 is always set on the 6502
         overflow = (value & 0x40) != 0;
         negative = (value & 0x80) != 0;
     }
