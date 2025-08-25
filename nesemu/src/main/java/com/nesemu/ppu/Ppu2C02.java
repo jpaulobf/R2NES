@@ -17,6 +17,12 @@ package com.nesemu.ppu;
  * mirroring, sprite system.
  */
 public class Ppu2C02 implements PPU {
+    // Optional CPU callback for NMI (set by Bus/emulator)
+    private com.nesemu.cpu.CPU cpu; // keep loose coupling (avoid interface for now)
+
+    public void attachCPU(com.nesemu.cpu.CPU cpu) {
+        this.cpu = cpu;
+    }
 
     // Registers
     private int regCTRL; // $2000
@@ -40,6 +46,8 @@ public class Ppu2C02 implements PPU {
     // Timing counters
     private int cycle; // 0..340
     private int scanline; // -1 pre-render, 0..239 visible, 240 post, 241..260 vblank
+    // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
+    private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
 
     @Override
     public void reset() {
@@ -66,11 +74,19 @@ public class Ppu2C02 implements PPU {
             if (scanline == 241 && cycle == 0) {
                 // Enter vblank
                 regSTATUS |= 0x80; // set VBlank flag
+                if (DEBUG)
+                    System.out.printf("[PPU] VBLANK SET frame? scan=%d cyc=%d\n", scanline, cycle);
+                // Generate NMI if enabled (PPUCTRL bit 7)
+                if ((regCTRL & 0x80) != 0 && cpu != null) {
+                    cpu.nmi();
+                }
             } else if (scanline == -1 && cycle == 0) {
                 // Clear vblank & sprite flags at pre-render
                 regSTATUS &= ~0x80; // clear VBlank
                 // sprite 0 hit & overflow would also be cleared here (bits 6 & 5)
                 regSTATUS &= 0x1F; // keep lower 5 bits only for now
+                if (DEBUG)
+                    System.out.printf("[PPU] VBLANK CLEAR (pre-render) scan=%d cyc=%d\n", scanline, cycle);
             }
         }
     }
@@ -174,5 +190,10 @@ public class Ppu2C02 implements PPU {
 
     public boolean isInVBlank() {
         return (regSTATUS & 0x80) != 0;
+    }
+
+    // Raw status for deeper debug if needed
+    public int getStatusRegister() {
+        return regSTATUS & 0xFF;
     }
 }
