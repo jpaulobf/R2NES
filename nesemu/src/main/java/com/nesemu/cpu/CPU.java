@@ -33,6 +33,8 @@ public class CPU implements iCPU {
     // Dynamic extra cycles (branch taken, page crossing in branches, etc.)
     // aplicados após execução
     private int extraCycles;
+    // Total executed CPU cycles (for tracing / nestest log)
+    private long totalCycles;
 
     // --- RMW (Read-Modify-Write) micro handling state ---
     private boolean rmwActive = false; // true enquanto uma instrução RMW em memória ainda precisa fazer dummy/final
@@ -231,6 +233,7 @@ public class CPU implements iCPU {
         pc = (memory.read(0xFFFC) | (memory.read(0xFFFD) << 8));
         carry = zero = interruptDisable = decimal = breakFlag = overflow = negative = false;
         unused = true; // Bit 5 of the status register is always set
+        totalCycles = 0;
     }
 
     /**
@@ -240,6 +243,7 @@ public class CPU implements iCPU {
      * and sets the cycle counter.
      */
     public void clock() {
+        totalCycles++; // count every cycle
         // Se há ciclos pendentes, tratar possíveis fases de RMW e consumir um ciclo
         if (cycles > 0) {
             if (rmwActive) {
@@ -306,6 +310,74 @@ public class CPU implements iCPU {
         execute(opcode, mode, opRes.value, opRes.address);
         // Set remaining cycles minus the one we just spent
         cycles = Math.max(0, remaining - 1 + extraCycles);
+    }
+
+    // --- Tracing / external inspection helpers ---
+    public long getTotalCycles() {
+        return totalCycles;
+    }
+
+    public int getA() {
+        return a & 0xFF;
+    }
+
+    public int getX() {
+        return x & 0xFF;
+    }
+
+    public int getY() {
+        return y & 0xFF;
+    }
+
+    public int getSP() {
+        return sp & 0xFF;
+    }
+
+    public int getPC() {
+        return pc & 0xFFFF;
+    }
+
+    public boolean isInstructionBoundary() {
+        return cycles == 0;
+    }
+
+    public int getStatusByte() {
+        int p = 0;
+        p |= (carry ? 1 : 0);
+        p |= (zero ? 1 : 0) << 1;
+        p |= (interruptDisable ? 1 : 0) << 2;
+        p |= (decimal ? 1 : 0) << 3;
+        p |= (breakFlag ? 1 : 0) << 4;
+        p |= (unused ? 1 : 0) << 5;
+        p |= (overflow ? 1 : 0) << 6;
+        p |= (negative ? 1 : 0) << 7;
+        return p & 0xFF;
+    }
+
+    /** Force CPU state (used for nestest start). */
+    public void forceState(int pc, int a, int x, int y, int p, int sp) {
+        this.pc = pc & 0xFFFF;
+        this.a = a & 0xFF;
+        this.x = x & 0xFF;
+        this.y = y & 0xFF;
+        this.sp = sp & 0xFF;
+        carry = (p & 0x01) != 0;
+        zero = (p & 0x02) != 0;
+        interruptDisable = (p & 0x04) != 0;
+        decimal = (p & 0x08) != 0;
+        breakFlag = (p & 0x10) != 0;
+        unused = (p & 0x20) != 0; // should stay set
+        overflow = (p & 0x40) != 0;
+        negative = (p & 0x80) != 0;
+    }
+
+    /** Steps exactly one full instruction (advances through all its cycles). */
+    public void stepInstruction() {
+        while (cycles > 0)
+            clock(); // finish current if mid-instruction
+        clock(); // start next
+        while (cycles > 0)
+            clock(); // finish it
     }
 
     /**
@@ -1298,26 +1370,6 @@ public class CPU implements iCPU {
      * 
      * @return
      */
-    int getStatusByte() {
-        int p = 0;
-        if (carry)
-            p |= 0x01;
-        if (zero)
-            p |= 0x02;
-        if (interruptDisable)
-            p |= 0x04;
-        if (decimal)
-            p |= 0x08;
-        if (breakFlag)
-            p |= 0x10;
-        if (unused)
-            p |= 0x20;
-        if (overflow)
-            p |= 0x40;
-        if (negative)
-            p |= 0x80;
-        return p;
-    }
 
     /**
      * Sets the status flags based on the provided byte value.
@@ -1338,26 +1390,6 @@ public class CPU implements iCPU {
     }
 
     // Getters and Setters
-    public int getA() {
-        return a;
-    }
-
-    public int getX() {
-        return x;
-    }
-
-    public int getY() {
-        return y;
-    }
-
-    public int getSP() {
-        return sp;
-    }
-
-    public int getPC() {
-        return pc;
-    }
-
     public int getCycles() {
         return cycles;
     }
