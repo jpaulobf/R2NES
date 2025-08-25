@@ -8,11 +8,11 @@ import com.nesemu.memory.interfaces.iMemory;
  * Implements the main functionalities and instructions of the processor.
  */
 public class CPU implements iCPU {
-    private int a;      // Acumulador
-    private int x;      // Register X
-    private int y;      // Register Y
-    private int sp;     // Stack Pointer
-    private int pc;     // Program Counter
+    private int a; // Acumulador
+    private int x; // Register X
+    private int y; // Register Y
+    private int sp; // Stack Pointer
+    private int pc; // Program Counter
 
     // Flags de status
     private boolean carry;
@@ -27,7 +27,8 @@ public class CPU implements iCPU {
 
     // Cycle counter for instruction timing
     private int cycles;
-    // Dynamic extra cycles (branch taken, page crossing in branches, etc.) aplicados após execução
+    // Dynamic extra cycles (branch taken, page crossing in branches, etc.)
+    // aplicados após execução
     private int extraCycles;
 
     // Interrupt pending flags
@@ -36,26 +37,27 @@ public class CPU implements iCPU {
 
     // NES 6502 cycle table (official opcodes only, 256 entries)
     private static final int[] CYCLE_TABLE = new int[] {
-        7,6,2,8,3,3,5,5,3,2,2,2,4,4,6,6, // 0x00-0x0F
-        2,5,2,8,3,4,6,6,3,4,2,7,4,4,7,7, // 0x10-0x1F
-        6,6,2,8,3,3,5,5,4,2,2,2,4,4,6,6, // 0x20-0x2F
-        2,5,2,8,4,4,6,6,2,5,2,7,4,4,7,7, // 0x30-0x3F
-        6,6,2,8,3,3,5,5,3,2,2,2,3,4,6,6, // 0x40-0x4F
-        2,5,2,8,3,4,6,6,2,5,2,7,4,4,7,7, // 0x50-0x5F
-        6,6,2,8,3,3,5,5,4,2,2,2,4,4,6,6, // 0x60-0x6F
-        2,5,2,8,4,4,6,6,2,5,2,7,4,4,7,7, // 0x70-0x7F
-        2,6,2,6,3,3,3,3,2,2,2,2,4,4,4,4, // 0x80-0x8F
-        2,6,2,6,4,4,4,4,2,5,2,5,5,5,5,5, // 0x90-0x9F
-        2,6,2,6,3,3,5,5,2,2,2,2,4,4,6,6, // 0xA0-0xAF
-        2,5,2,5,4,4,6,6,2,5,2,5,5,5,7,7, // 0xB0-0xBF
-        2,6,2,8,3,3,5,5,2,2,2,2,4,4,6,6, // 0xC0-0xCF
-        2,5,2,8,4,4,6,6,2,5,2,7,4,4,7,7, // 0xD0-0xDF
-        2,6,2,8,3,3,5,5,2,2,2,2,4,4,6,6, // 0xE0-0xEF
-        2,5,2,8,4,4,6,6,2,5,2,7,4,4,7,7  // 0xF0-0xFF
+            7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, // 0x00-0x0F
+            2, 5, 2, 8, 3, 4, 6, 6, 3, 4, 2, 7, 4, 4, 7, 7, // 0x10-0x1F
+            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, // 0x20-0x2F
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7, // 0x30-0x3F
+            6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, // 0x40-0x4F
+            2, 5, 2, 8, 3, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7, // 0x50-0x5F
+            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, // 0x60-0x6F
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7, // 0x70-0x7F
+            2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0x80-0x8F
+            2, 6, 2, 6, 4, 4, 4, 4, 2, 5, 2, 5, 5, 5, 5, 5, // 0x90-0x9F
+            2, 6, 2, 6, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xA0-0xAF
+            2, 5, 2, 5, 4, 4, 6, 6, 2, 5, 2, 5, 5, 5, 7, 7, // 0xB0-0xBF
+            2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xC0-0xCF
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7, // 0xD0-0xDF
+            2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xE0-0xEF
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7 // 0xF0-0xFF
     };
 
     /*
      * CPU constructor
+     * 
      * @param memory Memory instance to be used by the CPU
      */
     public CPU(iMemory memory) {
@@ -70,15 +72,18 @@ public class CPU implements iCPU {
     public void reset() {
         a = x = y = 0;
         sp = 0xFD;
-        // PC is initialized from the reset vector (0xFFFC/0xFFFD) - low byte first, then high byte
+        // PC is initialized from the reset vector (0xFFFC/0xFFFD) - low byte first,
+        // then high byte
         pc = (memory.read(0xFFFC) | (memory.read(0xFFFD) << 8));
         carry = zero = interruptDisable = decimal = breakFlag = overflow = negative = false;
         unused = true; // Bit 5 of the status register is always set
     }
 
     /**
-     * Executes a single CPU clock cycle. If an instruction is in progress, decrements the cycle counter.
-     * If no instruction is in progress, fetches and executes the next instruction and sets the cycle counter.
+     * Executes a single CPU clock cycle. If an instruction is in progress,
+     * decrements the cycle counter.
+     * If no instruction is in progress, fetches and executes the next instruction
+     * and sets the cycle counter.
      */
     public void clock() {
         // If instruction in progress, just consume a cycle
@@ -101,7 +106,8 @@ public class CPU implements iCPU {
         int opcodeByte = memory.read(pc);
         pc++;
         Opcode opcode = Opcode.fromByte(opcodeByte);
-        if (opcode == null) return;
+        if (opcode == null)
+            return;
         AddressingMode mode = getAddressingMode(opcodeByte);
         OperandResult opRes = fetchOperand(mode);
         // Page crossing detection (only relevant for indexed modes)
@@ -117,10 +123,9 @@ public class CPU implements iCPU {
         }
         int baseCycles = CYCLE_TABLE[opcodeByte & 0xFF];
         int remaining = baseCycles;
-        if (pageCrossed && (
-            opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
-            opcode == Opcode.ADC || opcode == Opcode.SBC || opcode == Opcode.CMP ||
-            opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR)) {
+        if (pageCrossed && (opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
+                opcode == Opcode.ADC || opcode == Opcode.SBC || opcode == Opcode.CMP ||
+                opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR)) {
             remaining += 1;
         }
         // Execute instruction work on this first cycle
@@ -132,6 +137,7 @@ public class CPU implements iCPU {
 
     /**
      * Executes the instruction based on the opcode and addressing mode.
+     * 
      * @param value
      */
     private void setZeroAndNegative(int value) {
@@ -149,7 +155,8 @@ public class CPU implements iCPU {
 
     /**
      * Executes an Interrupt Request (IRQ).
-     * If interrupts are not disabled, saves the current state and jumps to the IRQ vector.
+     * If interrupts are not disabled, saves the current state and jumps to the IRQ
+     * vector.
      */
     public void irq() {
         // Signal IRQ to be handled at next instruction boundary
@@ -179,9 +186,10 @@ public class CPU implements iCPU {
         int hi = memory.read(0xFFFF);
         pc = (hi << 8) | lo;
     }
-    
+
     /**
      * Gets the current status byte of the CPU.
+     * 
      * @return The status byte with the current flags.
      */
     private AddressingMode getAddressingMode(int opcodeByte) {
@@ -204,6 +212,11 @@ public class CPU implements iCPU {
             case 0x4B: // ALR #imm (ilegal)
             case 0x6B: // ARR #imm (ilegal)
             case 0xCB: // AXS #imm (ilegal)
+            case 0x80: // DOP immediate (2-byte NOP)
+            case 0x82: // DOP immediate
+            case 0x89: // DOP immediate
+            case 0xC2: // DOP immediate
+            case 0xE2: // DOP immediate
                 return AddressingMode.IMMEDIATE;
 
             // --- Zero Page ---
@@ -234,6 +247,9 @@ public class CPU implements iCPU {
             case 0xE6: // INC zp
             case 0xC7: // DCP zp (ilegal)
             case 0xE7: // ISC zp (ilegal)
+            case 0x04: // DOP (NOP zp)
+            case 0x44: // DOP (NOP zp)
+            case 0x64: // DOP (NOP zp)
                 return AddressingMode.ZERO_PAGE;
 
             // --- Zero Page,X ---
@@ -257,6 +273,12 @@ public class CPU implements iCPU {
             case 0xF6: // INC zp,X
             case 0xD7: // DCP zp,X (ilegal)
             case 0xF7: // ISC zp,X (ilegal)
+            case 0x14: // DOP (NOP zp,X)
+            case 0x34: // DOP (NOP zp,X)
+            case 0x54: // DOP (NOP zp,X)
+            case 0x74: // DOP (NOP zp,X)
+            case 0xD4: // DOP (NOP zp,X)
+            case 0xF4: // DOP (NOP zp,X)
                 return AddressingMode.ZERO_PAGE_X;
 
             // --- Zero Page,Y ---
@@ -435,16 +457,18 @@ public class CPU implements iCPU {
                 return AddressingMode.IMPLIED;
         }
     }
-    
+
     /**
      * Fetches the operand according to the addressing mode.
      * Reads the next byte(s) from memory and returns the required value or address.
+     * 
      * @param mode The addressing mode to use for fetching the operand.
      * @return The value or address as required by the instruction.
      */
     private static class OperandResult {
         int value;
         int address;
+
         OperandResult(int value, int address) {
             this.value = value;
             this.address = address;
@@ -520,13 +544,13 @@ public class CPU implements iCPU {
                 return new OperandResult(0, -1);
         }
     }
-    
+
     // Dispatcher de execução
     private void execute(Opcode opcode, AddressingMode mode, int operand, int memAddr) {
         // memAddr já é passado de clock(), evitando dupla leitura
         switch (opcode) {
             // --- Official NES opcodes ---
-            case ADC: 
+            case ADC:
                 int value = operand & 0xFF;
                 int acc = a & 0xFF;
                 int carryIn = carry ? 1 : 0;
@@ -541,11 +565,11 @@ public class CPU implements iCPU {
 
                 setZeroAndNegative(a);
                 break;
-            case AND: 
+            case AND:
                 a = a & (operand & 0xFF);
                 setZeroAndNegative(a);
                 break;
-            case ASL: 
+            case ASL:
                 if (mode == AddressingMode.ACCUMULATOR) {
                     carry = (a & 0x80) != 0;
                     a = (a << 1) & 0xFF;
@@ -560,35 +584,38 @@ public class CPU implements iCPU {
                 break;
             case BCC: {
                 if (!carry) {
-                    int offset = (byte)(operand & 0xFF);
+                    int offset = (byte) (operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1; // branch taken
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1; // page cross
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                        extraCycles += 1; // page cross
                 }
                 break;
             }
             case BCS: {
                 if (carry) {
-                    int offset = (byte)(operand & 0xFF);
+                    int offset = (byte) (operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                        extraCycles += 1;
                 }
                 break;
             }
             case BEQ: {
                 if (zero) {
-                    int offset = (byte)(operand & 0xFF);
+                    int offset = (byte) (operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                        extraCycles += 1;
                 }
                 break;
             }
-            case BIT: 
+            case BIT:
                 int bitResult = a & (operand & 0xFF);
                 zero = (bitResult == 0);
                 negative = ((operand & 0x80) != 0);
@@ -596,38 +623,41 @@ public class CPU implements iCPU {
                 break;
             case BMI: {
                 if (negative) {
-                    int offset = (byte)(operand & 0xFF);
+                    int offset = (byte) (operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                        extraCycles += 1;
                 }
                 break;
             }
             case BNE: {
                 if (!zero) {
-                    int offset = (byte)(operand & 0xFF);
+                    int offset = (byte) (operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                        extraCycles += 1;
                 }
                 break;
             }
             case BPL: {
                 if (!negative) {
-                    int offset = (byte)(operand & 0xFF);
+                    int offset = (byte) (operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                        extraCycles += 1;
                 }
                 break;
             }
-            case BRK: 
+            case BRK:
                 pc = (pc + 1) & 0xFFFF; // BRK increments PC by 2 (already incremented by 1 in clock)
                 push((pc >> 8) & 0xFF); // Push PCH
-                push(pc & 0xFF);        // Push PCL
+                push(pc & 0xFF); // Push PCL
                 breakFlag = true;
                 push(getStatusByte() | 0x10); // Push status with B flag set
                 interruptDisable = true;
@@ -638,37 +668,39 @@ public class CPU implements iCPU {
                 break;
             case BVC: {
                 if (!overflow) {
-                    int offset = (byte)(operand & 0xFF);
+                    int offset = (byte) (operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                        extraCycles += 1;
                 }
                 break;
             }
             case BVS: {
                 if (overflow) {
-                    int offset = (byte)(operand & 0xFF);
+                    int offset = (byte) (operand & 0xFF);
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) extraCycles += 1;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                        extraCycles += 1;
                 }
                 break;
             }
-            case CLC: 
+            case CLC:
                 carry = false;
                 break;
-            case CLD: 
+            case CLD:
                 decimal = false;
                 break;
-            case CLI: 
+            case CLI:
                 interruptDisable = false;
                 break;
-            case CLV: 
+            case CLV:
                 overflow = false;
                 break;
-            case CMP: 
+            case CMP:
                 int cmpValue = operand & 0xFF;
                 int cmpA = a & 0xFF;
                 int cmpResult = cmpA - cmpValue;
@@ -676,7 +708,7 @@ public class CPU implements iCPU {
                 zero = (cmpResult & 0xFF) == 0;
                 negative = (cmpResult & 0x80) != 0;
                 break;
-            case CPX: 
+            case CPX:
                 int cpxValue = operand & 0xFF;
                 int cpxX = x & 0xFF;
                 int cpxResult = cpxX - cpxValue;
@@ -684,7 +716,7 @@ public class CPU implements iCPU {
                 zero = (cpxResult & 0xFF) == 0;
                 negative = (cpxResult & 0x80) != 0;
                 break;
-            case CPY: 
+            case CPY:
                 int cpyValue = operand & 0xFF;
                 int cpyY = y & 0xFF;
                 int cpyResult = cpyY - cpyValue;
@@ -692,67 +724,69 @@ public class CPU implements iCPU {
                 zero = (cpyResult & 0xFF) == 0;
                 negative = (cpyResult & 0x80) != 0;
                 break;
-            case DEC: 
+            case DEC:
                 if (memAddr != -1) {
                     int decValue = (operand - 1) & 0xFF;
                     setZeroAndNegative(decValue);
                     memory.write(memAddr, decValue);
                 }
                 break;
-            case DEX: 
+            case DEX:
                 x = (x - 1) & 0xFF;
                 setZeroAndNegative(x);
                 break;
-            case DEY: 
+            case DEY:
                 y = (y - 1) & 0xFF;
                 setZeroAndNegative(y);
                 break;
-            case EOR: 
+            case EOR:
                 a = a ^ (operand & 0xFF);
                 setZeroAndNegative(a);
                 break;
-            case INC: 
+            case INC:
                 if (memAddr != -1) {
                     int incValue = (operand + 1) & 0xFF;
                     setZeroAndNegative(incValue);
                     memory.write(memAddr, incValue);
                 }
                 break;
-            case INX: 
+            case INX:
                 x = (x + 1) & 0xFF;
                 setZeroAndNegative(x);
                 break;
-            case INY: 
+            case INY:
                 y = (y + 1) & 0xFF;
                 setZeroAndNegative(y);
                 break;
-            case JMP: 
-                // Para JMP absoluto precisamos usar o endereço calculado (memAddr), não o valor lido.
+            case JMP:
+                // Para JMP absoluto precisamos usar o endereço calculado (memAddr), não o valor
+                // lido.
                 // Para JMP indireto (modo INDIRECT) memAddr também contém o destino correto.
                 pc = memAddr & 0xFFFF;
                 break;
-            case JSR: 
+            case JSR:
                 // JSR: Jump to SubRoutine
                 // Push (PC-1) onto stack (high byte first, then low byte) - 6502 real behavior
                 int returnAddr = (pc - 1) & 0xFFFF;
-                System.err.printf("[JSR] PC=%04X, returnAddr=%04X, push high=%02X, low=%02X, SP=%02X\n", pc, returnAddr, (returnAddr >> 8) & 0xFF, returnAddr & 0xFF, sp);
-                push((returnAddr >> 8) & 0xFF);   // High byte
-                push(returnAddr & 0xFF);          // Low byte
+                System.err.printf("[JSR] PC=%04X, returnAddr=%04X, push high=%02X, low=%02X, SP=%02X\n", pc, returnAddr,
+                        (returnAddr >> 8) & 0xFF, returnAddr & 0xFF, sp);
+                push((returnAddr >> 8) & 0xFF); // High byte
+                push(returnAddr & 0xFF); // Low byte
                 pc = memAddr & 0xFFFF;
                 break;
-            case LDA: 
+            case LDA:
                 a = operand & 0xFF;
                 setZeroAndNegative(a);
                 break;
-            case LDX: 
+            case LDX:
                 x = operand & 0xFF;
                 setZeroAndNegative(x);
                 break;
-            case LDY: 
+            case LDY:
                 y = operand & 0xFF;
                 setZeroAndNegative(y);
                 break;
-            case LSR: 
+            case LSR:
                 if (mode == AddressingMode.ACCUMULATOR) {
                     carry = (a & 0x01) != 0;
                     a = (a >> 1) & 0xFF;
@@ -765,32 +799,32 @@ public class CPU implements iCPU {
                     memory.write(memAddr, valueLSR);
                 }
                 break;
-            case NOP: 
+            case NOP:
                 // NOP: No Operation.
                 break;
-            case ORA: 
+            case ORA:
                 a = a | (operand & 0xFF);
                 setZeroAndNegative(a);
                 break;
-            case PHA: 
+            case PHA:
                 push(a & 0xFF);
                 break;
-            case PHP: 
+            case PHP:
                 // PHP: Push Processor Status (com flag B setada)
                 push(getStatusByte() | 0x10);
                 break;
-            case PLA: 
+            case PLA:
                 a = pop() & 0xFF;
                 setZeroAndNegative(a);
                 break;
-            case PLP: 
+            case PLP:
                 // PLP: Pull Processor Status from stack
                 int status = pop() & 0xFF;
                 setStatusByte(status);
                 // On 6502, the unused flag is always set to true after PLP
                 unused = true;
                 break;
-            case ROL: 
+            case ROL:
                 if (mode == AddressingMode.ACCUMULATOR) {
                     boolean oldCarry = carry;
                     carry = (a & 0x80) != 0;
@@ -805,7 +839,7 @@ public class CPU implements iCPU {
                     memory.write(memAddr, valueROL);
                 }
                 break;
-            case ROR: 
+            case ROR:
                 if (mode == AddressingMode.ACCUMULATOR) {
                     boolean oldCarry = carry;
                     carry = (a & 0x01) != 0;
@@ -820,22 +854,23 @@ public class CPU implements iCPU {
                     memory.write(memAddr, valueROR);
                 }
                 break;
-            case RTI: 
+            case RTI:
                 // RTI: Pull status, then pull PC (low, then high)
                 setStatusByte(pop());
                 int pcl = pop();
                 int pch = pop();
                 pc = (pch << 8) | pcl;
                 break;
-            case RTS: 
+            case RTS:
                 // RTS: Pull PC (low, then high), then increment
                 int pcl_rts = pop();
                 int pch_rts = pop();
                 int retAddr = ((pch_rts << 8) | pcl_rts);
-                System.err.printf("[RTS] pop low=%02X, high=%02X, retAddr=%04X, PC=%04X, SP=%02X\n", pcl_rts, pch_rts, retAddr, pc, sp);
+                System.err.printf("[RTS] pop low=%02X, high=%02X, retAddr=%04X, PC=%04X, SP=%02X\n", pcl_rts, pch_rts,
+                        retAddr, pc, sp);
                 pc = (retAddr + 1) & 0xFFFF;
                 break;
-            case SBC: 
+            case SBC:
                 // SBC: Subtract with Carry
                 int valueSBC = operand & 0xFF;
                 int accSBC = a & 0xFF;
@@ -846,70 +881,71 @@ public class CPU implements iCPU {
                 a = resultSBC & 0xFF;
                 setZeroAndNegative(a);
                 break;
-            case SEC: 
+            case SEC:
                 carry = true;
                 break;
-            case SED: 
+            case SED:
                 decimal = true;
                 break;
-            case SEI: 
+            case SEI:
                 interruptDisable = true;
                 break;
-            case STA: 
+            case STA:
                 if (memAddr != -1) {
                     memory.write(memAddr, a & 0xFF);
                 }
                 break;
-            case STX: 
+            case STX:
                 if (memAddr != -1) {
                     memory.write(memAddr, x & 0xFF);
                 }
                 break;
-            case STY: 
+            case STY:
                 if (memAddr != -1) {
                     memory.write(memAddr, y & 0xFF);
                 }
                 break;
-            case TAX: 
+            case TAX:
                 x = a & 0xFF;
                 setZeroAndNegative(x);
                 break;
-            case TAY: 
+            case TAY:
                 y = a & 0xFF;
                 setZeroAndNegative(y);
                 break;
-            case TSX: 
+            case TSX:
                 x = sp & 0xFF;
                 setZeroAndNegative(x);
                 break;
-            case TXA: 
+            case TXA:
                 a = x & 0xFF;
                 setZeroAndNegative(a);
                 break;
-            case TXS: 
+            case TXS:
                 sp = x & 0xFF;
                 break;
-            case TYA: 
+            case TYA:
                 a = y & 0xFF;
                 setZeroAndNegative(a);
                 break;
 
             // --- Most common undocumented (illegal) opcodes ---
-            case AAC: 
+            case AAC:
                 // AAC (ANC): AND operand with A, set carry = bit 7 of result
                 a = a & (operand & 0xFF);
                 setZeroAndNegative(a);
                 carry = (a & 0x80) != 0;
                 break;
-            case AAX: 
+            case AAX:
                 // AAX (SAX): Store A & X to memory
                 if (memAddr != -1) {
                     int val = a & x;
-                    System.err.printf("[AAX] PC=%04X A=%02X X=%02X -> store %02X at %04X\n", (pc-1)&0xFFFF, a & 0xFF, x & 0xFF, val & 0xFF, memAddr & 0xFFFF);
+                    System.err.printf("[AAX] PC=%04X A=%02X X=%02X -> store %02X at %04X\n", (pc - 1) & 0xFFFF,
+                            a & 0xFF, x & 0xFF, val & 0xFF, memAddr & 0xFFFF);
                     memory.write(memAddr, val);
                 }
                 break;
-            case AHX: 
+            case AHX:
                 // AHX: Store (A & X & (high byte of address + 1)) to memory
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
@@ -917,15 +953,15 @@ public class CPU implements iCPU {
                     memory.write(memAddr, ahxValue);
                 }
                 break;
-            case ALR: 
-            case ASR: 
+            case ALR:
+            case ASR:
                 // ALR / ASR (opcode 0x4B): A = (A & operand) >> 1 ; Carry = bit0 antes do shift
                 a = a & (operand & 0xFF);
                 carry = (a & 0x01) != 0;
                 a = (a >> 1) & 0xFF;
                 setZeroAndNegative(a);
                 break;
-            case ARR: 
+            case ARR:
                 // ARR: AND operand with A, then ROR, set flags
                 a = a & (operand & 0xFF);
                 a = ((a >> 1) | (carry ? 0x80 : 0)) & 0xFF;
@@ -933,11 +969,12 @@ public class CPU implements iCPU {
                 carry = (a & 0x40) != 0;
                 overflow = (((a >> 5) & 1) ^ ((a >> 6) & 1)) != 0;
                 break;
-            case ATX: 
+            case ATX:
                 // ATX (custom mapping on 0x02): common emulation form chosen here:
                 // Final effect: A = X = (A_initial & X_initial & immediate)
                 // (Equivalent to two-step: A = A & X; then A = X = A & imm)
-                // We compute directly from the originals to avoid surprises with intermediate state.
+                // We compute directly from the originals to avoid surprises with intermediate
+                // state.
                 int origA = a & 0xFF;
                 int origX = x & 0xFF;
                 int imm = operand & 0xFF;
@@ -946,7 +983,7 @@ public class CPU implements iCPU {
                 x = atxVal;
                 setZeroAndNegative(a);
                 break;
-            case AXA: 
+            case AXA:
                 // AXA: Store (A & X) & (high byte of address + 1) to memory
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
@@ -954,14 +991,14 @@ public class CPU implements iCPU {
                     memory.write(memAddr, axaValue);
                 }
                 break;
-            case AXS: 
+            case AXS:
                 // AXS: X = (A & X) - operand
                 x = (a & x) - (operand & 0xFF);
                 x &= 0xFF;
                 setZeroAndNegative(x);
                 carry = x <= 0xFF;
                 break;
-            case DCP: 
+            case DCP:
                 // DCP: DEC memory, then CMP with A
                 if (memAddr != -1) {
                     int dcpValue = (operand - 1) & 0xFF;
@@ -972,10 +1009,13 @@ public class CPU implements iCPU {
                     negative = (dcpCmp & 0x80) != 0;
                 }
                 break;
-            case DOP: 
+            case DOP:
                 // DOP: Double NOP (2-byte NOP)
                 break;
-            case ISC: 
+            case TOP:
+                // TOP (2/3-byte NOP): does nothing, PC already advanced when fetching operands
+                break;
+            case ISC:
                 // ISC: INC memory, then SBC with A
                 if (memAddr != -1) {
                     int iscValue = (operand + 1) & 0xFF;
@@ -991,34 +1031,29 @@ public class CPU implements iCPU {
                     setZeroAndNegative(a);
                 }
                 break;
-            case KIL: 
+            case KIL:
                 // KIL: Halts CPU (simulate by not advancing PC)
                 pc = (pc - 1) & 0xFFFF;
                 break;
-            case LAR: 
-                // LAR: SP = A & memory, X = SP, A = SP
-                sp = a & (operand & 0xFF);
-                x = sp;
-                a = sp;
-                setZeroAndNegative(a);
-                break;
-            case LAS: 
-                // LAS: SP = A & X & memory, A = X = SP
+            case LAR:
+            case LAS:
+                // Alias LAR / LAS: adotamos semântica de LAS (SP = A & X & mem; A = X = SP)
+                // (LAR tradicional = A & mem; se quiser comport. distinto, separar novamente)
                 sp = a & x & (operand & 0xFF);
                 a = x = sp;
                 setZeroAndNegative(a);
                 break;
-            case LAX: 
+            case LAX:
                 // LAX: A = X = memory
                 a = x = operand & 0xFF;
                 setZeroAndNegative(a);
                 break;
-            case LXA: 
+            case LXA:
                 // LXA: A = X = (A | 0xEE) & operand (unofficial, unstable)
                 a = x = (a | 0xEE) & (operand & 0xFF);
                 setZeroAndNegative(a);
                 break;
-            case RLA: 
+            case RLA:
                 // RLA: ROL memory, then AND with A
                 if (memAddr != -1) {
                     int rlaValue = ((operand << 1) | (carry ? 1 : 0)) & 0xFF;
@@ -1028,7 +1063,7 @@ public class CPU implements iCPU {
                     setZeroAndNegative(a);
                 }
                 break;
-            case RRA: 
+            case RRA:
                 // RRA: ROR memory, then ADC with A
                 if (memAddr != -1) {
                     int rraValue = ((operand >> 1) | (carry ? 0x80 : 0)) & 0xFF;
@@ -1044,20 +1079,20 @@ public class CPU implements iCPU {
                     setZeroAndNegative(a);
                 }
                 break;
-            case SAX: 
+            case SAX:
                 // SAX: Store A & X to memory
                 if (memAddr != -1) {
                     memory.write(memAddr, a & x);
                 }
                 break;
-            case SBX: 
+            case SBX:
                 // SBX: X = (A & X) - operand
                 x = (a & x) - (operand & 0xFF);
                 x &= 0xFF;
                 setZeroAndNegative(x);
                 carry = x <= 0xFF;
                 break;
-            case SHA: 
+            case SHA:
                 // SHA: Store (A & X & (high byte of address + 1)) to memory
                 // Only valid for ABSOLUTE_Y and INDIRECT_Y
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
@@ -1066,9 +1101,10 @@ public class CPU implements iCPU {
                     memory.write(memAddr, shaValue);
                 }
                 break;
-            case SHS: 
-            case TAS: 
-                // SHS/TAS: SP = A & X; store (A & X & (high byte of address + 1)) at effective address (ABSOLUTE_Y / INDIRECT_Y)
+            case SHS:
+            case TAS:
+                // SHS/TAS: SP = A & X; store (A & X & (high byte of address + 1)) at effective
+                // address (ABSOLUTE_Y / INDIRECT_Y)
                 sp = a & x;
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
@@ -1076,7 +1112,7 @@ public class CPU implements iCPU {
                     memory.write(memAddr, storeVal);
                 }
                 break;
-            case SHX: 
+            case SHX:
                 // SHX: Store X & (high byte of address + 1) to memory
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
@@ -1084,7 +1120,7 @@ public class CPU implements iCPU {
                     memory.write(memAddr, shxValue);
                 }
                 break;
-            case SHY: 
+            case SHY:
                 // SHY: Store Y & (high byte of address + 1) to memory
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_X || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
@@ -1092,7 +1128,7 @@ public class CPU implements iCPU {
                     memory.write(memAddr, shyValue);
                 }
                 break;
-            case SLO: 
+            case SLO:
                 // SLO: ASL value in memory, then ORA with A
                 if (memAddr != -1) {
                     int sloValue = operand & 0xFF;
@@ -1103,7 +1139,7 @@ public class CPU implements iCPU {
                     setZeroAndNegative(a);
                 }
                 break;
-            case SRE: 
+            case SRE:
                 // SRE: LSR value in memory, then EOR with A
                 if (memAddr != -1) {
                     int sreValue = operand & 0xFF;
@@ -1114,10 +1150,7 @@ public class CPU implements iCPU {
                     setZeroAndNegative(a);
                 }
                 break;
-            case TOP: 
-                // TOP (2/3-byte NOP): does nothing, PC already advanced when fetching operands
-                break;
-            case XAA: 
+            case XAA:
                 // XAA (unofficial): A = (A & X) & operand
                 a = (a & x) & (operand & 0xFF);
                 setZeroAndNegative(a);
@@ -1129,10 +1162,12 @@ public class CPU implements iCPU {
                 break;
         }
     }
-    
+
     /**
      * Pushes a value onto the stack.
-     * The stack is located at 0x0100 in memory, and the stack pointer (SP) is decremented before writing.
+     * The stack is located at 0x0100 in memory, and the stack pointer (SP) is
+     * decremented before writing.
+     * 
      * @param value
      */
     private void push(int value) {
@@ -1142,35 +1177,48 @@ public class CPU implements iCPU {
 
     /**
      * Pops a value from the stack.
-     * The stack is located at 0x0100 in memory, and the stack pointer (SP) is incremented after reading.
+     * The stack is located at 0x0100 in memory, and the stack pointer (SP) is
+     * incremented after reading.
+     * 
      * @return
      */
     private int pop() {
         sp = (sp + 1) & 0xFF;
         return memory.read(0x100 + (sp & 0xFF));
     }
-    
+
     /**
      * Sets the zero and negative flags based on the value.
      * This method updates the zero and negative flags based on the provided value.
+     * 
      * @return
      */
     int getStatusByte() {
         int p = 0;
-        if (carry) p |= 0x01;
-        if (zero) p |= 0x02;
-        if (interruptDisable) p |= 0x04;
-        if (decimal) p |= 0x08;
-        if (breakFlag) p |= 0x10;
-        if (unused) p |= 0x20;
-        if (overflow) p |= 0x40;
-        if (negative) p |= 0x80;
+        if (carry)
+            p |= 0x01;
+        if (zero)
+            p |= 0x02;
+        if (interruptDisable)
+            p |= 0x04;
+        if (decimal)
+            p |= 0x08;
+        if (breakFlag)
+            p |= 0x10;
+        if (unused)
+            p |= 0x20;
+        if (overflow)
+            p |= 0x40;
+        if (negative)
+            p |= 0x80;
         return p;
     }
 
     /**
      * Sets the status flags based on the provided byte value.
-     * This method updates the processor status flags based on the provided byte value.
+     * This method updates the processor status flags based on the provided byte
+     * value.
+     * 
      * @param value
      */
     void setStatusByte(int value) {
@@ -1184,32 +1232,116 @@ public class CPU implements iCPU {
         negative = (value & 0x80) != 0;
     }
 
-    // Getters and Setters 
-    public int getA() { return a; }
-    public int getX() { return x; }
-    public int getY() { return y; }
-    public int getSP() { return sp; }
-    public int getPC() { return pc; }
-    public int getCycles() {return cycles;}
-    public boolean isCarry() { return carry; }
-    public boolean isZero() { return zero; }
-    public boolean isInterruptDisable() { return interruptDisable; }
-    public boolean isDecimal() { return decimal; }
-    public boolean isBreakFlag() { return breakFlag; }
-    public boolean isUnused() { return unused; }
-    public boolean isOverflow() { return overflow; }
-    public boolean isNegative() { return negative; }
-    public void setA(int a) { this.a = a & 0xFF; setZeroAndNegative(this.a); }
-    public void setX(int x) { this.x = x & 0xFF; setZeroAndNegative(this.x); }
-    public void setY(int y) { this.y = y & 0xFF; setZeroAndNegative(this.y); }
-    public void setSP(int sp) { this.sp = sp & 0xFF; setZeroAndNegative(this.sp); }
-    public void setPC(int pc) { this.pc = pc & 0xFFFF; }
-    public void setCarry(boolean carry) { this.carry = carry; }
-    public void setZero(boolean zero) { this.zero = zero; }
-    public void setInterruptDisable(boolean interruptDisable) { this.interruptDisable = interruptDisable; }
-    public void setDecimal(boolean decimal) { this.decimal = decimal; }
-    public void setBreakFlag(boolean breakFlag) { this.breakFlag = breakFlag; }
-    public void setUnused(boolean unused) { this.unused = unused; }
-    public void setOverflow(boolean overflow) { this.overflow = overflow; }
-    public void setNegative(boolean negative) { this.negative = negative; }
+    // Getters and Setters
+    public int getA() {
+        return a;
+    }
+
+    public int getX() {
+        return x;
+    }
+
+    public int getY() {
+        return y;
+    }
+
+    public int getSP() {
+        return sp;
+    }
+
+    public int getPC() {
+        return pc;
+    }
+
+    public int getCycles() {
+        return cycles;
+    }
+
+    public boolean isCarry() {
+        return carry;
+    }
+
+    public boolean isZero() {
+        return zero;
+    }
+
+    public boolean isInterruptDisable() {
+        return interruptDisable;
+    }
+
+    public boolean isDecimal() {
+        return decimal;
+    }
+
+    public boolean isBreakFlag() {
+        return breakFlag;
+    }
+
+    public boolean isUnused() {
+        return unused;
+    }
+
+    public boolean isOverflow() {
+        return overflow;
+    }
+
+    public boolean isNegative() {
+        return negative;
+    }
+
+    public void setA(int a) {
+        this.a = a & 0xFF;
+        setZeroAndNegative(this.a);
+    }
+
+    public void setX(int x) {
+        this.x = x & 0xFF;
+        setZeroAndNegative(this.x);
+    }
+
+    public void setY(int y) {
+        this.y = y & 0xFF;
+        setZeroAndNegative(this.y);
+    }
+
+    public void setSP(int sp) {
+        this.sp = sp & 0xFF;
+        setZeroAndNegative(this.sp);
+    }
+
+    public void setPC(int pc) {
+        this.pc = pc & 0xFFFF;
+    }
+
+    public void setCarry(boolean carry) {
+        this.carry = carry;
+    }
+
+    public void setZero(boolean zero) {
+        this.zero = zero;
+    }
+
+    public void setInterruptDisable(boolean interruptDisable) {
+        this.interruptDisable = interruptDisable;
+    }
+
+    public void setDecimal(boolean decimal) {
+        this.decimal = decimal;
+    }
+
+    public void setBreakFlag(boolean breakFlag) {
+        this.breakFlag = breakFlag;
+    }
+
+    public void setUnused(boolean unused) {
+        this.unused = unused;
+    }
+
+    public void setOverflow(boolean overflow) {
+        this.overflow = overflow;
+    }
+
+    public void setNegative(boolean negative) {
+        this.negative = negative;
+    }
 }
