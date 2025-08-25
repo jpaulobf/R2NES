@@ -34,6 +34,157 @@ public class CPU implements iCPU {
     // aplicados após execução
     private int extraCycles;
 
+    // --- RMW (Read-Modify-Write) micro handling state ---
+    private boolean rmwActive = false; // true enquanto uma instrução RMW em memória ainda precisa fazer dummy/final
+                                       // write
+    private int rmwAddress; // endereço alvo
+    private int rmwOriginal; // valor original lido
+    private int rmwModified; // valor final a gravar (usado para debug)
+    private RmwKind rmwKind; // tipo de operação para commit
+    private int rmwCarryIn; // carry de entrada (antes da modificação)
+
+    private enum RmwKind {
+        ASL, ROL, LSR, ROR, INC, DEC,
+        RLA, RRA, SLO, SRE, DCP, ISC
+    }
+
+    /**
+     * Inicia sequência RMW em memória. Nenhuma modificação de flags/registos
+     * acontece aqui;
+     * tudo é aplicado em performRmwCommit() no penúltimo ciclo (final write).
+     */
+    private void startRmw(int address, int originalValue, RmwKind kind) {
+        this.rmwActive = true;
+        this.rmwAddress = address & 0xFFFF;
+        this.rmwOriginal = originalValue & 0xFF;
+        this.rmwKind = kind;
+        this.rmwCarryIn = carry ? 1 : 0;
+    }
+
+    /**
+     * Aplica a modificação e grava o valor final em memória. Ordem de efeitos
+     * modela
+     * o comportamento do 6502: carry/flags atualizados com base no valor original /
+     * modificado
+     * apenas quando o write final acontece.
+     */
+    private void performRmwCommit() {
+        int original = rmwOriginal & 0xFF;
+        int newVal = original; // será recalculado
+        switch (rmwKind) {
+            case ASL: {
+                carry = (original & 0x80) != 0;
+                newVal = (original << 1) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                setZeroAndNegative(newVal);
+                break;
+            }
+            case LSR: {
+                carry = (original & 0x01) != 0;
+                newVal = (original >> 1) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                setZeroAndNegative(newVal);
+                break;
+            }
+            case INC: {
+                newVal = (original + 1) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                setZeroAndNegative(newVal);
+                break;
+            }
+            case DEC: {
+                newVal = (original - 1) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                setZeroAndNegative(newVal);
+                break;
+            }
+            case ROL: {
+                boolean oldCarry = rmwCarryIn != 0;
+                carry = (original & 0x80) != 0;
+                newVal = ((original << 1) | (oldCarry ? 1 : 0)) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                setZeroAndNegative(newVal);
+                break;
+            }
+            case ROR: {
+                boolean oldCarry = rmwCarryIn != 0;
+                carry = (original & 0x01) != 0;
+                newVal = ((original >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                setZeroAndNegative(newVal);
+                break;
+            }
+            case SLO: { // ASL then ORA
+                carry = (original & 0x80) != 0;
+                newVal = (original << 1) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                a = a | newVal;
+                setZeroAndNegative(a);
+                break;
+            }
+            case SRE: { // LSR then EOR
+                carry = (original & 0x01) != 0;
+                newVal = (original >> 1) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                a = a ^ newVal;
+                setZeroAndNegative(a);
+                break;
+            }
+            case RLA: { // ROL then AND
+                boolean oldCarry = rmwCarryIn != 0;
+                carry = (original & 0x80) != 0;
+                newVal = ((original << 1) | (oldCarry ? 1 : 0)) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                a = a & newVal;
+                setZeroAndNegative(a);
+                break;
+            }
+            case RRA: { // ROR then ADC
+                boolean oldCarry = rmwCarryIn != 0;
+                carry = (original & 0x01) != 0;
+                newVal = ((original >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                int acc = a & 0xFF;
+                int val = newVal & 0xFF;
+                int cIn = (carry ? 1 : 0); // note: carry now holds bit0 original per 6502 ROR before ADC
+                int result = acc + val + cIn;
+                carry = result > 0xFF;
+                overflow = (~(acc ^ val) & (acc ^ result) & 0x80) != 0;
+                a = result & 0xFF;
+                setZeroAndNegative(a);
+                break;
+            }
+            case DCP: { // DEC then CMP (A - newVal)
+                newVal = (original - 1) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                int cmp = (a & 0xFF) - newVal;
+                carry = (a & 0xFF) >= newVal;
+                zero = (cmp & 0xFF) == 0;
+                negative = (cmp & 0x80) != 0;
+                break;
+            }
+            case ISC: { // INC then SBC
+                newVal = (original + 1) & 0xFF;
+                memory.write(rmwAddress, newVal);
+                int value = newVal ^ 0xFF; // invert para usar mesmo caminho de ADC
+                int acc = a & 0xFF;
+                int cIn = carry ? 1 : 0; // carry antes da SBC (não alterado ainda nesta instrução até agora)
+                int result = acc + value + cIn;
+                carry = result > 0xFF; // carry = NOT borrow
+                overflow = ((acc ^ result) & (value ^ result) & 0x80) != 0;
+                a = result & 0xFF;
+                setZeroAndNegative(a);
+                break;
+            }
+        }
+        this.rmwModified = newVal & 0xFF; // armazenar caso debugging futuro
+    }
+
+    // Expor valor final RMW para possível debug externo evitando warning de não uso
+    public int getLastRmwModified() {
+        return rmwModified;
+    }
+
     // Interrupt pending flags
     private boolean nmiPending = false;
     private boolean irqPending = false;
@@ -89,8 +240,24 @@ public class CPU implements iCPU {
      * and sets the cycle counter.
      */
     public void clock() {
-        // If instruction in progress, just consume a cycle
+        // Se há ciclos pendentes, tratar possíveis fases de RMW e consumir um ciclo
         if (cycles > 0) {
+            if (rmwActive) {
+                // Padrão 6502 para instruções RMW de memória: ... read -> dummy write -> final
+                // write
+                // Nosso contador 'cycles' inclui já todos os ciclos restantes desta instrução.
+                // Vamos disparar dummy write quando restarem 2 ciclos, e commit final quando
+                // restar 1.
+                if (cycles == 2) {
+                    // Dummy write do valor original (sem efeitos lógicos adicionais)
+                    memory.write(rmwAddress, rmwOriginal & 0xFF);
+                } else if (cycles == 1) {
+                    // Commit final (grava valor modificado e aplica efeitos em A/flags conforme
+                    // tipo)
+                    performRmwCommit();
+                    rmwActive = false;
+                }
+            }
             cycles--;
             return;
         }
@@ -607,11 +774,7 @@ public class CPU implements iCPU {
                     a = (a << 1) & 0xFF;
                     setZeroAndNegative(a);
                 } else if (memAddr != -1) {
-                    int valueASL = operand & 0xFF;
-                    carry = (valueASL & 0x80) != 0;
-                    valueASL = (valueASL << 1) & 0xFF;
-                    setZeroAndNegative(valueASL);
-                    memory.write(memAddr, valueASL);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.ASL);
                 }
                 break;
             case BCC: {
@@ -758,9 +921,7 @@ public class CPU implements iCPU {
                 break;
             case DEC:
                 if (memAddr != -1) {
-                    int decValue = (operand - 1) & 0xFF;
-                    setZeroAndNegative(decValue);
-                    memory.write(memAddr, decValue);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.DEC);
                 }
                 break;
             case DEX:
@@ -777,9 +938,7 @@ public class CPU implements iCPU {
                 break;
             case INC:
                 if (memAddr != -1) {
-                    int incValue = (operand + 1) & 0xFF;
-                    setZeroAndNegative(incValue);
-                    memory.write(memAddr, incValue);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.INC);
                 }
                 break;
             case INX:
@@ -824,11 +983,7 @@ public class CPU implements iCPU {
                     a = (a >> 1) & 0xFF;
                     setZeroAndNegative(a);
                 } else if (memAddr != -1) {
-                    int valueLSR = operand & 0xFF;
-                    carry = (valueLSR & 0x01) != 0;
-                    valueLSR = (valueLSR >> 1) & 0xFF;
-                    setZeroAndNegative(valueLSR);
-                    memory.write(memAddr, valueLSR);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.LSR);
                 }
                 break;
             case NOP:
@@ -863,12 +1018,7 @@ public class CPU implements iCPU {
                     a = ((a << 1) | (oldCarry ? 1 : 0)) & 0xFF;
                     setZeroAndNegative(a);
                 } else if (memAddr != -1) {
-                    int valueROL = operand & 0xFF;
-                    boolean oldCarry = carry;
-                    carry = (valueROL & 0x80) != 0;
-                    valueROL = ((valueROL << 1) | (oldCarry ? 1 : 0)) & 0xFF;
-                    setZeroAndNegative(valueROL);
-                    memory.write(memAddr, valueROL);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.ROL);
                 }
                 break;
             case ROR:
@@ -878,12 +1028,7 @@ public class CPU implements iCPU {
                     a = ((a >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
                     setZeroAndNegative(a);
                 } else if (memAddr != -1) {
-                    int valueROR = operand & 0xFF;
-                    boolean oldCarry = carry;
-                    carry = (valueROR & 0x01) != 0;
-                    valueROR = ((valueROR >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
-                    setZeroAndNegative(valueROR);
-                    memory.write(memAddr, valueROR);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.ROR);
                 }
                 break;
             case RTI:
@@ -1022,14 +1167,8 @@ public class CPU implements iCPU {
                 setZeroAndNegative(x);
                 break;
             case DCP:
-                // DCP: DEC memory, then CMP with A
                 if (memAddr != -1) {
-                    int dcpValue = (operand - 1) & 0xFF;
-                    memory.write(memAddr, dcpValue);
-                    int dcpCmp = a - dcpValue;
-                    carry = (a & 0xFF) >= dcpValue;
-                    zero = (dcpCmp & 0xFF) == 0;
-                    negative = (dcpCmp & 0x80) != 0;
+                    startRmw(memAddr, operand & 0xFF, RmwKind.DCP);
                 }
                 break;
             case DOP:
@@ -1043,19 +1182,8 @@ public class CPU implements iCPU {
                 }
                 break;
             case ISC:
-                // ISC: INC memory, then SBC with A
                 if (memAddr != -1) {
-                    int iscValue = (operand + 1) & 0xFF;
-                    memory.write(memAddr, iscValue);
-                    // Now SBC: A = A - iscValue - (1 - carry)
-                    int sbcVal = iscValue ^ 0xFF;
-                    int accIsc = a & 0xFF;
-                    int carryInIsc = carry ? 1 : 0;
-                    int resultIsc = accIsc + sbcVal + carryInIsc;
-                    carry = resultIsc > 0xFF;
-                    overflow = ((accIsc ^ resultIsc) & (sbcVal ^ resultIsc) & 0x80) != 0;
-                    a = resultIsc & 0xFF;
-                    setZeroAndNegative(a);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.ISC);
                 }
                 break;
             case KIL:
@@ -1081,29 +1209,13 @@ public class CPU implements iCPU {
                 setZeroAndNegative(a);
                 break;
             case RLA:
-                // RLA: ROL memory, then AND with A
                 if (memAddr != -1) {
-                    int rlaValue = ((operand << 1) | (carry ? 1 : 0)) & 0xFF;
-                    carry = (operand & 0x80) != 0;
-                    memory.write(memAddr, rlaValue);
-                    a = a & rlaValue;
-                    setZeroAndNegative(a);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.RLA);
                 }
                 break;
             case RRA:
-                // RRA: ROR memory, then ADC with A
                 if (memAddr != -1) {
-                    int rraValue = ((operand >> 1) | (carry ? 0x80 : 0)) & 0xFF;
-                    carry = (operand & 0x01) != 0;
-                    memory.write(memAddr, rraValue);
-                    int adcVal = rraValue;
-                    int accRra = a & 0xFF;
-                    int carryInRra = carry ? 1 : 0;
-                    int resultRra = accRra + adcVal + carryInRra;
-                    carry = resultRra > 0xFF;
-                    overflow = (~(accRra ^ adcVal) & (accRra ^ resultRra) & 0x80) != 0;
-                    a = resultRra & 0xFF;
-                    setZeroAndNegative(a);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.RRA);
                 }
                 break;
             case SHS:
@@ -1134,25 +1246,13 @@ public class CPU implements iCPU {
                 }
                 break;
             case SLO:
-                // SLO: ASL value in memory, then ORA with A
                 if (memAddr != -1) {
-                    int sloValue = operand & 0xFF;
-                    carry = (sloValue & 0x80) != 0;
-                    sloValue = (sloValue << 1) & 0xFF;
-                    memory.write(memAddr, sloValue);
-                    a = a | sloValue;
-                    setZeroAndNegative(a);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.SLO);
                 }
                 break;
             case SRE:
-                // SRE: LSR value in memory, then EOR with A
                 if (memAddr != -1) {
-                    int sreValue = operand & 0xFF;
-                    carry = (sreValue & 0x01) != 0;
-                    sreValue = (sreValue >> 1) & 0xFF;
-                    memory.write(memAddr, sreValue);
-                    a = a ^ sreValue;
-                    setZeroAndNegative(a);
+                    startRmw(memAddr, operand & 0xFF, RmwKind.SRE);
                 }
                 break;
             case XAA:
