@@ -64,9 +64,11 @@ public class NestestRunner {
                             opcode == 0x60 ? "RTS" : "BRK");
                     break;
                 }
-                // Heuristic safety: if cycles exceed known end (~26554) without hitting C66E,
-                // stop.
-                if (cpu.getTotalCycles() >= 26554) {
+                // Heuristic safety: only trigger if we *pass* the known final pre-exec cycle
+                // count (26554). Using >= caused us to stop immediately after the inner
+                // subroutine RTS at $C6A2 (which brings total cycles to 26554) and before we
+                // could fetch & log the outer final RTS at $C66E. So we require strictly >.
+                if (cpu.getTotalCycles() > 26554) {
                     termination = "Heuristic stop (exceeded expected end cycles without hitting $C66E)";
                     break;
                 }
