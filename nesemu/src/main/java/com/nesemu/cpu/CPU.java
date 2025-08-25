@@ -228,6 +228,7 @@ public class CPU implements iCPU {
             case 0x86: // STX zp
             case 0x84: // STY zp
             case 0x87: // SAX/AAX zp (ilegal)
+            case 0xA7: // LAX zp (ilegal)
             case 0x24: // BIT zp
             case 0xC6: // DEC zp
             case 0xE6: // INC zp
@@ -262,6 +263,7 @@ public class CPU implements iCPU {
             case 0xB6: // LDX zp,Y
             case 0x96: // STX zp,Y
             case 0x97: // SAX/AAX zp,Y (ilegal)
+            case 0xB7: // LAX zp,Y (ilegal)
                 return AddressingMode.ZERO_PAGE_Y;
 
             // --- Absoluto ---
@@ -291,6 +293,7 @@ public class CPU implements iCPU {
             case 0xEE: // INC abs
             case 0xCF: // DCP abs (ilegal)
             case 0xEF: // ISC abs (ilegal)
+            case 0xAF: // LAX abs (ilegal)
                 return AddressingMode.ABSOLUTE;
 
             // --- Absoluto,X ---
@@ -333,6 +336,8 @@ public class CPU implements iCPU {
             case 0x1B: // SLO abs,Y (ilegal)
             case 0xDB: // DCP abs,Y (ilegal)
             case 0xFB: // ISC abs,Y (ilegal)
+            case 0xBF: // LAX abs,Y (ilegal)
+            case 0xBB: // LAS abs,Y (ilegal)
                 return AddressingMode.ABSOLUTE_Y;
 
             // --- Indireto ---
@@ -353,6 +358,7 @@ public class CPU implements iCPU {
             case 0x03: // SLO (zp,X) ilegal
             case 0xC3: // DCP (zp,X) ilegal
             case 0xE3: // ISC (zp,X) ilegal
+            case 0xA3: // LAX (zp,X) ilegal
                 return AddressingMode.INDIRECT_X;
 
             // --- Indireto,Y ---
@@ -369,6 +375,7 @@ public class CPU implements iCPU {
             case 0x13: // SLO (zp),Y ilegal
             case 0xD3: // DCP (zp),Y ilegal
             case 0xF3: // ISC (zp),Y ilegal
+            case 0xB3: // LAX (zp),Y ilegal
                 return AddressingMode.INDIRECT_Y;
 
             // --- Relativo (branches) ---
