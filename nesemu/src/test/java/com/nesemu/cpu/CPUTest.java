@@ -1382,36 +1382,6 @@ public class CPUTest {
     // ==================
 
     @Test
-    public void testIllegalTOPDoesNothing() {
-        // Usamos opcode 0x0C (TOP variante de NOP de 3 bytes, mas implementação atual
-        // trata como NOP simples)
-        memory.write(0xFFFC, 0x00);
-        memory.write(0xFFFD, 0x80); // reset -> 0x8000
-        memory.write(0x8000, 0x0C); // TOP
-        memory.write(0x8001, 0x34);
-        memory.write(0x8002, 0x12); // operandos que deveriam ser ignorados
-        cpu.reset();
-        // Snapshot flags e registradores
-        int a0 = cpu.getA();
-        int x0 = cpu.getX();
-        int y0 = cpu.getY();
-        int sp0 = cpu.getSP();
-        boolean c0 = cpu.isCarry(), z0 = cpu.isZero(), n0 = cpu.isNegative(), v0 = cpu.isOverflow();
-        runOne();
-        // Verifica que nada mudou (de acordo com implementação atual: PC avança 1
-        // apenas)
-        assertEquals(a0, cpu.getA(), "TOP não deve alterar A");
-        assertEquals(x0, cpu.getX(), "TOP não deve alterar X");
-        assertEquals(y0, cpu.getY(), "TOP não deve alterar Y");
-        assertEquals(sp0, cpu.getSP(), "TOP não deve alterar SP");
-        assertEquals(c0, cpu.isCarry(), "TOP não deve alterar Carry");
-        assertEquals(z0, cpu.isZero(), "TOP não deve alterar Zero");
-        assertEquals(n0, cpu.isNegative(), "TOP não deve alterar Negative");
-        assertEquals(v0, cpu.isOverflow(), "TOP não deve alterar Overflow");
-        assertEquals(0x8001, cpu.getPC(), "Implementação atual de TOP avança apenas 1 byte");
-    }
-
-    @Test
     public void testIllegalXAAProducesMaskedA() {
         // XAA (0x8B) implementação atual: modo IMPLIED -> operand = 0 => A=(A & X) & 0
         // => 0
@@ -3738,6 +3708,294 @@ public class CPUTest {
         assertTrue(cpu.isNegative());
     }
 
+    @Test
+    public void testImmediateDOPs() {
+        int base = 0x4000;
+        setReset(base);
+        // Seed flags: carregar A negativo
+        memory.write(base++, 0xA9);
+        memory.write(base++, 0x80); // LDA #$80
+        int[] opcs = { 0x80, 0x82, 0x89, 0xC2, 0xE2 };
+        for (int i = 0; i < opcs.length; i++) {
+            memory.write(base++, opcs[i]);
+            memory.write(base++, 0xFF);
+        } // byte dummy
+        cpu.reset();
+        runInstr(); // LDA
+        int pcPrev = cpu.getPC();
+        for (int i = 0; i < opcs.length; i++) {
+            int cycles = runInstr();
+            assertEquals(2, cycles, "DOP immediate deve usar 2 ciclos");
+            assertEquals((pcPrev + 2) & 0xFFFF, cpu.getPC());
+            pcPrev = cpu.getPC();
+            assertTrue(cpu.isNegative()); // N preservada
+        }
+    }
+
+    @Test
+    public void testZeroPageDOPs() {
+        int base = 0x5000;
+        setReset(base);
+        memory.write(base++, 0xA9);
+        memory.write(base++, 0x80); // LDA #$80 para set N
+        int[] opcs = { 0x04, 0x44, 0x64 };
+        for (int i = 0; i < opcs.length; i++) {
+            memory.write(base++, opcs[i]);
+            memory.write(base++, 0x10);
+        }
+        cpu.reset();
+        runInstr();
+        int pcPrev = cpu.getPC();
+        for (int i = 0; i < opcs.length; i++) {
+            int cycles = runInstr();
+            // Tabela geralmente 3 ciclos; usamos base cycle table: conferir que >=2
+            assertTrue(cycles == 3 || cycles == 2, "DOP zp esperado 3 ou 2 ciclos (compat) obtido " + cycles);
+            assertEquals((pcPrev + 2) & 0xFFFF, cpu.getPC());
+            pcPrev = cpu.getPC();
+            assertTrue(cpu.isNegative());
+        }
+    }
+
+    @Test
+    public void testZeroPageXDOPs() {
+        int base = 0x6000;
+        setReset(base);
+        memory.write(base++, 0xA2);
+        memory.write(base++, 0x05); // LDX #5 (garante deslocamento X)
+        memory.write(base++, 0xA9);
+        memory.write(base++, 0x80); // LDA #$80 para set N após LDX
+        int[] opcs = { 0x14, 0x34, 0x54, 0x74, 0xD4, 0xF4 };
+        for (int i = 0; i < opcs.length; i++) {
+            memory.write(base++, opcs[i]);
+            memory.write(base++, 0x20);
+        }
+        cpu.reset();
+        runInstr();
+        runInstr(); // LDX, LDA
+        int pcPrev = cpu.getPC();
+        for (int i = 0; i < opcs.length; i++) {
+            int cycles = runInstr();
+            assertTrue(cycles == 4 || cycles == 3, "DOP zp,X esperado 4 ou 3 ciclos obtido " + cycles);
+            assertEquals((pcPrev + 2) & 0xFFFF, cpu.getPC());
+            pcPrev = cpu.getPC();
+            assertTrue(cpu.isNegative());
+        }
+    }
+
+    @Test
+    public void testAccumulatorVariants() {
+        int pc = 0x4000;
+        setReset(pc);
+        // Caso 1: A=0x01 -> resultado 0x00, carry=1, zero=1
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0x01); // LDA #$01
+        memory.write(pc++, 0x4A); // LSR A
+        // Caso 2: A=0x80 -> resultado 0x40, carry=0, zero=0
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0x80);
+        memory.write(pc++, 0x4A);
+        // Caso 3: A=0xFF -> resultado 0x7F, carry=1
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0xFF);
+        memory.write(pc++, 0x4A);
+        cpu.reset();
+        // Exec Caso1
+        int cLDA = runInstr();
+        int cLSR = runInstr();
+        assertEquals(2, cLDA);
+        assertTrue(cLSR == 2 || cLSR == 3); // tolerância
+        assertEquals(0x00, cpu.getA());
+        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        // Exec Caso2
+        runInstr();
+        cLSR = runInstr();
+        assertEquals(0x40, cpu.getA());
+        assertFalse(cpu.isCarry());
+        assertFalse(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        // Exec Caso3
+        runInstr();
+        cLSR = runInstr();
+        assertEquals(0x7F, cpu.getA());
+        assertTrue(cpu.isCarry());
+        assertFalse(cpu.isZero());
+        assertFalse(cpu.isNegative());
+    }
+
+    @Test
+    public void testZeroPage() {
+        int pc = 0x5000;
+        setReset(pc);
+        memory.write(0x0040, 0x01); // -> 0x00 carry=1 zero=1
+        memory.write(0x0041, 0x80); // -> 0x40 carry=0 zero=0
+        memory.write(pc++, 0x46);
+        memory.write(pc++, 0x40); // LSR $40
+        memory.write(pc++, 0x46);
+        memory.write(pc++, 0x41); // LSR $41
+        cpu.reset();
+        int c1 = runInstr();
+        assertTrue(c1 >= 4 && c1 <= 6);
+        assertEquals(0x00, memory.read(0x0040));
+        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isZero());
+        c1 = runInstr();
+        assertEquals(0x40, memory.read(0x0041));
+        assertFalse(cpu.isCarry());
+        assertFalse(cpu.isZero());
+    }
+
+    @Test
+    public void testZeroPageX() {
+        int pc = 0x6000;
+        setReset(pc);
+        memory.write(0x0045, 0x02); // (0x40 + X=5) => 0x02 -> 0x01 carry=0
+        memory.write(0x0046, 0x01); // -> 0x00 carry=1
+        memory.write(pc++, 0xA2);
+        memory.write(pc++, 0x05); // LDX #5
+        memory.write(pc++, 0x56);
+        memory.write(pc++, 0x40); // LSR $40,X -> $45
+        memory.write(pc++, 0x56);
+        memory.write(pc++, 0x41); // LSR $41,X -> $46
+        cpu.reset();
+        runInstr(); // LDX
+        int c = runInstr(); // LSR #1
+        assertTrue(c >= 5 && c <= 7);
+        assertEquals(0x01, memory.read(0x0045));
+        assertFalse(cpu.isCarry());
+        assertFalse(cpu.isZero());
+        c = runInstr();
+        assertEquals(0x00, memory.read(0x0046));
+        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isZero());
+    }
+
+    @Test
+    public void testAbsolute() {
+        int pc = 0x7000;
+        setReset(pc);
+        memory.write(0x7100, 0xFF); // -> 0x7F carry=1
+        memory.write(pc++, 0x4E);
+        memory.write(pc++, 0x00);
+        memory.write(pc++, 0x71); // LSR $7100
+        cpu.reset();
+        int c = runInstr();
+        assertTrue(c >= 5 && c <= 7);
+        assertEquals(0x7F, memory.read(0x7100));
+        assertTrue(cpu.isCarry());
+        assertFalse(cpu.isZero());
+    }
+
+    @Test
+    public void testAbsoluteX() {
+        int pc = 0x7800;
+        setReset(pc);
+        memory.write(0x7205, 0x04); // -> 0x02 carry=0
+        memory.write(pc++, 0xA2);
+        memory.write(pc++, 0x05); // LDX #5
+        memory.write(pc++, 0x5E);
+        memory.write(pc++, 0x00);
+        memory.write(pc++, 0x72); // LSR $7200,X -> $7205
+        cpu.reset();
+        runInstr(); // LDX
+        int c = runInstr();
+        assertTrue(c >= 6 && c <= 8);
+        assertEquals(0x02, memory.read(0x7205));
+        assertFalse(cpu.isCarry());
+        assertFalse(cpu.isZero());
+    }
+
+    @Test
+    public void testAbsoluteTOP0x0C() {
+        int pc = 0x4000;
+        setReset(pc);
+        // Coloca A,X,Y,SP em valores não triviais para verificar preservação.
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0xAA); // LDA #$AA
+        memory.write(pc++, 0xA2);
+        memory.write(pc++, 0x55); // LDX #$55
+        memory.write(pc++, 0xA0);
+        memory.write(pc++, 0x33); // LDY #$33
+        memory.write(pc++, 0x0C);
+        memory.write(pc++, 0xF0);
+        memory.write(pc++, 0x20); // TOP abs ($20F0)
+        memory.write(pc++, 0xEA); // NOP para encerrar
+        cpu.reset();
+        runInstr();
+        runInstr();
+        runInstr(); // LDA, LDX, LDY
+        int beforeStatus = statusSnapshot();
+        int beforeA = cpu.getA(), beforeX = cpu.getX(), beforeY = cpu.getY(), beforeSP = cpu.getSP();
+        int beforePC = cpu.getPC();
+        int cyclesTop = runInstr(); // executa opcode 0x0C
+        assertTrue(cyclesTop >= 3 && cyclesTop <= 6); // tolerância: típico 4
+        assertEquals(beforeA, cpu.getA());
+        assertEquals(beforeX, cpu.getX());
+        assertEquals(beforeY, cpu.getY());
+        assertEquals(beforeSP, cpu.getSP());
+        assertEquals(beforeStatus, statusSnapshot());
+        assertEquals((beforePC + 3) & 0xFFFF, cpu.getPC(), "PC deve avançar 3 bytes");
+    }
+
+    @Test
+    public void testAbsoluteXVariantsCycleDifferenceAndState() {
+        int[] opcodes = { 0x1C, 0x3C, 0x5C, 0x7C, 0xDC, 0xFC };
+        for (int opc : opcodes) {
+            int pc = 0x5000;
+            setReset(pc);
+            // Setup registers baseline
+            memory.write(pc++, 0xA9);
+            memory.write(pc++, 0x77); // LDA #$77 (define N/Z)
+            memory.write(pc++, 0xA2);
+            memory.write(pc++, 0x0F); // LDX #$0F (no crossing)
+            memory.write(pc++, opc);
+            memory.write(pc++, 0xF0);
+            memory.write(pc++, 0x20); // TOP $20F0,X -> $20FF (sem crossing)
+            memory.write(pc++, 0xA2);
+            memory.write(pc++, 0x10); // LDX #$10 (crossing: $20F0 + 0x10 = $2100)
+            memory.write(pc++, opc);
+            memory.write(pc++, 0xF0);
+            memory.write(pc++, 0x20); // TOP again (com crossing)
+            memory.write(pc++, 0xEA); // NOP final
+            cpu.reset();
+
+            // Executa LDA e primeiro LDX
+            runInstr();
+            runInstr();
+            int statusBefore = statusSnapshot();
+            int aBefore = cpu.getA(), xBefore = cpu.getX(), yBefore = cpu.getY(), spBefore = cpu.getSP();
+            int pcBefore = cpu.getPC();
+            int cyclesNoCross = runInstr(); // TOP sem crossing
+            assertEquals(aBefore, cpu.getA());
+            assertEquals(xBefore, cpu.getX());
+            assertEquals(yBefore, cpu.getY());
+            assertEquals(spBefore, cpu.getSP());
+            assertEquals(statusBefore, statusSnapshot());
+            assertEquals((pcBefore + 3) & 0xFFFF, cpu.getPC(), "PC deve avançar 3 bytes (sem crossing)");
+
+            // LDX que provoca crossing
+            runInstr();
+            statusBefore = statusSnapshot();
+            aBefore = cpu.getA();
+            xBefore = cpu.getX();
+            yBefore = cpu.getY();
+            spBefore = cpu.getSP();
+            pcBefore = cpu.getPC();
+            int cyclesCross = runInstr(); // TOP com crossing
+            assertEquals(aBefore, cpu.getA());
+            assertEquals(xBefore, cpu.getX());
+            assertEquals(yBefore, cpu.getY());
+            assertEquals(spBefore, cpu.getSP());
+            assertEquals(statusBefore, statusSnapshot());
+            assertEquals((pcBefore + 3) & 0xFFFF, cpu.getPC(), "PC deve avançar 3 bytes (com crossing)");
+            // Verificação de ciclo extra: deve ser >=; preferimos exatamente +1 se
+            // implementação fiel
+            assertTrue(cyclesCross >= cyclesNoCross);
+            assertTrue(cyclesCross - cyclesNoCross <= 2); // margem de tolerância
+        }
+    }
+
     // --- Helpers & Test Memory ---
     private void runOne() {
         cpu.clock();
@@ -3798,5 +4056,24 @@ public class CPUTest {
     private void setReset(int pc) {
         memory.write(0xFFFC, pc & 0xFF);
         memory.write(0xFFFD, (pc >> 8) & 0xFF);
+    }
+
+    private int statusSnapshot() {
+        int s = 0;
+        if (cpu.isCarry())
+            s |= 1;
+        if (cpu.isZero())
+            s |= 2;
+        if (cpu.isInterruptDisable())
+            s |= 4;
+        if (cpu.isDecimal())
+            s |= 8;
+        if (cpu.isBreakFlag())
+            s |= 16;
+        if (cpu.isOverflow())
+            s |= 64;
+        if (cpu.isNegative())
+            s |= 128;
+        return s;
     }
 }

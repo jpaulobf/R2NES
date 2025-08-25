@@ -24,6 +24,9 @@ public class CPU implements iCPU {
     private boolean overflow;
     private boolean negative;
     private final iMemory memory;
+    // Flag de crossing de página para instruções que desejam aplicar ciclo extra
+    // (ex: TOP abs,X em modo fiel)
+    private boolean lastPageCrossed = false;
 
     // Cycle counter for instruction timing
     private int cycles;
@@ -304,6 +307,7 @@ public class CPU implements iCPU {
             case 0x2E: // ROL abs
             case 0x4E: // LSR abs
             case 0x6E: // ROR abs
+            case 0x0C: // TOP abs (triple NOP)
             case 0x4F: // SRE abs (ilegal)
             case 0x0F: // SLO abs (ilegal)
             case 0x8D: // STA abs
@@ -331,6 +335,12 @@ public class CPU implements iCPU {
             case 0x3E: // ROL abs,X
             case 0x5E: // LSR abs,X
             case 0x7E: // ROR abs,X
+            case 0x1C: // TOP abs,X (triple NOP)
+            case 0x3C: // TOP abs,X (triple NOP)
+            case 0x5C: // TOP abs,X (triple NOP)
+            case 0x7C: // TOP abs,X (triple NOP)
+            case 0xDC: // TOP abs,X (triple NOP)
+            case 0xFC: // TOP abs,X (triple NOP)
             case 0x5F: // SRE abs,X (ilegal)
             case 0x1F: // SLO abs,X (ilegal)
             case 0x9D: // STA abs,X
@@ -476,6 +486,8 @@ public class CPU implements iCPU {
     }
 
     private OperandResult fetchOperand(AddressingMode mode) {
+        // Reset tracking antes de cada novo fetch
+        lastPageCrossed = false;
         switch (mode) {
             case IMMEDIATE:
                 return new OperandResult(memory.read(pc++), -1);
@@ -504,6 +516,8 @@ public class CPU implements iCPU {
                 int hi = memory.read(pc++);
                 int base = (hi << 8) | lo;
                 int addr = (base + x) & 0xFFFF;
+                if (((base ^ addr) & 0xFF00) != 0)
+                    lastPageCrossed = true;
                 return new OperandResult(memory.read(addr), addr);
             }
             case ABSOLUTE_Y: {
@@ -1010,10 +1024,14 @@ public class CPU implements iCPU {
                 }
                 break;
             case DOP:
-                // DOP: Double NOP (2-byte NOP)
+                // DOP: Double NOP (2-byte) - operand já consumido conforme addressing mode.
                 break;
             case TOP:
-                // TOP (2/3-byte NOP): does nothing, PC already advanced when fetching operands
+                // TOP: Triple NOP (abs ou abs,X). Se abs,X e houve page crossing detectado no
+                // fetch, adiciona 1 ciclo.
+                if (mode == AddressingMode.ABSOLUTE_X && lastPageCrossed) {
+                    extraCycles += 1;
+                }
                 break;
             case ISC:
                 // ISC: INC memory, then SBC with A
