@@ -36,6 +36,13 @@ public class CPU implements iCPU {
     // Total executed CPU cycles (for tracing / nestest log)
     private long totalCycles;
 
+    // --- Instrumentation for debugging timing mismatches ---
+    private int lastOpcodeByte; // opcode of last fully executed instruction
+    private int lastBaseCycles; // base cycles (from table) for that opcode
+    private int lastExtraCycles; // dynamic extra cycles applied (branch taken, page cross, etc.)
+    private boolean lastBranchTaken; // whether a branch was taken
+    private boolean lastBranchPageCross; // whether a taken branch crossed a page (added +1)
+
     // --- RMW (Read-Modify-Write) micro handling state ---
     private boolean rmwActive = false; // true while a memory RMW instruction still needs dummy/final
                                        // write
@@ -194,22 +201,28 @@ public class CPU implements iCPU {
     // NES 6502 cycle table (official opcodes only, 256 entries)
     private static final int[] CYCLE_TABLE = new int[] {
             7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, // 0x00-0x0F
-            2, 5, 2, 8, 3, 4, 6, 6, 3, 4, 2, 7, 4, 4, 7, 7, // 0x10-0x1F
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x10-0x1F (ajustes: 0x14 DOP zpg,X=4, 0x18 CLC=2)
             6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, // 0x20-0x2F
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7, // 0x30-0x3F
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x30-0x3F (corrigido: AND abs,Y 0x39=4)
             6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, // 0x40-0x4F
-            2, 5, 2, 8, 3, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7, // 0x50-0x5F
-            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, // 0x60-0x6F
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7, // 0x70-0x7F
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x50-0x5F (ajustes: 0x54 DOP zpg,X=4, 0x55 EOR zpg,X=4,
+                                                            // 0x58 CLI=2, 0x5C TOP abs,X=4)
+            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, // 0x60-0x6F (corrigido: JMP (ind) 0x6C=5)
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x70-0x7F (0x78 SEI=2)
             2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0x80-0x8F
             2, 6, 2, 6, 4, 4, 4, 4, 2, 5, 2, 5, 5, 5, 5, 5, // 0x90-0x9F
-            2, 6, 2, 6, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xA0-0xAF
-            2, 5, 2, 5, 4, 4, 6, 6, 2, 5, 2, 5, 5, 5, 7, 7, // 0xB0-0xBF
+            2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0xA0-0xAF (corrigido: AE=4; A6/A7 zpg=3; AF LAX abs=4)
+            2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, // 0xB0-0xBF (corrigido: LAS 0xBB=4, LDX/LAX abs,Y=4;
+                                                            // removidos valores inflados)
             2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xC0-0xCF
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7, // 0xD0-0xDF
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xD0-0xDF (corrigido: CMP abs,Y 0xD9=4)
             2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xE0-0xEF
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 5, 2, 7, 4, 4, 7, 7 // 0xF0-0xFF
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xF0-0xFF (corrigido: SBC abs,Y 0xF9=4, INC/ISC ajustes
+                                                            // 0xF6=6,0xF7=6,0xFE=7,0xFF=7)
     };
+
+    // Debug logging flag (JSR/RTS tracing). Disable to silence verbose output.
+    private static final boolean TRACE_JSR_RTS = false;
 
     /*
      * CPU constructor
@@ -298,17 +311,29 @@ public class CPU implements iCPU {
         }
         int baseCycles = CYCLE_TABLE[opcodeByte & 0xFF];
         int remaining = baseCycles;
+        // reset instrumentation per instruction
+        lastOpcodeByte = opcodeByte & 0xFF;
+        lastBaseCycles = baseCycles;
+        lastExtraCycles = 0;
+        lastBranchTaken = false;
+        lastBranchPageCross = false;
         // Update lastPageCrossed for instructions that may rely (e.g., TOP abs,X
         // timing)
         lastPageCrossed = pageCrossed;
+        // Add +1 cycle on page crossing for read-only indexed addressing modes.
+        // Official opcodes already covered; include LAX (ilegal load A & X) which
+        // mirrors LDA timing.
         if (pageCrossed && (opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
                 opcode == Opcode.ADC || opcode == Opcode.SBC || opcode == Opcode.CMP ||
-                opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR)) {
+                opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR ||
+                opcode == Opcode.LAX)) {
             remaining += 1;
         }
         // Execute instruction work on this first cycle
         extraCycles = 0; // reset dynamic
         execute(opcode, mode, opRes.value, opRes.address);
+        // capture dynamic extra cycles applied inside execute()
+        lastExtraCycles = extraCycles;
         // Set remaining cycles minus the one we just spent
         cycles = Math.max(0, remaining - 1 + extraCycles);
     }
@@ -460,6 +485,7 @@ public class CPU implements iCPU {
             case 0x49: // EOR #imm
             case 0x09: // ORA #imm
             case 0xE9: // SBC #imm
+            case 0xEB: // SBC #imm (ilegal immediate variant)
             case 0x4B: // ALR #imm (ilegal)
             case 0x6B: // ARR #imm (ilegal)
             case 0xCB: // AXS #imm (ilegal)
@@ -861,8 +887,11 @@ public class CPU implements iCPU {
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1; // branch taken
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                    lastBranchTaken = true;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) {
                         extraCycles += 1; // page cross
+                        lastBranchPageCross = true;
+                    }
                 }
                 break;
             }
@@ -872,8 +901,11 @@ public class CPU implements iCPU {
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                    lastBranchTaken = true;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) {
                         extraCycles += 1;
+                        lastBranchPageCross = true;
+                    }
                 }
                 break;
             }
@@ -883,8 +915,11 @@ public class CPU implements iCPU {
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                    lastBranchTaken = true;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) {
                         extraCycles += 1;
+                        lastBranchPageCross = true;
+                    }
                 }
                 break;
             }
@@ -900,8 +935,11 @@ public class CPU implements iCPU {
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                    lastBranchTaken = true;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) {
                         extraCycles += 1;
+                        lastBranchPageCross = true;
+                    }
                 }
                 break;
             }
@@ -911,8 +949,11 @@ public class CPU implements iCPU {
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                    lastBranchTaken = true;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) {
                         extraCycles += 1;
+                        lastBranchPageCross = true;
+                    }
                 }
                 break;
             }
@@ -922,8 +963,11 @@ public class CPU implements iCPU {
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                    lastBranchTaken = true;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) {
                         extraCycles += 1;
+                        lastBranchPageCross = true;
+                    }
                 }
                 break;
             }
@@ -945,8 +989,11 @@ public class CPU implements iCPU {
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                    lastBranchTaken = true;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) {
                         extraCycles += 1;
+                        lastBranchPageCross = true;
+                    }
                 }
                 break;
             }
@@ -956,8 +1003,11 @@ public class CPU implements iCPU {
                     int oldPC = pc;
                     pc = (pc + offset) & 0xFFFF;
                     extraCycles += 1;
-                    if ((oldPC & 0xFF00) != (pc & 0xFF00))
+                    lastBranchTaken = true;
+                    if ((oldPC & 0xFF00) != (pc & 0xFF00)) {
                         extraCycles += 1;
+                        lastBranchPageCross = true;
+                    }
                 }
                 break;
             }
@@ -1038,8 +1088,11 @@ public class CPU implements iCPU {
                 // JSR: Jump to SubRoutine
                 // Push (PC-1) onto stack (high byte first, then low byte) - 6502 real behavior
                 int returnAddr = (pc - 1) & 0xFFFF;
-                System.err.printf("[JSR] PC=%04X, returnAddr=%04X, push high=%02X, low=%02X, SP=%02X\n", pc, returnAddr,
-                        (returnAddr >> 8) & 0xFF, returnAddr & 0xFF, sp);
+                if (TRACE_JSR_RTS) {
+                    System.err.printf("[JSR] PC=%04X, returnAddr=%04X, push high=%02X, low=%02X, SP=%02X\n", pc,
+                            returnAddr,
+                            (returnAddr >> 8) & 0xFF, returnAddr & 0xFF, sp);
+                }
                 push((returnAddr >> 8) & 0xFF); // High byte
                 push(returnAddr & 0xFF); // Low byte
                 pc = memAddr & 0xFFFF;
@@ -1125,8 +1178,11 @@ public class CPU implements iCPU {
                 int pcl_rts = pop();
                 int pch_rts = pop();
                 int retAddr = ((pch_rts << 8) | pcl_rts);
-                System.err.printf("[RTS] pop low=%02X, high=%02X, retAddr=%04X, PC=%04X, SP=%02X\n", pcl_rts, pch_rts,
-                        retAddr, pc, sp);
+                if (TRACE_JSR_RTS) {
+                    System.err.printf("[RTS] pop low=%02X, high=%02X, retAddr=%04X, PC=%04X, SP=%02X\n", pcl_rts,
+                            pch_rts,
+                            retAddr, pc, sp);
+                }
                 pc = (retAddr + 1) & 0xFFFF;
                 break;
             case SBC:
@@ -1490,5 +1546,25 @@ public class CPU implements iCPU {
 
     public void setNegative(boolean negative) {
         this.negative = negative;
+    }
+
+    public int getLastOpcodeByte() {
+        return lastOpcodeByte;
+    }
+
+    public int getLastBaseCycles() {
+        return lastBaseCycles;
+    }
+
+    public int getLastExtraCycles() {
+        return lastExtraCycles;
+    }
+
+    public boolean wasLastBranchTaken() {
+        return lastBranchTaken;
+    }
+
+    public boolean wasLastBranchPageCross() {
+        return lastBranchPageCross;
     }
 }

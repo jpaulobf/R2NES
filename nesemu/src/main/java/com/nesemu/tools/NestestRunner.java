@@ -58,9 +58,16 @@ public class NestestRunner {
                 cpu.stepInstruction(); // execute one instruction (advances cycles)
                 executed++;
 
-                // Termination conditions (checked on the opcode we just executed)
-                if (pcBefore == 0xC66E && opcode == 0x00) { // BRK at expected end
-                    termination = "Reached expected BRK at $C66E";
+                // Termination: reference trace ends after RTS (or historically BRK) at $C66E.
+                if (pcBefore == 0xC66E && (opcode == 0x60 || opcode == 0x00)) {
+                    termination = String.format(Locale.ROOT, "Reached expected %s at $C66E",
+                            opcode == 0x60 ? "RTS" : "BRK");
+                    break;
+                }
+                // Heuristic safety: if cycles exceed known end (~26554) without hitting C66E,
+                // stop.
+                if (cpu.getTotalCycles() >= 26554) {
+                    termination = "Heuristic stop (exceeded expected end cycles without hitting $C66E)";
                     break;
                 }
                 if (executed >= maxInstructions) {
@@ -91,7 +98,7 @@ public class NestestRunner {
             // Format similar to nestest.log:
             // PC(4) bytes(9) asm(padded) A:.. X:.. Y:.. P:.. SP:.. PPU: sss,xxx CYC:cycles
             return String.format(Locale.ROOT,
-                    "%04X  %-9s %-28s A:%02X X:%02X Y:%02X P:%02X SP:%02X PPU:%3d,%3d CYC:%d",
+                    "%04X  %-9s %-31s A:%02X X:%02X Y:%02X P:%02X SP:%02X PPU:%3d,%3d CYC:%d",
                     pc, bytesField, asm, a, x, y, p, sp, ppuScanline, ppuX, cyclesAfter);
         }
 
@@ -142,7 +149,6 @@ public class NestestRunner {
         String operand = "";
         boolean showValue = false;
         int effAddr = -1;
-        boolean isStore = isStore(mnemonic);
 
         switch (opcode) {
             // Accumulator (len 1)
@@ -365,7 +371,9 @@ public class NestestRunner {
                 operand = (opcode == 0x6C) ? String.format(Locale.ROOT, "($%04X)", addr)
                         : String.format(Locale.ROOT, "$%04X", addr);
                 effAddr = addr;
-                showValue = (!isStore && opcode != 0x20 && opcode != 0x4C && opcode != 0x6C);
+                // For absolute addressing we also show the pre-execution memory value for store
+                // instructions (nestest style: value shown is value BEFORE the write).
+                showValue = (opcode != 0x20 && opcode != 0x4C && opcode != 0x6C);
                 break; // no value for JSR/JMP
             // Absolute,X
             case 0xBD:
@@ -450,9 +458,4 @@ public class NestestRunner {
         tl.ppuX = (int) (ppuTotal % 341);
     }
 
-    private static boolean isStore(String mnemonic) {
-        return mnemonic.equals("STA") || mnemonic.equals("STX") || mnemonic.equals("STY") || mnemonic.equals("SAX")
-                || mnemonic.equals("AAX") || mnemonic.equals("SHA") || mnemonic.equals("AHX") || mnemonic.equals("SHX")
-                || mnemonic.equals("SHY") || mnemonic.equals("SHS") || mnemonic.equals("TAS") || mnemonic.equals("AXA");
-    }
 }
