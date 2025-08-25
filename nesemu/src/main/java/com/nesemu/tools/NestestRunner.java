@@ -2,7 +2,10 @@ package com.nesemu.tools;
 
 import com.nesemu.cpu.CPU;
 import com.nesemu.cpu.Opcode;
-import com.nesemu.memory.Memory;
+import com.nesemu.bus.Bus;
+import com.nesemu.bus.interfaces.iBus;
+import com.nesemu.ppu.Ppu2C02;
+import com.nesemu.mapper.Mapper0;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
 
@@ -32,10 +35,16 @@ public class NestestRunner {
         if (rom.getHeader().getMapper() != 0) {
             throw new IOException("Only mapper 0 supported in this simple runner");
         }
-        Memory mem = new Memory();
-        mem.loadCartridge(rom);
+    // Build components: Mapper0 -> Bus -> PPU -> CPU
+    Mapper0 mapper0 = new Mapper0(rom);
+    Ppu2C02 ppu = new Ppu2C02();
+    ppu.reset();
+    Bus bus = new Bus();
+    bus.attachPPU(ppu);
+    bus.attachMapper(mapper0, rom);
+    iBus cpuBus = bus; // view for CPU
 
-        CPU cpu = new CPU(mem);
+    CPU cpu = new CPU(cpuBus); // AFTER CPU refactor to accept iBus
         // Force nestest start state (bypassing reset vector) per official doc
         cpu.forceState(0xC000, 0x00, 0x00, 0x00, 0x24, 0xFD);
         // Baseline cycles (nestest expects first logged line CYC:7); we set pre-exec
@@ -47,10 +56,10 @@ public class NestestRunner {
         try (PrintWriter w = new PrintWriter(outPath.toFile())) {
             while (true) {
                 int pcBefore = cpu.getPC();
-                int opcode = mem.read(pcBefore);
+                int opcode = cpuBus.read(pcBefore);
 
                 // Build trace line with cycles BEFORE executing instruction (nestest style)
-                TraceLine tl = buildTraceLine(cpu, mem, pcBefore, opcode);
+                TraceLine tl = buildTraceLine(cpu, cpuBus, pcBefore, opcode);
                 tl.cyclesAfter = cpu.getTotalCycles(); // actually cycles before execution here
                 computePpu(tl);
                 w.println(tl.format());
@@ -107,7 +116,7 @@ public class NestestRunner {
         int a, x, y, p, sp; // register snapshot before execution (as per reference)
     }
 
-    private static TraceLine buildTraceLine(CPU cpu, Memory mem, int pc, int opcode) {
+    private static TraceLine buildTraceLine(CPU cpu, iBus mem, int pc, int opcode) {
         TraceLine tl = new TraceLine();
         tl.pc = pc;
         tl.op1 = mem.read((pc + 1) & 0xFFFF);
@@ -141,7 +150,7 @@ public class NestestRunner {
         String asm;
     }
 
-    private static Decoded decodeForAsm(CPU cpu, Memory mem, int pc, int opcode, int op1, int op2) {
+    private static Decoded decodeForAsm(CPU cpu, iBus mem, int pc, int opcode, int op1, int op2) {
         Decoded d = new Decoded();
         Opcode opEnum = Opcode.fromByte(opcode);
         String mnemonic = (opEnum != null) ? opEnum.name() : "???";

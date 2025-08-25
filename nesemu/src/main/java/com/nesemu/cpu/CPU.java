@@ -2,6 +2,7 @@ package com.nesemu.cpu;
 
 import com.nesemu.cpu.interfaces.iCPU;
 import com.nesemu.memory.interfaces.iMemory;
+import com.nesemu.bus.interfaces.iBus;
 
 /**
  * Class representing the NES CPU.
@@ -231,6 +232,15 @@ public class CPU implements iCPU {
      */
     public CPU(iMemory memory) {
         this.memory = memory;
+        reset();
+    }
+    /** Alternate constructor for new bus interface (iBus) */
+    public CPU(iBus bus) {
+        // Adapt iBus to iMemory expectations via simple wrapper
+        this.memory = new iMemory() {
+            @Override public int read(int address) { return bus.read(address); }
+            @Override public void write(int address, int value) { bus.write(address, value); }
+        };
         reset();
     }
 

@@ -1,7 +1,10 @@
 package com.nesemu.tools;
 
 import com.nesemu.cpu.CPU;
-import com.nesemu.memory.Memory;
+import com.nesemu.bus.Bus;
+import com.nesemu.bus.interfaces.iBus;
+import com.nesemu.ppu.Ppu2C02;
+import com.nesemu.mapper.Mapper0;
 import com.nesemu.rom.RomLoader;
 
 import java.io.BufferedReader;
@@ -26,10 +29,19 @@ public class NestestDiffer {
         File refFile = new File(args[1]);
         int limit = args.length >= 3 ? Integer.parseInt(args[2]) : 10000;
 
-        // Load ROM and construct minimal CPU+Memory environment (mapper 0 only)
+        // Load ROM and construct minimal system using Bus + Mapper0 + PPU
         com.nesemu.rom.INesRom rom = RomLoader.load(romFile.toPath());
-        Memory mem = new Memory();
-        mem.loadCartridge(rom);
+        if (rom.getHeader().getMapper() != 0) {
+            System.err.println("Only mapper 0 supported in this simple differ");
+            return;
+        }
+        Mapper0 mapper0 = new Mapper0(rom);
+        Ppu2C02 ppu = new Ppu2C02();
+        ppu.reset();
+        Bus bus = new Bus();
+        bus.attachPPU(ppu);
+        bus.attachMapper(mapper0, rom);
+        iBus mem = bus; // CPU view
         CPU cpu = new CPU(mem);
         // Force nestest canonical start state
         cpu.forceState(0xC000, 0x00, 0x00, 0x00, 0x24, 0xFD);
@@ -67,7 +79,7 @@ public class NestestDiffer {
         }
     }
 
-    private static void dumpMismatch(int step, String kind, long expected, long actual, CPU cpu, Memory mem,
+    private static void dumpMismatch(int step, String kind, long expected, long actual, CPU cpu, iBus mem,
             String refLine) {
         System.out.println("=== MISMATCH at step " + step + " kind=" + kind + " expected=" + expected + " actual="
                 + actual + " ===");
