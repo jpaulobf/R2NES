@@ -20,7 +20,7 @@ public enum Opcode {
     TAX, TAY, TSX, TXA, TXS, TYA,
 
     // Most common undocumented (illegal) instructions:
-    AAC, AAX, AHX, ALR, ANC, ARR, ASR, ATX, AXA, AXS, DCP, DOP, ISC, KIL, LAR, LAS, LAX, LXA, RLA, RRA, SAX, SBX, SHA,
+    AAC, AAX, AHX, ALR, ANC, ARR, ASR, AXA, AXS, DCP, DOP, ISC, KIL, LAR, LAS, LAX, LXA, RLA, RRA, SAX, SBX, SHA,
     SHS, SHX, SHY, SLO, SRE, TAS, TOP, XAA;
 
     // Utility: maps a name to the Opcode (useful for decoding)
@@ -44,7 +44,7 @@ public enum Opcode {
             OPCODE_TABLE[i] = NOP;
         OPCODE_TABLE[0x00] = BRK; // Break
         OPCODE_TABLE[0x01] = ORA; // ORA (Indirect, X)
-        OPCODE_TABLE[0x02] = ATX; // Reutilizado para ATX (ilegal custom) imediato
+        OPCODE_TABLE[0x02] = KIL; // 0x02 é JAM/KIL no hardware real
         OPCODE_TABLE[0x03] = SLO; // Shift Left, ORA (Indirect, X)
         OPCODE_TABLE[0x04] = DOP; // Double Operand
         OPCODE_TABLE[0x05] = ORA; // ORA (Zero Page)
