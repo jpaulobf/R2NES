@@ -10,14 +10,15 @@ import com.nesemu.memory.interfaces.iMemory; // legacy support
 
 /**
  * NES emulator façade. Now builds a proper Bus + Mapper0 + PPU stack.
- * Legacy constructor (iMemory) kept for CPU unit tests; new constructor accepts an iNES ROM.
+ * Legacy constructor (iMemory) kept for CPU unit tests; new constructor accepts
+ * an iNES ROM.
  */
 public class NesEmulator {
     private final CPU cpu;
-    private final Bus bus;          // system bus (CPU visible view via iBus)
-    private final Ppu2C02 ppu;      // minimal PPU skeleton
+    private final Bus bus; // system bus (CPU visible view via iBus)
+    private final Ppu2C02 ppu; // minimal PPU skeleton
     @SuppressWarnings("unused")
-    private final Mapper0 mapper;   // current mapper (NROM only)
+    private final Mapper0 mapper; // current mapper (NROM only)
 
     // Legacy path (kept for existing tests using Memory directly)
     public NesEmulator(iMemory memory) {
@@ -43,28 +44,44 @@ public class NesEmulator {
         // After CPU reset, PC set from reset vector.
     }
 
-    public CPU getCpu() { return cpu; }
-    public Bus getBus() { return bus; }
-    public Ppu2C02 getPpu() { return ppu; }
+    public CPU getCpu() {
+        return cpu;
+    }
 
-    public void reset() { cpu.reset(); if (ppu != null) ppu.reset(); }
+    public Bus getBus() {
+        return bus;
+    }
+
+    public Ppu2C02 getPpu() {
+        return ppu;
+    }
+
+    public void reset() {
+        cpu.reset();
+        if (ppu != null)
+            ppu.reset();
+    }
 
     /** Run N CPU cycles (each CPU cycle advances PPU 3 cycles). */
     public void runCycles(long cpuCycles) {
         if (bus == null) {
             // Legacy mode: no PPU stepping
-            for (long i=0;i<cpuCycles;i++) cpu.clock();
+            for (long i = 0; i < cpuCycles; i++)
+                cpu.clock();
             return;
         }
         for (long i = 0; i < cpuCycles; i++) {
             cpu.clock();
-            ppu.clock(); ppu.clock(); ppu.clock();
+            ppu.clock();
+            ppu.clock();
+            ppu.clock();
             // Future: APU clock (every CPU cycle) & poll NMI from PPU
         }
     }
 
     /** Run a number of full instructions (blocking). */
     public void runInstructions(long count) {
-        for (long i = 0; i < count; i++) cpu.stepInstruction();
+        for (long i = 0; i < count; i++)
+            cpu.stepInstruction();
     }
 }

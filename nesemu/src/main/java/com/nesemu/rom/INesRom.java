@@ -13,22 +13,34 @@ public class INesRom {
 
     public INesRom(INesHeader header, byte[] prgRom, byte[] chrRom, byte[] trainer) {
         this.header = header;
-    this.prgRom = prgRom; // already copied by loader
+        this.prgRom = prgRom; // already copied by loader
         this.chrRom = chrRom;
         this.trainer = trainer;
     }
 
-    public INesHeader getHeader() { return header; }
-    public byte[] getPrgRom() { return Arrays.copyOf(prgRom, prgRom.length); }
-    public byte[] getChrRom() { return Arrays.copyOf(chrRom, chrRom.length); }
-    public byte[] getTrainer() { return trainer == null ? null : Arrays.copyOf(trainer, trainer.length); }
+    public INesHeader getHeader() {
+        return header;
+    }
+
+    public byte[] getPrgRom() {
+        return Arrays.copyOf(prgRom, prgRom.length);
+    }
+
+    public byte[] getChrRom() {
+        return Arrays.copyOf(chrRom, chrRom.length);
+    }
+
+    public byte[] getTrainer() {
+        return trainer == null ? null : Arrays.copyOf(trainer, trainer.length);
+    }
 
     /**
-    * Builds a 32KB PRG-ROM image for $8000-$FFFF (mirrors if only 16KB present).
+     * Builds a 32KB PRG-ROM image for $8000-$FFFF (mirrors if only 16KB present).
      */
     public int[] buildPrgRom32k() {
         int pages = header.getPrgRomPages();
-    if (pages <= 0) throw new IllegalStateException("Invalid PRG page count");
+        if (pages <= 0)
+            throw new IllegalStateException("Invalid PRG page count");
         if (pages == 1) {
             int[] out = new int[0x8000];
             // copy 16KB into $8000-$BFFF and mirror at $C000-$FFFF
@@ -43,12 +55,13 @@ public class INesRom {
             // use first 2 pages (32KB) – extra ignored for simple mapper 0
             int[] out = new int[0x8000];
             int copy = Math.min(prgRom.length, 0x8000);
-            for (int i = 0; i < copy; i++) out[i] = prgRom[i] & 0xFF;
+            for (int i = 0; i < copy; i++)
+                out[i] = prgRom[i] & 0xFF;
             if (copy < 0x8000) {
-                for (int i = copy; i < 0x8000; i++) out[i] = 0;
+                for (int i = copy; i < 0x8000; i++)
+                    out[i] = 0;
             }
             return out;
         }
     }
 }
-

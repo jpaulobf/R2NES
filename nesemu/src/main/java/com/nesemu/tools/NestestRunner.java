@@ -35,16 +35,16 @@ public class NestestRunner {
         if (rom.getHeader().getMapper() != 0) {
             throw new IOException("Only mapper 0 supported in this simple runner");
         }
-    // Build components: Mapper0 -> Bus -> PPU -> CPU
-    Mapper0 mapper0 = new Mapper0(rom);
-    Ppu2C02 ppu = new Ppu2C02();
-    ppu.reset();
-    Bus bus = new Bus();
-    bus.attachPPU(ppu);
-    bus.attachMapper(mapper0, rom);
-    iBus cpuBus = bus; // view for CPU
+        // Build components: Mapper0 -> Bus -> PPU -> CPU
+        Mapper0 mapper0 = new Mapper0(rom);
+        Ppu2C02 ppu = new Ppu2C02();
+        ppu.reset();
+        Bus bus = new Bus();
+        bus.attachPPU(ppu);
+        bus.attachMapper(mapper0, rom);
+        iBus cpuBus = bus; // view for CPU
 
-    CPU cpu = new CPU(cpuBus); // AFTER CPU refactor to accept iBus
+        CPU cpu = new CPU(cpuBus); // AFTER CPU refactor to accept iBus
         // Force nestest start state (bypassing reset vector) per official doc
         cpu.forceState(0xC000, 0x00, 0x00, 0x00, 0x24, 0xFD);
         // Baseline cycles (nestest expects first logged line CYC:7); we set pre-exec

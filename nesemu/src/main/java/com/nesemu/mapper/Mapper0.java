@@ -6,7 +6,8 @@ import com.nesemu.rom.INesRom;
  * NROM (Mapper 0): No bank switching.
  * CPU $8000-$BFFF: first 16KB page (or only page)
  * CPU $C000-$FFFF: last 16KB page (mirror of first if only one)
- * PPU $0000-$1FFF: CHR-ROM (or CHR-RAM if size==0) – here we treat size 0 as 8KB RAM.
+ * PPU $0000-$1FFF: CHR-ROM (or CHR-RAM if size==0) – here we treat size 0 as
+ * 8KB RAM.
  */
 public class Mapper0 implements Mapper {
     private final int prgPageCount; // 16KB units
@@ -26,7 +27,8 @@ public class Mapper0 implements Mapper {
     @Override
     public int cpuRead(int address) {
         address &= 0xFFFF;
-        if (address < 0x8000) return 0; // mapper only handles PRG region
+        if (address < 0x8000)
+            return 0; // mapper only handles PRG region
         int offset = address - 0x8000;
         if (prgPageCount == 1) {
             // 16KB mirrored twice
@@ -35,7 +37,8 @@ public class Mapper0 implements Mapper {
             // 32KB directly
             offset &= 0x7FFF;
         }
-        if (offset >= prg.length) return 0; // safety
+        if (offset >= prg.length)
+            return 0; // safety
         return prg[offset] & 0xFF;
     }
 
@@ -49,7 +52,8 @@ public class Mapper0 implements Mapper {
         address &= 0x3FFF; // PPU address space
         if (address < 0x2000) {
             if (chr.length > 0) {
-                if (address < chr.length) return chr[address] & 0xFF;
+                if (address < chr.length)
+                    return chr[address] & 0xFF;
                 return 0;
             } else {
                 return chrRam[address & 0x1FFF] & 0xFF;

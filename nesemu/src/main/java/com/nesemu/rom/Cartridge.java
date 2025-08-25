@@ -15,6 +15,11 @@ public class Cartridge {
         this.mapper = mapper;
     }
 
-    public INesRom getRom() { return rom; }
-    public Mapper getMapper() { return mapper; }
+    public INesRom getRom() {
+        return rom;
+    }
+
+    public Mapper getMapper() {
+        return mapper;
+    }
 }

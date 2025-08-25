@@ -1,23 +1,28 @@
 package com.nesemu.ppu;
 
 /**
- * Minimal 2C02 PPU skeleton: implements core registers and a basic cycle/scanline counter.
+ * Minimal 2C02 PPU skeleton: implements core registers and a basic
+ * cycle/scanline counter.
  *
  * Exposed behaviour right now:
- * - write/read $2000-$2007 via Bus (Bus will call readRegister/writeRegister when integrated)
+ * - write/read $2000-$2007 via Bus (Bus will call readRegister/writeRegister
+ * when integrated)
  * - status ($2002) vblank bit set at scanline 241, cleared at pre-render (-1)
- * - simple VRAM address latch (PPUADDR) and increment logic (PPUDATA increments by 1 or 32)
- * - internal buffer for PPUDATA read delay emulation (return buffered & fill new)
+ * - simple VRAM address latch (PPUADDR) and increment logic (PPUDATA increments
+ * by 1 or 32)
+ * - internal buffer for PPUDATA read delay emulation (return buffered & fill
+ * new)
  *
- * Missing (future): pattern fetch pipeline, nametable/palette storage, mirroring, sprite system.
+ * Missing (future): pattern fetch pipeline, nametable/palette storage,
+ * mirroring, sprite system.
  */
 public class Ppu2C02 implements PPU {
 
     // Registers
-    private int regCTRL;   // $2000
-    private int regMASK;   // $2001
+    private int regCTRL; // $2000
+    private int regMASK; // $2001
     private int regSTATUS; // $2002
-    private int oamAddr;   // $2003
+    private int oamAddr; // $2003
     // $2004 OAMDATA (not implemented yet)
     // $2005 PPUSCROLL (x,y latch)
     // $2006 PPUADDR (VRAM address latch)
@@ -27,14 +32,14 @@ public class Ppu2C02 implements PPU {
     private boolean addrLatchHigh = true; // true -> next write is high byte
     private int vramAddress; // current VRAM address
     private int tempAddress; // temp (t) during address/scroll sequence
-    private int fineX;       // fine X scroll (0..7) from first scroll write
+    private int fineX; // fine X scroll (0..7) from first scroll write
 
     // Buffered read (PPUDATA) behavior
     private int readBuffer; // internal buffer
 
     // Timing counters
-    private int cycle;      // 0..340
-    private int scanline;   // -1 pre-render, 0..239 visible, 240 post, 241..260 vblank
+    private int cycle; // 0..340
+    private int scanline; // -1 pre-render, 0..239 visible, 240 post, 241..260 vblank
 
     @Override
     public void reset() {
@@ -56,7 +61,8 @@ public class Ppu2C02 implements PPU {
         if (cycle > 340) {
             cycle = 0;
             scanline++;
-            if (scanline > 260) scanline = -1; // wrap
+            if (scanline > 260)
+                scanline = -1; // wrap
             if (scanline == 241 && cycle == 0) {
                 // Enter vblank
                 regSTATUS |= 0x80; // set VBlank flag
@@ -148,13 +154,25 @@ public class Ppu2C02 implements PPU {
         vramAddress = (vramAddress + increment) & 0x7FFF; // 15-bit
     }
 
-    // Placeholder memory space for pattern/nametables/palette until Bus integration fleshed out.
-    private int ppuMemoryRead(int addr) { return 0; }
-    private void ppuMemoryWrite(int addr, int value) { /* ignore for now */ }
+    // Placeholder memory space for pattern/nametables/palette until Bus integration
+    // fleshed out.
+    private int ppuMemoryRead(int addr) {
+        return 0;
+    }
+
+    private void ppuMemoryWrite(int addr, int value) {
+        /* ignore for now */ }
 
     // Accessors for future tests/debug
-    public int getScanline() { return scanline; }
-    public int getCycle() { return cycle; }
-    public boolean isInVBlank() { return (regSTATUS & 0x80) != 0; }
-}
+    public int getScanline() {
+        return scanline;
+    }
 
+    public int getCycle() {
+        return cycle;
+    }
+
+    public boolean isInVBlank() {
+        return (regSTATUS & 0x80) != 0;
+    }
+}
