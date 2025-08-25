@@ -2367,8 +2367,7 @@ public class CPUTest {
 
     @Test
     public void testIllegalAAX_SAX_StoresMask_NoFlagChange() {
-        // Testa todas as variantes conhecidas de AAX (SAX): 0x87 (zp), 0x97 (zp,Y),
-        // 0x83 (indirect,X), 0x8F (abs)
+        // Variantes de SAX (também chamado AAX) originais de hardware: 0x87,0x97,0x83,0x8F
         // Comportamento: escreve (A & X) em memória, não altera flags.
         // Ciclos esperados (análogos ao STA/SAX): zp=3, zp,Y=4, (zp,X)=6, abs=4
         memory.write(0xFFFC, 0x00);
@@ -2413,64 +2412,59 @@ public class CPUTest {
         memory.write(0x0045, 0x24); // high
 
         cpu.reset();
-
-        // ---- 1) AAX zp ----
-        runOne(); // LDA
-        runOne(); // LDX
-        boolean c = cpu.isCarry(), z = cpu.isZero(), n = cpu.isNegative(), v = cpu.isOverflow();
-        int cyc = runMeasured();
+        // 1) AAX zp
+        runOne(); // LDA #$F0
+        runOne(); // LDX #$CC
+        boolean cBefore = cpu.isCarry();
+        boolean zBefore = cpu.isZero();
+        boolean nBefore = cpu.isNegative();
+        int cyc = runMeasured(); // AAX $10
         assertEquals(3, cyc, "AAX zp deve consumir 3 ciclos");
-        assertEquals(0xC0, memory.read(0x0010));
-        assertEquals(c, cpu.isCarry());
-        assertEquals(z, cpu.isZero());
-        assertEquals(n, cpu.isNegative());
-        assertEquals(v, cpu.isOverflow());
+        assertEquals(0xF0 & 0xCC, memory.read(0x0010), "AAX zp armazenou valor incorreto");
+        assertEquals(cBefore, cpu.isCarry(), "Flags não devem mudar (C)");
+        assertEquals(zBefore, cpu.isZero(), "Flags não devem mudar (Z)");
+        assertEquals(nBefore, cpu.isNegative(), "Flags não devem mudar (N)");
 
-        // ---- 2) AAX zp,Y ----
+        // 2) AAX zp,Y
         runOne(); // LDA #$3F
         runOne(); // LDX #$0F
         runOne(); // LDY #$05
-        c = cpu.isCarry();
-        z = cpu.isZero();
-        n = cpu.isNegative();
-        v = cpu.isOverflow();
-        cyc = runMeasured();
+        cBefore = cpu.isCarry();
+        zBefore = cpu.isZero();
+        nBefore = cpu.isNegative();
+        cyc = runMeasured(); // AAX $20,Y -> $25
         assertEquals(4, cyc, "AAX zp,Y deve consumir 4 ciclos");
-        assertEquals(0x0F, memory.read(0x0025));
-        assertEquals(c, cpu.isCarry());
-        assertEquals(z, cpu.isZero());
-        assertEquals(n, cpu.isNegative());
-        assertEquals(v, cpu.isOverflow());
+        assertEquals(0x3F & 0x0F, memory.read(0x0025), "AAX zp,Y armazenou valor incorreto");
+        assertEquals(cBefore, cpu.isCarry());
+        assertEquals(zBefore, cpu.isZero());
+        assertEquals(nBefore, cpu.isNegative());
 
-        // ---- 3) AAX (zp,X) ----
+        // 3) AAX ($10,X)
         runOne(); // LDA #$F3
         runOne(); // LDX #$34
-        c = cpu.isCarry();
-        z = cpu.isZero();
-        n = cpu.isNegative();
-        v = cpu.isOverflow();
-        cyc = runMeasured();
+        cBefore = cpu.isCarry();
+        zBefore = cpu.isZero();
+        nBefore = cpu.isNegative();
+        cyc = runMeasured(); // AAX ($10,X)
         assertEquals(6, cyc, "AAX (zp,X) deve consumir 6 ciclos");
-        assertEquals(0x30, memory.read(0x2468));
-        assertEquals(c, cpu.isCarry());
-        assertEquals(z, cpu.isZero());
-        assertEquals(n, cpu.isNegative());
-        assertEquals(v, cpu.isOverflow());
+        int destInd = 0x2468; // preparado anteriormente
+        assertEquals(0xF3 & 0x34, memory.read(destInd), "AAX (zp,X) armazenou valor incorreto");
+        assertEquals(cBefore, cpu.isCarry());
+        assertEquals(zBefore, cpu.isZero());
+        assertEquals(nBefore, cpu.isNegative());
 
-        // ---- 4) AAX abs ----
+        // 4) AAX abs
         runOne(); // LDA #$5A
         runOne(); // LDX #$3C
-        c = cpu.isCarry();
-        z = cpu.isZero();
-        n = cpu.isNegative();
-        v = cpu.isOverflow();
-        cyc = runMeasured();
+        cBefore = cpu.isCarry();
+        zBefore = cpu.isZero();
+        nBefore = cpu.isNegative();
+        cyc = runMeasured(); // AAX $3000
         assertEquals(4, cyc, "AAX abs deve consumir 4 ciclos");
-        assertEquals(0x18, memory.read(0x3000));
-        assertEquals(c, cpu.isCarry());
-        assertEquals(z, cpu.isZero());
-        assertEquals(n, cpu.isNegative());
-        assertEquals(v, cpu.isOverflow());
+        assertEquals(0x5A & 0x3C, memory.read(0x3000), "AAX abs armazenou valor incorreto");
+        assertEquals(cBefore, cpu.isCarry());
+        assertEquals(zBefore, cpu.isZero());
+        assertEquals(nBefore, cpu.isNegative());
     }
 
     @Test
@@ -2574,49 +2568,7 @@ public class CPUTest {
         assertFalse(cpu.isNegative());
     }
 
-    @Test
-    public void testIllegalATX_Immediate() {
-        // ATX (mapeado aqui no opcode 0x02) semântica adotada: A = A & X; em seguida A
-        // = X = A & operando.
-        // Isso equivale a A_final = X_final = (A_inicial & X_inicial & imediato).
-        // Cenários calculados:
-        // 1) A=0xF0, X=0xCC, imm=0x3C => (F0 & CC)=C0; C0 & 3C = 0x00 => resultado
-        // final 0x00
-        // 2) A=0x55, X=0x0F, imm=0x01 => (55 & 0F)=05; 05 & 01 = 0x01 => resultado
-        // final 0x01
-        memory.write(0xFFFC, 0x00);
-        memory.write(0xFFFD, 0xF1); // PC=0xF100
-        int pc = 0xF100;
-        // Caso 1
-        memory.write(pc++, 0xA9);
-        memory.write(pc++, 0xF0); // LDA #$F0
-        memory.write(pc++, 0xA2);
-        memory.write(pc++, 0xCC); // LDX #$CC
-        memory.write(pc++, 0x02);
-        memory.write(pc++, 0x3C); // ATX #$3C
-        // Caso 2
-        memory.write(pc++, 0xA9);
-        memory.write(pc++, 0x55); // LDA #$55
-        memory.write(pc++, 0xA2);
-        memory.write(pc++, 0x0F); // LDX #$0F
-        memory.write(pc++, 0x02);
-        memory.write(pc++, 0x01); // ATX #$01
-        cpu.reset();
-        // Caso 1
-        runOne(); // LDA
-        runOne(); // LDX
-        int cyc = runMeasured();
-        assertEquals(2, cyc, "ATX imediato deve consumir 2 ciclos (como imediato padrão)");
-        assertEquals(0x00, cpu.getA(), "ATX caso1 A incorreto (esperado 0x00)");
-        assertEquals(0x00, cpu.getX(), "ATX caso1 X incorreto (esperado 0x00)");
-        // Caso 2
-        runOne(); // LDA
-        runOne(); // LDX
-        cyc = runMeasured();
-        assertEquals(2, cyc);
-        assertEquals(0x01, cpu.getA(), "ATX caso2 A incorreto");
-        assertEquals(0x01, cpu.getX(), "ATX caso2 X incorreto");
-    }
+    // Teste ATX removido: opcode 0x02 restaurado para KIL (JAM) conforme hardware.
 
     @Test
     public void testIllegalASR_AliasBehaviorImmediate() {

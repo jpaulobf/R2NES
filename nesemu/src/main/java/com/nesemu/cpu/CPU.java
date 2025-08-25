@@ -203,7 +203,6 @@ public class CPU implements iCPU {
             case 0xA0: // LDY #imm
             case 0x69: // ADC #imm
             case 0x29: // AND #imm
-            case 0x02: // ATX #imm (ilegal remapeado)
             case 0x0B: // ANC/AAC #imm (ilegal)
             case 0x2B: // ANC/AAC #imm (ilegal)
             case 0xAB: // LXA #imm (ilegal)
@@ -467,6 +466,7 @@ public class CPU implements iCPU {
             case 0xD8: // CLD
             case 0xE8: // INX
             case 0xEA: // NOP
+            case 0x02: // KIL (JAM)
             case 0xF8: // SED
                 return AddressingMode.IMPLIED;
 
@@ -996,20 +996,6 @@ public class CPU implements iCPU {
                 setZeroAndNegative(a);
                 carry = (a & 0x40) != 0;
                 overflow = (((a >> 5) & 1) ^ ((a >> 6) & 1)) != 0;
-                break;
-            case ATX:
-                // ATX (custom mapping on 0x02): common emulation form chosen here:
-                // Final effect: A = X = (A_initial & X_initial & immediate)
-                // (Equivalent to two-step: A = A & X; then A = X = A & imm)
-                // We compute directly from the originals to avoid surprises with intermediate
-                // state.
-                int origA = a & 0xFF;
-                int origX = x & 0xFF;
-                int imm = operand & 0xFF;
-                int atxVal = (origA & origX & imm) & 0xFF;
-                a = atxVal;
-                x = atxVal;
-                setZeroAndNegative(a);
                 break;
             case AXA:
                 // AXA: Store (A & X) & (high byte of address + 1) to memory
