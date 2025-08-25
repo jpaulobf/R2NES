@@ -233,7 +233,7 @@ public class CPU implements iCPU {
         pc = (memory.read(0xFFFC) | (memory.read(0xFFFD) << 8));
         carry = zero = interruptDisable = decimal = breakFlag = overflow = negative = false;
         unused = true; // Bit 5 of the status register is always set
-        totalCycles = 0;
+        totalCycles = 0; // external tools may set a baseline (e.g., 7 for nestest) after forceState
     }
 
     /**
@@ -316,6 +316,11 @@ public class CPU implements iCPU {
     // --- Tracing / external inspection helpers ---
     public long getTotalCycles() {
         return totalCycles;
+    }
+
+    /** Set total cycle counter baseline (used for nestest formatting). */
+    public void setTotalCycles(long cycles) {
+        this.totalCycles = cycles;
     }
 
     public int getA() {
@@ -1071,8 +1076,10 @@ public class CPU implements iCPU {
                 push(a & 0xFF);
                 break;
             case PHP:
-                // PHP: Push Processor Status (com flag B setada)
-                push(getStatusByte() | 0x10);
+                // PHP: Push Processor Status with B flag set (bit4) & unused (bit5)
+                // Internal breakFlag is not latched true permanently.
+                int ps = getStatusByte() | 0x10; // ensure B=1 in pushed value
+                push(ps);
                 break;
             case PLA:
                 a = pop() & 0xFF;
@@ -1082,8 +1089,9 @@ public class CPU implements iCPU {
                 // PLP: Pull Processor Status from stack
                 int status = pop() & 0xFF;
                 setStatusByte(status);
-                // On 6502, the unused flag is always set to true after PLP
+                // Real 6502: bit 5 forced 1, bit 4 (B) not a persistent latch except in pushes.
                 unused = true;
+                breakFlag = false; // clear B internally to match nestest expectations
                 break;
             case ROL:
                 if (mode == AddressingMode.ACCUMULATOR) {
