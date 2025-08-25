@@ -9,13 +9,13 @@ import com.nesemu.bus.interfaces.iBus;
  * Implements the main functionalities and instructions of the processor.
  */
 public class CPU implements iCPU {
-    private int a; // Acumulador
+    private int a; // Accumulator
     private int x; // Register X
     private int y; // Register Y
     private int sp; // Stack Pointer
     private int pc; // Program Counter
 
-    // Flags de status
+    // Status flags
     private boolean carry;
     private boolean zero;
     private boolean interruptDisable;
@@ -25,15 +25,18 @@ public class CPU implements iCPU {
     private boolean overflow;
     private boolean negative;
     private final iMemory memory;
+
     // Page crossing flag for instructions that may apply an extra cycle
-    // (ex: TOP abs,X em modo fiel)
+    // (e.g., TOP abs,X in faithful mode)
     private boolean lastPageCrossed = false;
 
     // Cycle counter for instruction timing
     private int cycles;
+
     // Dynamic extra cycles (branch taken, page crossing in branches, etc.)
     // applied after execution
     private int extraCycles;
+
     // Total executed CPU cycles (for tracing / nestest log)
     private long totalCycles;
 
@@ -43,13 +46,17 @@ public class CPU implements iCPU {
     private int lastExtraCycles; // dynamic extra cycles applied (branch taken, page cross, etc.)
     private boolean lastBranchTaken; // whether a branch was taken
     private boolean lastBranchPageCross; // whether a taken branch crossed a page (added +1)
+    private int lastInstrPC; // PC at start (fetch) of last instruction - Aux for micro bus simulation
+    private int lastZpOperand; // last zero-page operand byte (for (zp),Y store microsequence) - For optimized
+                               // store (zp),Y microsequencing without duplicate zp pointer reads
+    private int lastIndirectBaseLo = -1;
+    private int lastIndirectBaseHi = -1;
 
     // --- RMW (Read-Modify-Write) micro handling state ---
-    private boolean rmwActive = false; // true while a memory RMW instruction still needs dummy/final
-                                       // write
+    private boolean rmwActive = false; // true while a memory RMW instruction still needs dummy/final write
     private int rmwAddress; // target address
-    private int rmwOriginal; // valor original lido
-    private int rmwModified; // valor final a gravar (usado para debug)
+    private int rmwOriginal; // original value read
+    private int rmwModified; // final value to write (used for debug)
     private RmwKind rmwKind; // operation type for commit
     private int rmwCarryIn; // input carry (prior to modification)
 
@@ -59,9 +66,9 @@ public class CPU implements iCPU {
     }
 
     /**
-     * Inicia sequência RMW em memória. Nenhuma modificação de flags/registos
-     * acontece aqui;
-     * tudo é aplicado em performRmwCommit() no penúltimo ciclo (final write).
+     * Starts an RMW sequence in memory. No flag/register modification happens here;
+     * everything is applied in performRmwCommit() on the penultimate cycle (final
+     * write).
      */
     private void startRmw(int address, int originalValue, RmwKind kind) {
         this.rmwActive = true;
@@ -72,11 +79,10 @@ public class CPU implements iCPU {
     }
 
     /**
-     * Aplica a modificação e grava o valor final em memória. Ordem de efeitos
-     * modela
-     * o comportamento do 6502: carry/flags atualizados com base no valor original /
-     * modificado
-     * apenas quando o write final acontece.
+     * Applies the modification and writes the final value to memory. Effect order
+     * models 6502 behavior: carry/flags updated based on the original/modified
+     * value
+     * only when the final write happens.
      */
     private void performRmwCommit() {
         int original = rmwOriginal & 0xFF;
@@ -187,7 +193,7 @@ public class CPU implements iCPU {
                 break;
             }
         }
-        this.rmwModified = newVal & 0xFF; // armazenar caso debugging futuro
+        this.rmwModified = newVal & 0xFF; // store for future debugging
     }
 
     // Expose final RMW value for possible external debug avoiding unused warning
@@ -202,23 +208,25 @@ public class CPU implements iCPU {
     // NES 6502 cycle table (official opcodes only, 256 entries)
     private static final int[] CYCLE_TABLE = new int[] {
             7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, // 0x00-0x0F
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x10-0x1F (ajustes: 0x14 DOP zpg,X=4, 0x18 CLC=2)
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x10-0x1F (adjustments: 0x14 DOP zpg,X=4, 0x18 CLC=2)
             6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, // 0x20-0x2F
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x30-0x3F (corrigido: AND abs,Y 0x39=4)
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x30-0x3F (corrected: AND abs,Y 0x39=4)
             6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, // 0x40-0x4F
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x50-0x5F (ajustes: 0x54 DOP zpg,X=4, 0x55 EOR zpg,X=4,
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x50-0x5F (adjustments: 0x54 DOP zpg,X=4, 0x55 EOR
+                                                            // zpg,X=4,
                                                             // 0x58 CLI=2, 0x5C TOP abs,X=4)
-            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, // 0x60-0x6F (corrigido: JMP (ind) 0x6C=5)
+            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, // 0x60-0x6F (corrected: JMP (ind) 0x6C=5)
             2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x70-0x7F (0x78 SEI=2)
             2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0x80-0x8F
             2, 6, 2, 6, 4, 4, 4, 4, 2, 5, 2, 5, 5, 5, 5, 5, // 0x90-0x9F
-            2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0xA0-0xAF (corrigido: AE=4; A6/A7 zpg=3; AF LAX abs=4)
-            2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, // 0xB0-0xBF (corrigido: LAS 0xBB=4, LDX/LAX abs,Y=4;
-                                                            // removidos valores inflados)
+            2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0xA0-0xAF (corrected: AE=4; A6/A7 zpg=3; AF LAX abs=4)
+            2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, // 0xB0-0xBF (corrected: LAS 0xBB=4, LDX/LAX abs,Y=4;
+                                                            // removed inflated values)
             2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xC0-0xCF
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xD0-0xDF (corrigido: CMP abs,Y 0xD9=4)
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xD0-0xDF (corrected: CMP abs,Y 0xD9=4)
             2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xE0-0xEF
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xF0-0xFF (corrigido: SBC abs,Y 0xF9=4, INC/ISC ajustes
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xF0-0xFF (corrected: SBC abs,Y 0xF9=4, INC/ISC
+                                                            // adjustments
                                                             // 0xF6=6,0xF7=6,0xFE=7,0xFF=7)
     };
 
@@ -234,12 +242,22 @@ public class CPU implements iCPU {
         this.memory = memory;
         reset();
     }
-    /** Alternate constructor for new bus interface (iBus) */
+
+    /** Alternate constructor for new bus interface (iBus) 
+     * TODO: REVIEW
+     */
     public CPU(iBus bus) {
         // Adapt iBus to iMemory expectations via simple wrapper
         this.memory = new iMemory() {
-            @Override public int read(int address) { return bus.read(address); }
-            @Override public void write(int address, int value) { bus.write(address, value); }
+            @Override
+            public int read(int address) {
+                return bus.read(address);
+            }
+
+            @Override
+            public void write(int address, int value) {
+                bus.write(address, value);
+            }
         };
         reset();
     }
@@ -270,18 +288,15 @@ public class CPU implements iCPU {
         // If cycles remain, process possible RMW phases and consume one cycle
         if (cycles > 0) {
             if (rmwActive) {
-                // 6502 pattern for memory RMW instructions: ... read -> dummy write -> final
-                // write
-                // Our 'cycles' counter already includes all remaining cycles for this
-                // instruction.
-                // Vamos disparar dummy write quando restarem 2 ciclos, e commit final quando
-                // restar 1.
+                // 6502 pattern for memory RMW instructions: ... read -> dummy write -> final write
+                // Our 'cycles' counter already includes all remaining cycles for this instruction.
+                // We'll trigger a dummy write when 2 cycles remain, and final commit when 1 remains.
                 if (cycles == 2) {
                     // Dummy write of the original value (no logical side effects)
                     memory.write(rmwAddress, rmwOriginal & 0xFF);
                 } else if (cycles == 1) {
-                    // Commit final (grava valor modificado e aplica efeitos em A/flags conforme
-                    // tipo)
+                    // Final commit (writes modified value and applies effects on A/flags according
+                    // to type)
                     performRmwCommit();
                     rmwActive = false;
                 }
@@ -303,20 +318,24 @@ public class CPU implements iCPU {
         }
         int opcodeByte = memory.read(pc);
         pc++;
+        lastInstrPC = (pc - 1) & 0xFFFF; // store starting PC
         Opcode opcode = Opcode.fromByte(opcodeByte);
         if (opcode == null)
             return;
         AddressingMode mode = getAddressingMode(opcodeByte);
-        OperandResult opRes = fetchOperand(mode);
+        boolean skipFinalRead = isStoreOpcode(opcodeByte);
+        OperandResult opRes = fetchOperand(mode, skipFinalRead);
         // Page crossing detection (only relevant for indexed modes)
         boolean pageCrossed = false;
         if (mode == AddressingMode.ABSOLUTE_X || mode == AddressingMode.ABSOLUTE_Y) {
             int index = (mode == AddressingMode.ABSOLUTE_X) ? x : y;
             int lo = (opRes.address - index) & 0xFFFF;
             pageCrossed = ((lo & 0xFF00) != (opRes.address & 0xFF00));
-        } else if (mode == AddressingMode.INDIRECT_Y) {
-            int zp = memory.read(pc - 1) & 0xFF;
-            int base = (memory.read((zp + 1) & 0xFF) << 8) | memory.read(zp);
+        } else if (mode == AddressingMode.INDIRECT_Y && !skipFinalRead) {
+            // For loads (and non-stores) we need to detect page crossings (+1 cycle). For
+            // stores we ignore the extra cycle and avoid duplicate pointer reads.
+            int zp = memory.read(pc - 1) & 0xFF; // operand byte already fetched
+            int base = (memory.read((zp + 1) & 0xFF) << 8) | memory.read(zp); // two extra reads (expected for load)
             pageCrossed = ((base & 0xFF00) != (opRes.address & 0xFF00));
         }
         int baseCycles = CYCLE_TABLE[opcodeByte & 0xFF];
@@ -327,11 +346,10 @@ public class CPU implements iCPU {
         lastExtraCycles = 0;
         lastBranchTaken = false;
         lastBranchPageCross = false;
-        // Update lastPageCrossed for instructions that may rely (e.g., TOP abs,X
-        // timing)
+        // Update lastPageCrossed for instructions that may rely (e.g., TOP abs,X timing)
         lastPageCrossed = pageCrossed;
         // Add +1 cycle on page crossing for read-only indexed addressing modes.
-        // Official opcodes already covered; include LAX (ilegal load A & X) which
+        // Official opcodes already covered; include LAX (illegal load A & X) which
         // mirrors LDA timing.
         if (pageCrossed && (opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
                 opcode == Opcode.ADC || opcode == Opcode.SBC || opcode == Opcode.CMP ||
@@ -346,16 +364,6 @@ public class CPU implements iCPU {
         lastExtraCycles = extraCycles;
         // Set remaining cycles minus the one we just spent
         cycles = Math.max(0, remaining - 1 + extraCycles);
-    }
-
-    // --- Tracing / external inspection helpers ---
-    public long getTotalCycles() {
-        return totalCycles;
-    }
-
-    /** Set total cycle counter baseline (used for nestest formatting). */
-    public void setTotalCycles(long cycles) {
-        this.totalCycles = cycles;
     }
 
     public int getA() {
@@ -376,6 +384,11 @@ public class CPU implements iCPU {
 
     public int getPC() {
         return pc & 0xFFFF;
+    }
+
+    /** PC where last completed instruction began. */
+    public int getLastInstrPC() {
+        return lastInstrPC & 0xFFFF;
     }
 
     public boolean isInstructionBoundary() {
@@ -480,25 +493,25 @@ public class CPU implements iCPU {
      */
     private AddressingMode getAddressingMode(int opcodeByte) {
         switch (opcodeByte) {
-            // --- Imediato (#) ---
+            // --- Immediate (#) ---
             case 0xA9: // LDA #imm
             case 0xA2: // LDX #imm
             case 0xA0: // LDY #imm
             case 0x69: // ADC #imm
             case 0x29: // AND #imm
-            case 0x0B: // ANC/AAC #imm (ilegal)
-            case 0x2B: // ANC/AAC #imm (ilegal)
-            case 0xAB: // LXA #imm (ilegal)
+            case 0x0B: // ANC/AAC #imm (illegal)
+            case 0x2B: // ANC/AAC #imm (illegal)
+            case 0xAB: // LXA #imm (illegal)
             case 0xC9: // CMP #imm
             case 0xE0: // CPX #imm
             case 0xC0: // CPY #imm
             case 0x49: // EOR #imm
             case 0x09: // ORA #imm
             case 0xE9: // SBC #imm
-            case 0xEB: // SBC #imm (ilegal immediate variant)
-            case 0x4B: // ALR #imm (ilegal)
-            case 0x6B: // ARR #imm (ilegal)
-            case 0xCB: // AXS #imm (ilegal)
+            case 0xEB: // SBC #imm (illegal immediate variant)
+            case 0x4B: // ALR #imm (illegal)
+            case 0x6B: // ARR #imm (illegal)
+            case 0xCB: // AXS #imm (illegal)
             case 0x80: // DOP immediate (2-byte NOP)
             case 0x82: // DOP immediate
             case 0x89: // DOP immediate
@@ -522,20 +535,20 @@ public class CPU implements iCPU {
             case 0x26: // ROL zp
             case 0x46: // LSR zp
             case 0x66: // ROR zp
-            case 0x47: // SRE zp (ilegal)
-            case 0x07: // SLO zp (ilegal)
-            case 0x67: // RRA zp (ilegal)
-            case 0x27: // RLA zp (ilegal)
+            case 0x47: // SRE zp (illegal)
+            case 0x07: // SLO zp (illegal)
+            case 0x67: // RRA zp (illegal)
+            case 0x27: // RLA zp (illegal)
             case 0x85: // STA zp
             case 0x86: // STX zp
             case 0x84: // STY zp
-            case 0x87: // SAX/AAX zp (ilegal)
-            case 0xA7: // LAX zp (ilegal)
+            case 0x87: // SAX/AAX zp (illegal)
+            case 0xA7: // LAX zp (illegal)
             case 0x24: // BIT zp
             case 0xC6: // DEC zp
             case 0xE6: // INC zp
-            case 0xC7: // DCP zp (ilegal)
-            case 0xE7: // ISC zp (ilegal)
+            case 0xC7: // DCP zp (illegal)
+            case 0xE7: // ISC zp (illegal)
             case 0x04: // DOP (NOP zp)
             case 0x44: // DOP (NOP zp)
             case 0x64: // DOP (NOP zp)
@@ -554,16 +567,16 @@ public class CPU implements iCPU {
             case 0x36: // ROL zp,X
             case 0x56: // LSR zp,X
             case 0x76: // ROR zp,X
-            case 0x57: // SRE zp,X (ilegal)
-            case 0x17: // SLO zp,X (ilegal)
-            case 0x77: // RRA zp,X (ilegal)
-            case 0x37: // RLA zp,X (ilegal)
+            case 0x57: // SRE zp,X (illegal)
+            case 0x17: // SLO zp,X (illegal)
+            case 0x77: // RRA zp,X (illegal)
+            case 0x37: // RLA zp,X (illegal)
             case 0x95: // STA zp,X
             case 0x94: // STY zp,X
             case 0xD6: // DEC zp,X
             case 0xF6: // INC zp,X
-            case 0xD7: // DCP zp,X (ilegal)
-            case 0xF7: // ISC zp,X (ilegal)
+            case 0xD7: // DCP zp,X (illegal)
+            case 0xF7: // ISC zp,X (illegal)
             case 0x14: // DOP (NOP zp,X)
             case 0x34: // DOP (NOP zp,X)
             case 0x54: // DOP (NOP zp,X)
@@ -575,11 +588,11 @@ public class CPU implements iCPU {
             // --- Zero Page,Y ---
             case 0xB6: // LDX zp,Y
             case 0x96: // STX zp,Y
-            case 0x97: // SAX/AAX zp,Y (ilegal)
-            case 0xB7: // LAX zp,Y (ilegal)
+            case 0x97: // SAX/AAX zp,Y (illegal)
+            case 0xB7: // LAX zp,Y (illegal)
                 return AddressingMode.ZERO_PAGE_Y;
 
-            // --- Absoluto ---
+            // --- Absolute ---
             case 0xAD: // LDA abs
             case 0xAE: // LDX abs
             case 0xAC: // LDY abs
@@ -596,23 +609,23 @@ public class CPU implements iCPU {
             case 0x4E: // LSR abs
             case 0x6E: // ROR abs
             case 0x0C: // TOP abs (triple NOP)
-            case 0x6F: // RRA abs (ilegal)
-            case 0x2F: // RLA abs (ilegal)
-            case 0x4F: // SRE abs (ilegal)
-            case 0x0F: // SLO abs (ilegal)
+            case 0x6F: // RRA abs (illegal)
+            case 0x2F: // RLA abs (illegal)
+            case 0x4F: // SRE abs (illegal)
+            case 0x0F: // SLO abs (illegal)
             case 0x8D: // STA abs
             case 0x8E: // STX abs
             case 0x8C: // STY abs
-            case 0x8F: // SAX/AAX abs (ilegal)
+            case 0x8F: // SAX/AAX abs (illegal)
             case 0x2C: // BIT abs
             case 0xCE: // DEC abs
             case 0xEE: // INC abs
-            case 0xCF: // DCP abs (ilegal)
-            case 0xEF: // ISC abs (ilegal)
-            case 0xAF: // LAX abs (ilegal)
+            case 0xCF: // DCP abs (illegal)
+            case 0xEF: // ISC abs (illegal)
+            case 0xAF: // LAX abs (illegal)
                 return AddressingMode.ABSOLUTE;
 
-            // --- Absoluto,X ---
+            // --- Absolute,X ---
             case 0xBD: // LDA abs,X
             case 0xBC: // LDY abs,X
             case 0x7D: // ADC abs,X
@@ -631,19 +644,19 @@ public class CPU implements iCPU {
             case 0x7C: // TOP abs,X (triple NOP)
             case 0xDC: // TOP abs,X (triple NOP)
             case 0xFC: // TOP abs,X (triple NOP)
-            case 0x7F: // RRA abs,X (ilegal)
-            case 0x3F: // RLA abs,X (ilegal)
-            case 0x5F: // SRE abs,X (ilegal)
-            case 0x1F: // SLO abs,X (ilegal)
+            case 0x7F: // RRA abs,X (illegal)
+            case 0x3F: // RLA abs,X (illegal)
+            case 0x5F: // SRE abs,X (illegal)
+            case 0x1F: // SLO abs,X (illegal)
             case 0x9D: // STA abs,X
             case 0x9C: // SHY abs,X (ilegal)
             case 0xDE: // DEC abs,X
             case 0xFE: // INC abs,X
-            case 0xDF: // DCP abs,X (ilegal)
-            case 0xFF: // ISC abs,X (ilegal)
+            case 0xDF: // DCP abs,X (illegal)
+            case 0xFF: // ISC abs,X (illegal)
                 return AddressingMode.ABSOLUTE_X;
 
-            // --- Absoluto,Y ---
+            // --- Absolute,Y ---
             case 0xB9: // LDA abs,Y
             case 0xBE: // LDX abs,Y
             case 0x79: // ADC abs,Y
@@ -654,23 +667,23 @@ public class CPU implements iCPU {
             case 0xF9: // SBC abs,Y
             case 0x99: // STA abs,Y
             case 0x9B: // SHS/TAS (ilegal) abs,Y
-            case 0x7B: // RRA abs,Y (ilegal)
-            case 0x9F: // AHX abs,Y (ilegal)
-            case 0x9E: // SHX abs,Y (ilegal)
-            case 0x5B: // SRE abs,Y (ilegal)
-            case 0x1B: // SLO abs,Y (ilegal)
-            case 0xDB: // DCP abs,Y (ilegal)
-            case 0xFB: // ISC abs,Y (ilegal)
-            case 0xBF: // LAX abs,Y (ilegal)
-            case 0xBB: // LAS abs,Y (ilegal)
-            case 0x3B: // RLA abs,Y (ilegal)
+            case 0x7B: // RRA abs,Y (illegal)
+            case 0x9F: // AHX abs,Y (illegal)
+            case 0x9E: // SHX abs,Y (illegal)
+            case 0x5B: // SRE abs,Y (illegal)
+            case 0x1B: // SLO abs,Y (illegal)
+            case 0xDB: // DCP abs,Y (illegal)
+            case 0xFB: // ISC abs,Y (illegal)
+            case 0xBF: // LAX abs,Y (illegal)
+            case 0xBB: // LAS abs,Y (illegal)
+            case 0x3B: // RLA abs,Y (illegal)
                 return AddressingMode.ABSOLUTE_Y;
 
-            // --- Indireto ---
+            // --- Indirect ---
             case 0x6C: // JMP (abs)
                 return AddressingMode.INDIRECT;
 
-            // --- Indireto,X ---
+            // --- Indirect,X ---
             case 0xA1: // LDA (zp,X)
             case 0x61: // ADC (zp,X)
             case 0x21: // AND (zp,X)
@@ -679,17 +692,17 @@ public class CPU implements iCPU {
             case 0x01: // ORA (zp,X)
             case 0xE1: // SBC (zp,X)
             case 0x81: // STA (zp,X)
-            case 0x83: // SAX/AAX (zp,X) (ilegal)
-            case 0x43: // SRE (zp,X) ilegal
-            case 0x03: // SLO (zp,X) ilegal
-            case 0xC3: // DCP (zp,X) ilegal
-            case 0xE3: // ISC (zp,X) ilegal
-            case 0xA3: // LAX (zp,X) ilegal
-            case 0x63: // RRA (zp,X) ilegal
-            case 0x23: // RLA (zp,X) ilegal
+            case 0x83: // SAX/AAX (zp,X) (illegal)
+            case 0x43: // SRE (zp,X) illegal
+            case 0x03: // SLO (zp,X) illegal
+            case 0xC3: // DCP (zp,X) illegal
+            case 0xE3: // ISC (zp,X) illegal
+            case 0xA3: // LAX (zp,X) illegal
+            case 0x63: // RRA (zp,X) illegal
+            case 0x23: // RLA (zp,X) illegal
                 return AddressingMode.INDIRECT_X;
 
-            // --- Indireto,Y ---
+            // --- Indirect,Y ---
             case 0xB1: // LDA (zp),Y
             case 0x71: // ADC (zp),Y
             case 0x31: // AND (zp),Y
@@ -698,17 +711,17 @@ public class CPU implements iCPU {
             case 0x11: // ORA (zp),Y
             case 0xF1: // SBC (zp),Y
             case 0x91: // STA (zp),Y
-            case 0x93: // AHX (zp),Y (ilegal)
-            case 0x53: // SRE (zp),Y ilegal
-            case 0x13: // SLO (zp),Y ilegal
-            case 0xD3: // DCP (zp),Y ilegal
-            case 0xF3: // ISC (zp),Y ilegal
-            case 0xB3: // LAX (zp),Y ilegal
-            case 0x73: // RRA (zp),Y ilegal
-            case 0x33: // RLA (zp),Y ilegal
+            case 0x93: // AHX (zp),Y (illegal)
+            case 0x53: // SRE (zp),Y illegal
+            case 0x13: // SLO (zp),Y illegal
+            case 0xD3: // DCP (zp),Y illegal
+            case 0xF3: // ISC (zp),Y illegal
+            case 0xB3: // LAX (zp),Y illegal
+            case 0x73: // RRA (zp),Y illegal
+            case 0x33: // RLA (zp),Y illegal
                 return AddressingMode.INDIRECT_Y;
 
-            // --- Relativo (branches) ---
+            // --- Relative (branches) ---
             case 0x10: // BPL
             case 0x30: // BMI
             case 0x50: // BVC
@@ -719,7 +732,7 @@ public class CPU implements iCPU {
             case 0xF0: // BEQ
                 return AddressingMode.RELATIVE;
 
-            // --- Acumulador ---
+            // --- Accumulator ---
             case 0x0A: // ASL A
             case 0x4A: // LSR A
             case 0x2A: // ROL A
@@ -784,31 +797,34 @@ public class CPU implements iCPU {
         }
     }
 
-    private OperandResult fetchOperand(AddressingMode mode) {
-        // Reset tracking antes de cada novo fetch
+    private OperandResult fetchOperand(AddressingMode mode, boolean skipFinalRead) {
+        // Reset tracking before each new fetch
         lastPageCrossed = false;
         switch (mode) {
             case IMMEDIATE:
                 return new OperandResult(memory.read(pc++), -1);
             case ZERO_PAGE: {
                 int addr = memory.read(pc) & 0xFF;
-                int value = memory.read(addr);
+                lastZpOperand = addr;
+                int value = skipFinalRead ? 0 : memory.read(addr);
                 pc++;
                 return new OperandResult(value, addr);
             }
             case ZERO_PAGE_X: {
                 int addr = (memory.read(pc++) + x) & 0xFF;
-                return new OperandResult(memory.read(addr), addr);
+                lastZpOperand = addr; // after index
+                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
             }
             case ZERO_PAGE_Y: {
                 int addr = (memory.read(pc++) + y) & 0xFF;
-                return new OperandResult(memory.read(addr), addr);
+                lastZpOperand = addr; // after index
+                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
             }
             case ABSOLUTE: {
                 int lo = memory.read(pc++);
                 int hi = memory.read(pc++);
                 int addr = (hi << 8) | lo;
-                return new OperandResult(memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
             }
             case ABSOLUTE_X: {
                 int lo = memory.read(pc++);
@@ -817,14 +833,14 @@ public class CPU implements iCPU {
                 int addr = (base + x) & 0xFFFF;
                 if (((base ^ addr) & 0xFF00) != 0)
                     lastPageCrossed = true;
-                return new OperandResult(memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
             }
             case ABSOLUTE_Y: {
                 int lo = memory.read(pc++);
                 int hi = memory.read(pc++);
                 int base = (hi << 8) | lo;
                 int addr = (base + y) & 0xFFFF;
-                return new OperandResult(memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
             }
             case INDIRECT: {
                 int ptr = memory.read(pc++) | (memory.read(pc++) << 8);
@@ -835,17 +851,25 @@ public class CPU implements iCPU {
             }
             case INDIRECT_X: {
                 int zp = (memory.read(pc++) + x) & 0xFF;
+                lastZpOperand = zp;
                 int lo = memory.read(zp);
                 int hi = memory.read((zp + 1) & 0xFF);
                 int addr = lo | (hi << 8);
-                return new OperandResult(memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
             }
             case INDIRECT_Y: {
                 int zp = memory.read(pc++) & 0xFF;
+                lastZpOperand = zp;
                 int lo = memory.read(zp);
                 int hi = memory.read((zp + 1) & 0xFF);
                 int base = (hi << 8) | lo;
                 int addr = (base + y) & 0xFFFF;
+                if (skipFinalRead) {
+                    // Record base pointer bytes for later microsequence without re-reading
+                    lastIndirectBaseLo = lo;
+                    lastIndirectBaseHi = hi;
+                    return new OperandResult(0, addr);
+                }
                 return new OperandResult(memory.read(addr), addr);
             }
             case RELATIVE:
@@ -855,6 +879,37 @@ public class CPU implements iCPU {
             case IMPLIED:
             default:
                 return new OperandResult(0, -1);
+        }
+    }
+
+    private boolean isStoreOpcode(int opcodeByte) {
+        switch (opcodeByte & 0xFF) {
+            case 0x85:
+            case 0x95:
+            case 0x8D:
+            case 0x9D:
+            case 0x99:
+            case 0x81:
+            case 0x91: // STA variants
+            case 0x86:
+            case 0x96:
+            case 0x8E: // STX
+            case 0x84:
+            case 0x94:
+            case 0x8C: // STY
+            case 0x87:
+            case 0x97:
+            case 0x8F: // SAX/AAX
+            case 0x9E:
+            case 0x9C: // SHX/SHY
+            case 0x9A: // TXS (not memory store but does not need operand read; harmless)
+            case 0x9B:
+            case 0x9F:
+            case 0x93: // SHS/TAS, AHX, AHX (zp),Y
+            case 0x83: // SAX (zp,X)
+                return true;
+            default:
+                return false;
         }
     }
 
@@ -1089,8 +1144,7 @@ public class CPU implements iCPU {
                 break;
             case JMP:
                 // For absolute JMP we must use the computed address (memAddr), not the read
-                // value
-                // lido.
+                // value.
                 // For indirect JMP (INDIRECT mode) memAddr also holds the correct destination
                 pc = memAddr & 0xFFFF;
                 break;
@@ -1219,7 +1273,12 @@ public class CPU implements iCPU {
                 break;
             case STA:
                 if (memAddr != -1) {
-                    memory.write(memAddr, a & 0xFF);
+                    if (mode == AddressingMode.INDIRECT_Y) {
+                        // Approximate microsequence for STA (zp),Y: generate faithful dummy reads.
+                        simulateStoreIndirectY(lastZpOperand, y, a & 0xFF);
+                    } else {
+                        memory.write(memAddr, a & 0xFF);
+                    }
                 }
                 break;
             case STX:
@@ -1281,7 +1340,7 @@ public class CPU implements iCPU {
                 break;
             case ALR:
             case ASR:
-                // ALR / ASR (opcode 0x4B): A = (A & operand) >> 1 ; Carry = bit0 antes do shift
+                // ALR / ASR (opcode 0x4B): A = (A & operand) >> 1 ; Carry = bit0 before shift
                 a = a & (operand & 0xFF);
                 carry = (a & 0x01) != 0;
                 a = (a >> 1) & 0xFF;
@@ -1323,8 +1382,8 @@ public class CPU implements iCPU {
                 // DOP: Double NOP (2-byte) - operand already consumed per addressing mode
                 break;
             case TOP:
-                // TOP: Triple NOP (abs ou abs,X). Se abs,X e houve page crossing detectado no
-                // fetch, adiciona 1 ciclo.
+                // TOP: Triple NOP (abs or abs,X). If abs,X and page crossing detected during
+                // fetch, add 1 cycle.
                 if (mode == AddressingMode.ABSOLUTE_X && lastPageCrossed) {
                     extraCycles += 1;
                 }
@@ -1414,6 +1473,32 @@ public class CPU implements iCPU {
                 // NOP or handle as illegal
                 break;
         }
+    }
+
+    /**
+     * Simulates bus pattern for STA (zp),Y (6 cycles) with dummy read before final
+     * write.
+     */
+    private void simulateStoreIndirectY(int zpPtr, int yReg, int value) {
+        int lo;
+        int hi;
+        if (lastIndirectBaseLo >= 0 && lastIndirectBaseHi >= 0) {
+            lo = lastIndirectBaseLo & 0xFF;
+            hi = lastIndirectBaseHi & 0xFF;
+        } else {
+            lo = memory.read(zpPtr & 0xFF); // fallback if not cached
+            hi = memory.read((zpPtr + 1) & 0xFF);
+        }
+        int sum = lo + (yReg & 0xFF);
+        int effLow = sum & 0xFF;
+        int carry = (sum >> 8) & 0x1;
+        int dummyAddr = (hi << 8) | effLow; // dummy read (old high, even if carry)
+        memory.read(dummyAddr & 0xFFFF); // dummy fetch
+        int effHigh = (hi + carry) & 0xFF;
+        int effAddr = (effHigh << 8) | effLow;
+        memory.write(effAddr, value & 0xFF); // final store
+        // Reset cache so next store cannot wrongly reuse
+        lastIndirectBaseLo = lastIndirectBaseHi = -1;
     }
 
     /**
@@ -1576,5 +1661,15 @@ public class CPU implements iCPU {
 
     public boolean wasLastBranchPageCross() {
         return lastBranchPageCross;
+    }
+
+    // Tracing / external inspection helpers
+    public long getTotalCycles() {
+        return totalCycles;
+    }
+
+    // Set total cycle counter baseline (used for nestest formatting).
+    public void setTotalCycles(long cycles) {
+        this.totalCycles = cycles;
     }
 }
