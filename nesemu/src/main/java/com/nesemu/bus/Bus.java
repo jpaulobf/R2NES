@@ -41,8 +41,16 @@ public class Bus implements iBus {
     // OAM DMA source page latch (write to $4014)
     private int pendingDmaPage = -1;
 
+    // Simple battery / work RAM area ($6000-$7FFF) for test ROMs (8KB)
+    private final int[] prgRam = new int[0x2000];
+
+    // Minimal APU register latches ($4000-$4017)
+    private final int[] apuRegs = new int[0x18];
+
     public void attachPPU(PPU ppu) {
         this.ppu = ppu;
+        // If CPU already attached through some pathway, attempt to link for NMI
+        tryLinkCpuToPpu();
     }
 
     public void attachAPU(APU apu) {
@@ -59,6 +67,23 @@ public class Bus implements iBus {
         this.rom = rom;
     }
 
+    private com.nesemu.cpu.CPU cpuRef; // optional reference for PPU NMI wiring
+
+    public void attachCPU(com.nesemu.cpu.CPU cpu) {
+        this.cpuRef = cpu;
+        tryLinkCpuToPpu();
+    }
+
+    private void tryLinkCpuToPpu() {
+        if (ppu != null && cpuRef != null) {
+            try {
+                // Call Ppu2C02.attachCPU if exists
+                ppu.getClass().getMethod("attachCPU", com.nesemu.cpu.CPU.class).invoke(ppu, cpuRef);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     /** CPU read (8-bit). */
     public int cpuRead(int address) {
         address &= 0xFFFF;
@@ -73,6 +98,10 @@ public class Bus implements iBus {
         } else if (address < 0x4014) {
             // APU + IO (partial). For now, only controllers at $4016/$4017 are meaningful
             // reads; others return 0.
+            if (address == 0x4015) {
+                // Return latched enables (bits 0-4) plus 0 for now; ignore length/IRQ flags
+                return apuRegs[0x15] & 0x1F; // simple reflection (no dynamic status bits yet)
+            }
             if (address == 0x4016)
                 return pad1 != null ? (pad1.read() & 0xFF) : 0;
             if (address == 0x4017)
@@ -88,10 +117,15 @@ public class Bus implements iBus {
             // Expansion ROM / rarely used
             return 0;
         } else if (address < 0x8000) {
-            // PRG RAM / Save RAM (through mapper if present)
-            if (mapper != null)
-                return mapper.cpuRead(address); // allow mapper override
-            return 0; // fallback none
+            // PRG RAM / Save RAM (through mapper if present). For mapper0 tests use local
+            // prgRam.
+            if (mapper != null) {
+                int v = mapper.cpuRead(address);
+                // If mapper returns 0 assume not handled and fall back
+                if (v != 0)
+                    return v;
+            }
+            return prgRam[address - 0x6000];
         } else {
             // PRG ROM via mapper (or basic mirror logic)
             if (mapper != null)
@@ -120,6 +154,13 @@ public class Bus implements iBus {
                 if (pad2 != null)
                     pad2.write(value);
             }
+            if (address >= 0x4000 && address <= 0x4013) {
+                apuRegs[address - 0x4000] = value; // store
+            } else if (address == 0x4015) {
+                apuRegs[0x15] = value;
+            } else if (address == 0x4017) {
+                apuRegs[0x17] = value; // frame counter mode latch
+            }
             // TODO: route APU register writes (0x4000-0x4013,4015,4017) once APU
             // implemented.
             return;
@@ -135,9 +176,17 @@ public class Bus implements iBus {
             // Expansion
             return;
         } else if (address < 0x8000) {
-            // PRG RAM via mapper
-            if (mapper != null)
+            // PRG RAM via mapper else local
+            boolean handled = false;
+            if (mapper != null) {
                 mapper.cpuWrite(address, value);
+                handled = true; // assume handled
+            }
+            if (!handled) {
+                prgRam[address - 0x6000] = value;
+            } else {
+                prgRam[address - 0x6000] = value; // also store locally so tests can read back
+            }
             return;
         } else {
             // Mapper control / bank switching
