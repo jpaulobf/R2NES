@@ -1,2 +1,3 @@
 **/nesemu/target/*
 .vscode/settings.json
+nesemu/out.log
