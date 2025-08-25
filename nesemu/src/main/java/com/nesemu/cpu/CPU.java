@@ -966,11 +966,10 @@ public class CPU implements iCPU {
                 carry = (a & 0x80) != 0;
                 break;
             case AAX:
+            case SAX:
                 // AAX (SAX): Store A & X to memory
                 if (memAddr != -1) {
                     int val = a & x;
-                    System.err.printf("[AAX] PC=%04X A=%02X X=%02X -> store %02X at %04X\n", (pc - 1) & 0xFFFF,
-                            a & 0xFF, x & 0xFF, val & 0xFF, memAddr & 0xFFFF);
                     memory.write(memAddr, val);
                 }
                 break;
@@ -1110,12 +1109,6 @@ public class CPU implements iCPU {
                     overflow = (~(accRra ^ adcVal) & (accRra ^ resultRra) & 0x80) != 0;
                     a = resultRra & 0xFF;
                     setZeroAndNegative(a);
-                }
-                break;
-            case SAX:
-                // SAX: Store A & X to memory
-                if (memAddr != -1) {
-                    memory.write(memAddr, a & x);
                 }
                 break;
             case SBX:
