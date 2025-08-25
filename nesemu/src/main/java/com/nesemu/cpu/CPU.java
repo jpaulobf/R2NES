@@ -230,6 +230,7 @@ public class CPU implements iCPU {
             case 0x24: // BIT zp
             case 0xC6: // DEC zp
             case 0xE6: // INC zp
+            case 0xC7: // DCP zp (ilegal)
                 return AddressingMode.ZERO_PAGE;
 
             // --- Zero Page,X ---
@@ -251,6 +252,7 @@ public class CPU implements iCPU {
             case 0x94: // STY zp,X
             case 0xD6: // DEC zp,X
             case 0xF6: // INC zp,X
+            case 0xD7: // DCP zp,X (ilegal)
                 return AddressingMode.ZERO_PAGE_X;
 
             // --- Zero Page,Y ---
@@ -284,6 +286,7 @@ public class CPU implements iCPU {
             case 0x2C: // BIT abs
             case 0xCE: // DEC abs
             case 0xEE: // INC abs
+            case 0xCF: // DCP abs (ilegal)
                 return AddressingMode.ABSOLUTE;
 
             // --- Absoluto,X ---
@@ -305,6 +308,7 @@ public class CPU implements iCPU {
             case 0x9C: // SHY abs,X (ilegal)
             case 0xDE: // DEC abs,X
             case 0xFE: // INC abs,X
+            case 0xDF: // DCP abs,X (ilegal)
                 return AddressingMode.ABSOLUTE_X;
 
             // --- Absoluto,Y ---
@@ -322,6 +326,7 @@ public class CPU implements iCPU {
             case 0x9E: // SHX abs,Y (ilegal)
             case 0x5B: // SRE abs,Y (ilegal)
             case 0x1B: // SLO abs,Y (ilegal)
+            case 0xDB: // DCP abs,Y (ilegal)
                 return AddressingMode.ABSOLUTE_Y;
 
             // --- Indireto ---
@@ -340,6 +345,7 @@ public class CPU implements iCPU {
             case 0x83: // SAX/AAX (zp,X) (ilegal)
             case 0x43: // SRE (zp,X) ilegal
             case 0x03: // SLO (zp,X) ilegal
+            case 0xC3: // DCP (zp,X) ilegal
                 return AddressingMode.INDIRECT_X;
 
             // --- Indireto,Y ---
@@ -354,6 +360,7 @@ public class CPU implements iCPU {
             case 0x93: // AHX (zp),Y (ilegal)
             case 0x53: // SRE (zp),Y ilegal
             case 0x13: // SLO (zp),Y ilegal
+            case 0xD3: // DCP (zp),Y ilegal
                 return AddressingMode.INDIRECT_Y;
 
             // --- Relativo (branches) ---
