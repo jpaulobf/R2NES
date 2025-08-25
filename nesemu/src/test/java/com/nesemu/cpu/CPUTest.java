@@ -2826,6 +2826,178 @@ public class CPUTest {
         assertTrue(cpu.isZero());
     }
 
+    @Test
+    public void testArrBasicNoCarry() {
+        // Reset vector -> 0x4000
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x40);
+        int pc = 0x4000;
+        // LDA #$FF ; ARR #$FF com carry inicial = 0
+        memory.write(pc++,0xA9); memory.write(pc++,0xFF);
+        memory.write(pc++,0x6B); memory.write(pc++,0xFF);
+        cpu.reset();
+        cpu.setCarry(false);
+        // LDA
+        runOne();
+        assertEquals(0xFF, cpu.getA());
+        // ARR
+        runOne();
+        // A & imm = 0xFF -> ROR sem carry-in => 0x7F
+        assertEquals(0x7F, cpu.getA());
+        assertTrue(cpu.isCarry(), "Carry deve vir do bit6 (1)");
+        assertFalse(cpu.isOverflow(), "Overflow = bit5 ^ bit6 => 1 ^ 1 = 0");
+        assertFalse(cpu.isNegative());
+        assertFalse(cpu.isZero());
+    }
+
+    @Test
+    public void testArrCarryInAffectsBit7() {
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x40);
+        int pc = 0x4000;
+        // LDA #$80 ; ARR #$FF com carry inicial = 1
+        memory.write(pc++,0xA9); memory.write(pc++,0x80);
+        memory.write(pc++,0x6B); memory.write(pc++,0xFF);
+        cpu.reset();
+        cpu.setCarry(true); // carry-in para ROR
+        runOne(); // LDA
+        runOne(); // ARR
+        // A & FF = 0x80 -> ROR com carry-in 1 => ((0x80>>1)|0x80)=0xC0
+        assertEquals(0xC0, cpu.getA());
+        assertTrue(cpu.isCarry(), "Carry = bit6 de 0xC0 (1)");
+        // Bits5=0, bit6=1 => overflow = 1
+        assertTrue(cpu.isOverflow());
+        assertTrue(cpu.isNegative());
+        assertFalse(cpu.isZero());
+    }
+
+    @Test
+    public void testArrZeroResult() {
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x40);
+        int pc = 0x4000;
+        // LDA #$01 ; ARR #$01 carry=0
+        memory.write(pc++,0xA9); memory.write(pc++,0x01);
+        memory.write(pc++,0x6B); memory.write(pc++,0x01);
+        cpu.reset();
+        cpu.setCarry(false);
+        runOne(); // LDA
+        runOne(); // ARR
+        // (0x01 & 0x01)=0x01 -> ROR => 0x00
+        assertEquals(0x00, cpu.getA());
+        assertFalse(cpu.isCarry());
+        assertFalse(cpu.isOverflow());
+        assertFalse(cpu.isNegative());
+        assertTrue(cpu.isZero());
+    }
+
+    @Test
+    public void testArrOverflowBit5SetBit6Clear() {
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x40);
+        int pc = 0x4000;
+        // LDA #$40 ; ARR #$FF carry=0 -> (0x40>>1)=0x20
+        memory.write(pc++,0xA9); memory.write(pc++,0x40);
+        memory.write(pc++,0x6B); memory.write(pc++,0xFF);
+        cpu.reset();
+        cpu.setCarry(false);
+        runOne(); // LDA
+        runOne(); // ARR
+        assertEquals(0x20, cpu.getA());
+        // bit6=0 => carry false; bits5=1 bit6=0 => overflow true
+        assertFalse(cpu.isCarry());
+        assertTrue(cpu.isOverflow());
+        assertFalse(cpu.isNegative());
+        assertFalse(cpu.isZero());
+    }
+
+    // Caso base zero page: memória 0x10=0x05 -> vira 0x06; A=0x0A; SBC 0x06 => A = 0x04, flags: C=1, Z=0, N=0
+    @Test
+    public void iscZeroPage() {
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x40); int pc=0x4000;
+        memory.write(0x0010,0x05);
+        memory.write(pc++,0xA9); memory.write(pc++,0x0A); // LDA #$0A
+        memory.write(pc++,0xE7); memory.write(pc++,0x10); // ISC $10
+        cpu.reset(); cpu.setCarry(true); // SBC usa (1-carry) então carry true = sem borrow
+        runOne(); // LDA
+        runOne(); // ISC
+        assertEquals(0x06, memory.read(0x0010));
+        assertEquals(0x04, cpu.getA());
+        assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative());
+    }
+
+    // Zero page,X: memória 0x0020=0xFF -> 0x00; A=0x00; resultado SBC 0x00 = 0x00; C=1, Z=1
+    @Test
+    public void iscZeroPageXWrap() {
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x40); int pc=0x4000;
+        memory.write(0x0020,0xFF);
+        memory.write(pc++,0xA2); memory.write(pc++,0x20); // LDX #$20
+        memory.write(pc++,0xA9); memory.write(pc++,0x00); // LDA #$00
+        memory.write(pc++,0xF7); memory.write(pc++,0x00); // ISC $00,X -> efetivo $20
+        cpu.reset(); cpu.setCarry(true);
+        runOne(); runOne(); runOne();
+        assertEquals(0x00, memory.read(0x0020));
+        assertEquals(0x00, cpu.getA());
+        assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+    }
+
+    // Absoluto: 0x6000=0x7F -> 0x80; A=0x7F; 0x7F - 0x80 = 0xFF -> N=1, C=0
+    @Test
+    public void iscAbsoluteNegativeResult() {
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x50); int pc=0x5000;
+        memory.write(0x6000,0x7F);
+        memory.write(pc++,0xA9); memory.write(pc++,0x7F); // LDA #$7F
+        memory.write(pc++,0xEF); memory.write(pc++,0x00); memory.write(pc++,0x60); // ISC $6000
+        cpu.reset(); cpu.setCarry(true);
+        runOne(); runOne();
+        assertEquals(0x80, memory.read(0x6000));
+        assertEquals(0xFF, cpu.getA());
+        assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
+    }
+
+    // Absoluto,X: 0x6102=0x00 -> 0x01; A=0x00 -> SBC 0x01 => 0xFF (borrow) C=0,N=1
+    @Test
+    public void iscAbsoluteXBorrow() {
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x50); int pc=0x5000;
+        memory.write(0x6102,0x00);
+        memory.write(pc++,0xA2); memory.write(pc++,0x02); // LDX #$02
+        memory.write(pc++,0xA9); memory.write(pc++,0x00); // LDA #$00
+        memory.write(pc++,0xFF); memory.write(pc++,0x00); memory.write(pc++,0x61); // ISC $6100,X
+        cpu.reset(); cpu.setCarry(true);
+        runOne(); runOne(); runOne();
+        assertEquals(0x01, memory.read(0x6102));
+        assertEquals(0xFF, cpu.getA());
+        assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
+    }
+
+    // (zp,X): pointer (0x30 + X=4) -> 0x34/0x35 => 0x6200=0xFE -> 0xFF; A=0xFF -> SBC 0xFF = 0x00 C=1,Z=1
+    @Test
+    public void iscIndirectX() {
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x60); int pc=0x6000;
+        memory.write(0x6200,0xFE);
+        memory.write(0x0034,0x00); memory.write(0x0035,0x62); // base pointer
+        memory.write(pc++,0xA2); memory.write(pc++,0x04); // LDX #4
+        memory.write(pc++,0xA9); memory.write(pc++,0xFF); // LDA #FF
+        memory.write(pc++,0xE3); memory.write(pc++,0x30); // ISC ($30,X)
+        cpu.reset(); cpu.setCarry(true);
+        runOne(); runOne(); runOne();
+        assertEquals(0xFF, memory.read(0x6200));
+        assertEquals(0x00, cpu.getA());
+        assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative());
+    }
+
+    // (zp),Y: pointer $40/$41 -> 0x6300 + Y=3 => 0x6303=0x01 -> 0x02; A=0x01; 0x01-0x02=0xFF (borrow)
+    @Test
+    public void iscIndirectY() {
+        memory.write(0xFFFC,0x00); memory.write(0xFFFD,0x60); int pc=0x6000;
+        memory.write(0x6303,0x01);
+        memory.write(0x0040,0x00); memory.write(0x0041,0x63);
+        memory.write(pc++,0xA0); memory.write(pc++,0x03); // LDY #3
+        memory.write(pc++,0xA9); memory.write(pc++,0x01); // LDA #1
+        memory.write(pc++,0xF3); memory.write(pc++,0x40); // ISC ($40),Y
+        cpu.reset(); cpu.setCarry(true);
+        runOne(); runOne(); runOne();
+        assertEquals(0x02, memory.read(0x6303));
+        assertEquals(0xFF, cpu.getA());
+        assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative());
+    }
+
     // --- Helpers & Test Memory ---
     private void runOne() {
         cpu.clock();
