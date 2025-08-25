@@ -126,6 +126,9 @@ public class CPU implements iCPU {
         }
         int baseCycles = CYCLE_TABLE[opcodeByte & 0xFF];
         int remaining = baseCycles;
+        // Update lastPageCrossed for instructions that may rely (e.g., TOP abs,X
+        // timing)
+        lastPageCrossed = pageCrossed;
         if (pageCrossed && (opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
                 opcode == Opcode.ADC || opcode == Opcode.SBC || opcode == Opcode.CMP ||
                 opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR)) {
@@ -906,7 +909,9 @@ public class CPU implements iCPU {
                 int carryInSBC = carry ? 1 : 0;
                 int resultSBC = accSBC - valueSBC - (1 - carryInSBC);
                 carry = resultSBC >= 0;
-                overflow = ((accSBC ^ resultSBC) & 0x80) != 0 && ((accSBC ^ valueSBC) & 0x80) != 0;
+                // Overflow if sign bit of (A ^ result) and (A ^ operand) are both set (operand
+                // here effectively added as two's complement)
+                overflow = (((accSBC ^ resultSBC) & (accSBC ^ valueSBC) & 0x80) != 0);
                 a = resultSBC & 0xFF;
                 setZeroAndNegative(a);
                 break;
@@ -1007,11 +1012,14 @@ public class CPU implements iCPU {
                 break;
             case AXS:
             case SBX:
-                // SBX: X = (A & X) - operand
-                x = (a & x) - (operand & 0xFF);
-                x &= 0xFF;
+                // SBX/AXS: X = (A & X_original) - operand ; Carry = no borrow
+                int xOrig = x & 0xFF;
+                int maskAX = (a & xOrig) & 0xFF;
+                int subtrahend = operand & 0xFF;
+                int resultAXS = (maskAX - subtrahend) & 0x1FF; // preserve borrow in bit 8
+                carry = maskAX >= subtrahend; // 6502 style: carry = no borrow
+                x = resultAXS & 0xFF;
                 setZeroAndNegative(x);
-                carry = x <= 0xFF;
                 break;
             case DCP:
                 // DCP: DEC memory, then CMP with A

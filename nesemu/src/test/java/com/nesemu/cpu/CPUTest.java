@@ -283,7 +283,7 @@ public class CPUTest {
         cyc = runMeasured(); // ROR $20
         assertEquals(5, cyc);
         assertEquals(0x00, memory.read(0x20));
-        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isCarry(), "ROR $20 deve setar carry (bit0 original=1)");
         assertTrue(cpu.isZero());
         assertFalse(cpu.isNegative());
         // 4) ROR $30,X (mem $35=0x80)
@@ -315,7 +315,7 @@ public class CPUTest {
         cyc = runMeasured(); // ROR $2000,X
         assertEquals(7, cyc);
         assertEquals(0x01, memory.read(0x2010));
-        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isCarry(), "ROR $2000,X deve setar carry (bit0 original=1)");
         assertFalse(cpu.isZero());
         assertFalse(cpu.isNegative());
     }
@@ -374,7 +374,7 @@ public class CPUTest {
         while (cpu.getCycles() > 0)
             cpu.clock();
         assertEquals(0x0F, cpu.getA());
-        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isCarry(), "SBC sem borrow deve manter carry=1");
     }
 
     @Test
@@ -491,7 +491,7 @@ public class CPUTest {
         int cycles = runMeasured();
         assertEquals(6, cycles, "RTI deve consumir 6 ciclos");
         assertEquals(0x1234, cpu.getPC(), "PC deve ser restaurado pelo RTI");
-        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isCarry()); // sem borrow
         assertFalse(cpu.isZero());
         assertTrue(cpu.isInterruptDisable());
         assertFalse(cpu.isDecimal());
@@ -968,11 +968,11 @@ public class CPUTest {
         assertEquals(0x01, cpu.getA());
         // SEC
         runOne(); // SEC
-        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isCarry(), "SEC deve setar carry");
         // ROR A
         runOne(); // ROR A
         assertEquals(0x80, cpu.getA(), "ROR A deveria produzir 0x80");
-        assertTrue(cpu.isCarry(), "ROR A deveria manter carry=1 (bit0 original=1)");
+        assertTrue(cpu.isCarry(), "ROR A deveria setar carry=1 (bit0 original=1)");
         assertFalse(cpu.isZero());
         assertTrue(cpu.isNegative(), "ROR A deveria setar negativo (bit7=1)");
     }
@@ -1525,7 +1525,7 @@ public class CPUTest {
         assertEquals(0x00, cpu.getX());
         assertTrue(cpu.isZero());
         assertFalse(cpu.isNegative());
-        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isCarry(), "AXS caso1 deve manter carry (sem borrow)");
         // Caso 2
         runOne();
         runOne();
@@ -1534,7 +1534,7 @@ public class CPUTest {
         assertEquals(0xEF, cpu.getX());
         assertFalse(cpu.isZero());
         assertTrue(cpu.isNegative());
-        assertTrue(cpu.isCarry());
+        assertFalse(cpu.isCarry(), "AXS caso2 deve limpar carry (houve borrow)");
     }
 
     @Test
@@ -2367,7 +2367,8 @@ public class CPUTest {
 
     @Test
     public void testIllegalAAX_SAX_StoresMask_NoFlagChange() {
-        // Variantes de SAX (também chamado AAX) originais de hardware: 0x87,0x97,0x83,0x8F
+        // Variantes de SAX (também chamado AAX) originais de hardware:
+        // 0x87,0x97,0x83,0x8F
         // Comportamento: escreve (A & X) em memória, não altera flags.
         // Ciclos esperados (análogos ao STA/SAX): zp=3, zp,Y=4, (zp,X)=6, abs=4
         memory.write(0xFFFC, 0x00);
@@ -4130,13 +4131,19 @@ public class CPUTest {
 
     @Test
     public void testZP_NoCarryIn() {
-        int pc=0x4000; setReset(pc);
+        int pc = 0x4000;
+        setReset(pc);
         // Setup: A=FF para preservar resultado do ROL completo
-        memory.write(pc++,0xA9); memory.write(pc++,0xFF); // LDA #$FF
-        memory.write(pc++,0x18); // CLC => carry=0
-        memory.write(0x0040,0x40); // 0b0100_0000 -> ROL com carry_in=0 => 0x80 carry_out=0
-        memory.write(pc++,0x27); memory.write(pc++,0x40); // RLA $40
-        cpu.reset(); runInstr(); runInstr(); runInstr();
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0xFF); // LDA #$FF
+        memory.write(pc++, 0x18); // CLC => carry=0
+        memory.write(0x0040, 0x40); // 0b0100_0000 -> ROL com carry_in=0 => 0x80 carry_out=0
+        memory.write(pc++, 0x27);
+        memory.write(pc++, 0x40); // RLA $40
+        cpu.reset();
+        runInstr();
+        runInstr();
+        runInstr();
         runInstr();
         assertEquals(0x80, memory.read(0x0040)); // memória após ROL
         assertEquals(0x80, cpu.getA()); // A=FF & 80 = 80
@@ -4147,13 +4154,22 @@ public class CPUTest {
 
     @Test
     public void testZPX_CarryInOne() {
-        int pc=0x4100; setReset(pc);
-        memory.write(pc++,0xA9); memory.write(pc++,0xF0); // LDA #F0
-        memory.write(pc++,0xA2); memory.write(pc++,0x05); // LDX #05
-        memory.write(pc++,0x38); // SEC (carry=1)
-        memory.write(0x0045,0x01); // valor -> ROL com carry_in=1 => 0x03, carry_out=0
-        memory.write(pc++,0x37); memory.write(pc++,0x40); // RLA $40,X -> $45
-        cpu.reset(); runInstr(); runInstr(); runInstr(); runInstr(); runInstr();
+        int pc = 0x4100;
+        setReset(pc);
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0xF0); // LDA #F0
+        memory.write(pc++, 0xA2);
+        memory.write(pc++, 0x05); // LDX #05
+        memory.write(pc++, 0x38); // SEC (carry=1)
+        memory.write(0x0045, 0x01); // valor -> ROL com carry_in=1 => 0x03, carry_out=0
+        memory.write(pc++, 0x37);
+        memory.write(pc++, 0x40); // RLA $40,X -> $45
+        cpu.reset();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
         assertEquals(0x03, memory.read(0x0045));
         assertEquals(0xF0 & 0x03, cpu.getA()); // 0x00
         assertTrue(cpu.isZero());
@@ -4163,12 +4179,20 @@ public class CPUTest {
 
     @Test
     public void testAbsolute_CarryOutSet() {
-        int pc=0x4200; setReset(pc);
-        memory.write(pc++,0xA9); memory.write(pc++,0x7F); // LDA #7F
-        memory.write(pc++,0x18); // CLC
-        memory.write(0x5000,0xC3); // 1100_0011 -> ROL => 1000_0110(0x86) carry_out=1
-        memory.write(pc++,0x2F); memory.write(pc++,0x00); memory.write(pc++,0x50); // RLA $5000
-        cpu.reset(); runInstr(); runInstr(); runInstr(); runInstr();
+        int pc = 0x4200;
+        setReset(pc);
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0x7F); // LDA #7F
+        memory.write(pc++, 0x18); // CLC
+        memory.write(0x5000, 0xC3); // 1100_0011 -> ROL => 1000_0110(0x86) carry_out=1
+        memory.write(pc++, 0x2F);
+        memory.write(pc++, 0x00);
+        memory.write(pc++, 0x50); // RLA $5000
+        cpu.reset();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
         assertEquals(0x86, memory.read(0x5000));
         assertEquals(0x7F & 0x86, cpu.getA()); // 0x06
         assertEquals(0x06, cpu.getA());
@@ -4179,13 +4203,23 @@ public class CPUTest {
 
     @Test
     public void testAbsoluteX_CarryInAffectsLSB() {
-        int pc=0x4300; setReset(pc);
-        memory.write(pc++,0xA9); memory.write(pc++,0xFF); // LDA #FF
-        memory.write(pc++,0xA2); memory.write(pc++,0x04); // LDX #04
-        memory.write(pc++,0x38); // SEC (carry_in=1)
-        memory.write(0x6004,0x80); // 1000_0000 -> ROL com carry_in=1 => 0000_0001 carry_out=1
-        memory.write(pc++,0x3F); memory.write(pc++,0x00); memory.write(pc++,0x60); // RLA $6000,X
-        cpu.reset(); runInstr(); runInstr(); runInstr(); runInstr(); runInstr();
+        int pc = 0x4300;
+        setReset(pc);
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0xFF); // LDA #FF
+        memory.write(pc++, 0xA2);
+        memory.write(pc++, 0x04); // LDX #04
+        memory.write(pc++, 0x38); // SEC (carry_in=1)
+        memory.write(0x6004, 0x80); // 1000_0000 -> ROL com carry_in=1 => 0000_0001 carry_out=1
+        memory.write(pc++, 0x3F);
+        memory.write(pc++, 0x00);
+        memory.write(pc++, 0x60); // RLA $6000,X
+        cpu.reset();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
         assertEquals(0x01, memory.read(0x6004));
         assertEquals(0x01, cpu.getA()); // FF & 01 = 01
         assertTrue(cpu.isCarry()); // carry_out=1
@@ -4195,13 +4229,23 @@ public class CPUTest {
 
     @Test
     public void testAbsoluteY() {
-        int pc=0x4400; setReset(pc);
-        memory.write(pc++,0xA9); memory.write(pc++,0x0F); // LDA #0F
-        memory.write(pc++,0xA0); memory.write(pc++,0x03); // LDY #03
-        memory.write(pc++,0x18); // CLC
-        memory.write(0x7003,0x08); // 0000_1000 -> ROL => 0001_0000 (0x10)
-        memory.write(pc++,0x3B); memory.write(pc++,0x00); memory.write(pc++,0x70); // RLA $7000,Y
-        cpu.reset(); runInstr(); runInstr(); runInstr(); runInstr(); runInstr();
+        int pc = 0x4400;
+        setReset(pc);
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0x0F); // LDA #0F
+        memory.write(pc++, 0xA0);
+        memory.write(pc++, 0x03); // LDY #03
+        memory.write(pc++, 0x18); // CLC
+        memory.write(0x7003, 0x08); // 0000_1000 -> ROL => 0001_0000 (0x10)
+        memory.write(pc++, 0x3B);
+        memory.write(pc++, 0x00);
+        memory.write(pc++, 0x70); // RLA $7000,Y
+        cpu.reset();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
         assertEquals(0x10, memory.read(0x7003));
         assertEquals(0x0F & 0x10, cpu.getA()); // 0x00
         assertTrue(cpu.isZero());
@@ -4211,15 +4255,25 @@ public class CPUTest {
 
     @Test
     public void testIndirectX() {
-        int pc=0x4500; setReset(pc);
-        memory.write(pc++,0xA9); memory.write(pc++,0xF8); // LDA #F8
-        memory.write(pc++,0xA2); memory.write(pc++,0x02); // LDX #02
-        memory.write(pc++,0x18); // CLC
+        int pc = 0x4500;
+        setReset(pc);
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0xF8); // LDA #F8
+        memory.write(pc++, 0xA2);
+        memory.write(pc++, 0x02); // LDX #02
+        memory.write(pc++, 0x18); // CLC
         // Pointer base: (0x20 + X=2)=0x22 -> points to 0x1234
-        memory.write(0x0022,0x34); memory.write(0x0023,0x12);
-        memory.write(0x1234,0x01); // -> ROL => 0x02
-        memory.write(pc++,0x23); memory.write(pc++,0x20); // RLA ($20,X)
-        cpu.reset(); runInstr(); runInstr(); runInstr(); runInstr(); runInstr();
+        memory.write(0x0022, 0x34);
+        memory.write(0x0023, 0x12);
+        memory.write(0x1234, 0x01); // -> ROL => 0x02
+        memory.write(pc++, 0x23);
+        memory.write(pc++, 0x20); // RLA ($20,X)
+        cpu.reset();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
         assertEquals(0x02, memory.read(0x1234));
         assertEquals(0xF8 & 0x02, cpu.getA()); // 0x00
         assertTrue(cpu.isZero());
@@ -4227,15 +4281,25 @@ public class CPUTest {
 
     @Test
     public void testIndirectY() {
-        int pc=0x4600; setReset(pc);
-        memory.write(pc++,0xA9); memory.write(pc++,0x3F); // LDA #3F
-        memory.write(pc++,0xA0); memory.write(pc++,0x05); // LDY #05
-        memory.write(pc++,0x18); // CLC
+        int pc = 0x4600;
+        setReset(pc);
+        memory.write(pc++, 0xA9);
+        memory.write(pc++, 0x3F); // LDA #3F
+        memory.write(pc++, 0xA0);
+        memory.write(pc++, 0x05); // LDY #05
+        memory.write(pc++, 0x18); // CLC
         // ZP ptr 0x30 -> 0x2000
-        memory.write(0x0030,0x00); memory.write(0x0031,0x20);
-        memory.write(0x2005,0x20); // 0010_0000 -> ROL => 0100_0000 (0x40)
-        memory.write(pc++,0x33); memory.write(pc++,0x30); // RLA ($30),Y
-        cpu.reset(); runInstr(); runInstr(); runInstr(); runInstr(); runInstr();
+        memory.write(0x0030, 0x00);
+        memory.write(0x0031, 0x20);
+        memory.write(0x2005, 0x20); // 0010_0000 -> ROL => 0100_0000 (0x40)
+        memory.write(pc++, 0x33);
+        memory.write(pc++, 0x30); // RLA ($30),Y
+        cpu.reset();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
+        runInstr();
         assertEquals(0x40, memory.read(0x2005));
         assertEquals(0x3F & 0x40, cpu.getA()); // 0x00
         assertTrue(cpu.isZero());
