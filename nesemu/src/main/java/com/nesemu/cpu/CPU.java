@@ -206,6 +206,7 @@ public class CPU implements iCPU {
             case 0x02: // ATX #imm (ilegal remapeado)
             case 0x0B: // ANC/AAC #imm (ilegal)
             case 0x2B: // ANC/AAC #imm (ilegal)
+            case 0xAB: // LXA #imm (ilegal)
             case 0xC9: // CMP #imm
             case 0xE0: // CPX #imm
             case 0xC0: // CPY #imm
@@ -240,6 +241,7 @@ public class CPU implements iCPU {
             case 0x66: // ROR zp
             case 0x47: // SRE zp (ilegal)
             case 0x07: // SLO zp (ilegal)
+            case 0x67: // RRA zp (ilegal)
             case 0x85: // STA zp
             case 0x86: // STX zp
             case 0x84: // STY zp
@@ -270,6 +272,7 @@ public class CPU implements iCPU {
             case 0x76: // ROR zp,X
             case 0x57: // SRE zp,X (ilegal)
             case 0x17: // SLO zp,X (ilegal)
+            case 0x77: // RRA zp,X (ilegal)
             case 0x95: // STA zp,X
             case 0x94: // STY zp,X
             case 0xD6: // DEC zp,X
@@ -308,6 +311,7 @@ public class CPU implements iCPU {
             case 0x4E: // LSR abs
             case 0x6E: // ROR abs
             case 0x0C: // TOP abs (triple NOP)
+            case 0x6F: // RRA abs (ilegal)
             case 0x4F: // SRE abs (ilegal)
             case 0x0F: // SLO abs (ilegal)
             case 0x8D: // STA abs
@@ -341,6 +345,7 @@ public class CPU implements iCPU {
             case 0x7C: // TOP abs,X (triple NOP)
             case 0xDC: // TOP abs,X (triple NOP)
             case 0xFC: // TOP abs,X (triple NOP)
+            case 0x7F: // RRA abs,X (ilegal)
             case 0x5F: // SRE abs,X (ilegal)
             case 0x1F: // SLO abs,X (ilegal)
             case 0x9D: // STA abs,X
@@ -362,6 +367,7 @@ public class CPU implements iCPU {
             case 0xF9: // SBC abs,Y
             case 0x99: // STA abs,Y
             case 0x9B: // SHS/TAS (ilegal) abs,Y
+            case 0x7B: // RRA abs,Y (ilegal)
             case 0x9F: // AHX abs,Y (ilegal)
             case 0x9E: // SHX abs,Y (ilegal)
             case 0x5B: // SRE abs,Y (ilegal)
@@ -391,6 +397,7 @@ public class CPU implements iCPU {
             case 0xC3: // DCP (zp,X) ilegal
             case 0xE3: // ISC (zp,X) ilegal
             case 0xA3: // LAX (zp,X) ilegal
+            case 0x63: // RRA (zp,X) ilegal
                 return AddressingMode.INDIRECT_X;
 
             // --- Indireto,Y ---
@@ -408,6 +415,7 @@ public class CPU implements iCPU {
             case 0xD3: // DCP (zp),Y ilegal
             case 0xF3: // ISC (zp),Y ilegal
             case 0xB3: // LAX (zp),Y ilegal
+            case 0x73: // RRA (zp),Y ilegal
                 return AddressingMode.INDIRECT_Y;
 
             // --- Relativo (branches) ---
