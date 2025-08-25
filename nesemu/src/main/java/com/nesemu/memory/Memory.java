@@ -34,6 +34,14 @@ public class Memory implements iMemory {
     }
 
     /**
+     * Carrega cartucho iNES (Mapper 0) ajustando espelhamento de 16KB se necessário.
+     */
+    public void loadCartridge(com.nesemu.rom.INesRom rom) {
+        int[] prg = rom.buildPrgRom32k();
+        loadPRGROM(prg);
+    }
+
+    /**
      * Reads a byte from the memory at the specified address.
      * Handles RAM, PPU registers, APU/IO registers, SRAM, and PRG-ROM.
      * Addresses are wrapped to fit the NES memory map.
@@ -45,11 +53,8 @@ public class Memory implements iMemory {
             // 2KB RAM, espelhada até 0x1FFF
             return ram[address & 0x07FF];
         } else if (address < 0x4000) {
-            // PPU registers, espelhados a cada 8 bytes
-            int reg = 0x2000 + (address & 0x7);
-            // TODO: Integrar com PPU
-            // return ppu.readRegister(reg);
-            return 0; // Stub
+            // PPU registers, espelhados a cada 8 bytes (stub retorna 0)
+            return 0;
         } else if (address < 0x4020) {
             // APU e IO registers
             // TODO: Integrar com APU/IO
@@ -81,10 +86,8 @@ public class Memory implements iMemory {
             // 2KB RAM, espelhada
             ram[address & 0x07FF] = value;
         } else if (address < 0x4000) {
-            // PPU registers, espelhados a cada 8 bytes
-            int reg = 0x2000 + (address & 0x7);
-            // TODO: Integrar com PPU
-            // ppu.writeRegister(reg, value);
+            // PPU registers (stub)
+            // ppu.writeRegister(0x2000 + (address & 0x7), value);
         } else if (address < 0x4020) {
             // APU e IO registers
             // TODO: Integrar com APU/IO
