@@ -1,13 +1,13 @@
 package com.nesemu.memory;
 
-import com.nesemu.memory.interfaces.iMemory;
+import com.nesemu.memory.interfaces.NesMemory;
 
 /**
  * NES Memory Map implementation.
  * Handles internal RAM + mirrors, PPU/APU/IO stubs, SRAM and PRG-ROM.
  * Future: integrate PPU, APU, Mapper, IO, etc.
  */
-public class Memory implements iMemory {
+public class Memory implements NesMemory {
 
     // 2KB internal RAM (0x0000–0x07FF)
     private final int[] ram = new int[0x0800];

@@ -1,7 +1,7 @@
 package com.nesemu.bus;
 
 import com.nesemu.apu.APU;
-import com.nesemu.bus.interfaces.iBus;
+import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.io.Controller;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.ppu.PPU;
@@ -25,7 +25,7 @@ import com.nesemu.rom.INesRom;
  * - Expansion ROM, cartridge RAM via mapper hooks.
  * - APU frame counter / IRQ lines wiring.
  */
-public class Bus implements iBus {
+public class Bus implements NesBus {
 
     // --- Internal RAM (2KB) ---
     private final int[] ram = new int[0x0800];

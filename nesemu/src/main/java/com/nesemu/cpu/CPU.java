@@ -1,14 +1,14 @@
 package com.nesemu.cpu;
 
-import com.nesemu.cpu.interfaces.iCPU;
-import com.nesemu.memory.interfaces.iMemory;
-import com.nesemu.bus.interfaces.iBus;
+import com.nesemu.cpu.interfaces.NesCPU;
+import com.nesemu.memory.interfaces.NesMemory;
+import com.nesemu.bus.interfaces.NesBus;
 
 /**
  * Class representing the NES CPU.
  * Implements the main functionalities and instructions of the processor.
  */
-public class CPU implements iCPU {
+public class CPU implements NesCPU {
 
     //Registers
     private Registers registers = new Registers();
@@ -22,7 +22,7 @@ public class CPU implements iCPU {
     private boolean unused;
     private boolean overflow;
     private boolean negative;
-    private final iMemory memory;
+    private final NesMemory memory;
 
     // Page crossing flag for instructions that may apply an extra cycle
     // (e.g., TOP abs,X in faithful mode)
@@ -59,6 +59,35 @@ public class CPU implements iCPU {
     private enum RmwKind {
         ASL, ROL, LSR, ROR, INC, DEC,
         RLA, RRA, SLO, SRE, DCP, ISC
+    }
+
+    /*
+     * CPU constructor
+     * 
+     * @param memory Memory instance to be used by the CPU
+     */
+    public CPU(NesMemory memory) {
+        this.memory = memory;
+        reset();
+    }
+
+    /** 
+     * Alternate constructor for new bus interface (iBus) 
+     */
+    public CPU(NesBus bus) {
+        // Adapt iBus to iMemory expectations via simple wrapper
+        this.memory = new NesMemory() {
+            @Override
+            public int read(int address) {
+                return bus.read(address);
+            }
+
+            @Override
+            public void write(int address, int value) {
+                bus.write(address, value);
+            }
+        };
+        reset();
     }
 
     /**
@@ -226,35 +255,6 @@ public class CPU implements iCPU {
 
     // Debug logging flag (JSR/RTS tracing). Disable to silence verbose output.
     private static final boolean TRACE_JSR_RTS = false;
-
-    /*
-     * CPU constructor
-     * 
-     * @param memory Memory instance to be used by the CPU
-     */
-    public CPU(iMemory memory) {
-        this.memory = memory;
-        reset();
-    }
-
-    /** Alternate constructor for new bus interface (iBus) 
-     * TODO: REVIEW
-     */
-    public CPU(iBus bus) {
-        // Adapt iBus to iMemory expectations via simple wrapper
-        this.memory = new iMemory() {
-            @Override
-            public int read(int address) {
-                return bus.read(address);
-            }
-
-            @Override
-            public void write(int address, int value) {
-                bus.write(address, value);
-            }
-        };
-        reset();
-    }
 
     /**
      * Resets the CPU to its initial state.

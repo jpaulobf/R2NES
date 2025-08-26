@@ -2,7 +2,7 @@ package com.nesemu.cpu;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import com.nesemu.memory.interfaces.iMemory;
+import com.nesemu.memory.interfaces.NesMemory;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class CPUTest {
@@ -4332,7 +4332,7 @@ public class CPUTest {
         return consumed;
     }
 
-    private static class TestMemory implements iMemory {
+    private static class TestMemory implements NesMemory {
         private final int[] data = new int[65536];
 
         @Override

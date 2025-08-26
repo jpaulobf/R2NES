@@ -2,7 +2,7 @@ package com.nesemu.tools;
 
 import com.nesemu.cpu.CPU;
 import com.nesemu.bus.Bus;
-import com.nesemu.bus.interfaces.iBus;
+import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.rom.RomLoader;
@@ -41,7 +41,7 @@ public class NestestDiffer {
         Bus bus = new Bus();
         bus.attachPPU(ppu);
         bus.attachMapper(mapper0, rom);
-        iBus mem = bus; // CPU view
+        NesBus mem = bus; // CPU view
         CPU cpu = new CPU(mem);
         // Force nestest canonical start state
         cpu.forceState(0xC000, 0x00, 0x00, 0x00, 0x24, 0xFD);
@@ -79,7 +79,7 @@ public class NestestDiffer {
         }
     }
 
-    private static void dumpMismatch(int step, String kind, long expected, long actual, CPU cpu, iBus mem,
+    private static void dumpMismatch(int step, String kind, long expected, long actual, CPU cpu, NesBus mem,
             String refLine) {
         System.out.println("=== MISMATCH at step " + step + " kind=" + kind + " expected=" + expected + " actual="
                 + actual + " ===");

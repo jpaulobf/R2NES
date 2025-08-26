@@ -2,11 +2,11 @@ package com.nesemu.emulator;
 
 import com.nesemu.cpu.CPU;
 import com.nesemu.bus.Bus;
-import com.nesemu.bus.interfaces.iBus;
+import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.rom.INesRom;
-import com.nesemu.memory.interfaces.iMemory; // legacy support
+import com.nesemu.memory.interfaces.NesMemory; // legacy support
 
 /**
  * NES emulator façade. Now builds a proper Bus + Mapper0 + PPU stack.
@@ -21,7 +21,7 @@ public class NesEmulator {
     private final Mapper0 mapper; // current mapper (NROM only)
 
     // Legacy path (kept for existing tests using Memory directly)
-    public NesEmulator(iMemory memory) {
+    public NesEmulator(NesMemory memory) {
         this.bus = null;
         this.ppu = null;
         this.mapper = null;
@@ -39,7 +39,7 @@ public class NesEmulator {
         this.bus = new Bus();
         bus.attachPPU(ppu);
         bus.attachMapper(mapper, rom);
-        iBus cpuBus = bus;
+        NesBus cpuBus = bus;
         this.cpu = new CPU(cpuBus);
         // After CPU reset, PC set from reset vector.
     }

@@ -1,13 +1,13 @@
 package com.nesemu.memory;
 
-import com.nesemu.memory.interfaces.iMemory;
+import com.nesemu.memory.interfaces.NesMemory;
 
 /**
  * Class representing the ROM memory for the NES emulator.
  * This class implements the Memory interface
  * and provides methods for reading from the ROM.
  */
-public class ROM implements iMemory {
+public class ROM implements NesMemory {
     private byte[] data;
 
     public ROM(byte[] data) {

@@ -3,7 +3,7 @@ package com.nesemu.tools;
 import com.nesemu.cpu.CPU;
 import com.nesemu.cpu.Opcode;
 import com.nesemu.bus.Bus;
-import com.nesemu.bus.interfaces.iBus;
+import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.rom.INesRom;
@@ -42,7 +42,7 @@ public class NestestRunner {
         Bus bus = new Bus();
         bus.attachPPU(ppu);
         bus.attachMapper(mapper0, rom);
-        iBus cpuBus = bus; // view for CPU
+        NesBus cpuBus = bus; // view for CPU
 
         CPU cpu = new CPU(cpuBus); // AFTER CPU refactor to accept iBus
         // Force nestest start state (bypassing reset vector) per official doc
@@ -116,7 +116,7 @@ public class NestestRunner {
         int a, x, y, p, sp; // register snapshot before execution (as per reference)
     }
 
-    private static TraceLine buildTraceLine(CPU cpu, iBus mem, int pc, int opcode) {
+    private static TraceLine buildTraceLine(CPU cpu, NesBus mem, int pc, int opcode) {
         TraceLine tl = new TraceLine();
         tl.pc = pc;
         tl.op1 = mem.read((pc + 1) & 0xFFFF);
@@ -150,7 +150,7 @@ public class NestestRunner {
         String asm;
     }
 
-    private static Decoded decodeForAsm(CPU cpu, iBus mem, int pc, int opcode, int op1, int op2) {
+    private static Decoded decodeForAsm(CPU cpu, NesBus mem, int pc, int opcode, int op1, int op2) {
         Decoded d = new Decoded();
         Opcode opEnum = Opcode.fromByte(opcode);
         String mnemonic = (opEnum != null) ? opEnum.name() : "???";

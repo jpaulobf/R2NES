@@ -1,7 +1,7 @@
 package com.nesemu.tools;
 
 import com.nesemu.bus.Bus;
-import com.nesemu.bus.interfaces.iBus;
+import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.cpu.CPU;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.mapper.Mapper3;
@@ -57,8 +57,8 @@ public class GenericTestRunner {
             bus.attachMapper(mapper0, rom);
         else if (mapper3 != null)
             bus.attachMapper(mapper3, rom);
-        iBus baseBus = bus;
-        iBus cpuBus = baseBus;
+        NesBus baseBus = bus;
+        NesBus cpuBus = baseBus;
         DebugTap tap = null;
         if (debug) {
             tap = new DebugTap(baseBus, 50_000, ppu); // capture first 50k ops
@@ -236,7 +236,7 @@ public class GenericTestRunner {
         }
     }
 
-    private static String readMsg(iBus bus) {
+    private static String readMsg(NesBus bus) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 256; i++) {
             int b = bus.read(0x6004 + i) & 0xFF;
@@ -260,8 +260,8 @@ public class GenericTestRunner {
     }
 
     // Debug tap wrapper capturing bus operations
-    private static class DebugTap implements iBus {
-        private final iBus inner;
+    private static class DebugTap implements NesBus {
+        private final NesBus inner;
         private final int maxOps;
         private long opCount = 0;
         private final int[] addrFreq = new int[0x10000];
@@ -272,7 +272,7 @@ public class GenericTestRunner {
         private final Ppu2C02 ppu;
         private int statusReadLogCount = 0;
 
-        DebugTap(iBus inner, int maxOps, Ppu2C02 ppu) {
+        DebugTap(NesBus inner, int maxOps, Ppu2C02 ppu) {
             this.inner = inner;
             this.maxOps = maxOps;
             this.ppu = ppu;
