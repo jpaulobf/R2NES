@@ -9,12 +9,8 @@ import com.nesemu.bus.interfaces.iBus;
  * Implements the main functionalities and instructions of the processor.
  */
 public class CPU implements iCPU {
-    // private int a; // Accumulator
-    // private int x; // Register X
-    // private int y; // Register Y
-    // private int sp; // Stack Pointer
-    // private int pc; // Program Counter
 
+    //Registers
     private Registers registers = new Registers();
 
     // Status flags
@@ -35,8 +31,7 @@ public class CPU implements iCPU {
     // Cycle counter for instruction timing
     private int cycles;
 
-    // Dynamic extra cycles (branch taken, page crossing in branches, etc.)
-    // applied after execution
+    // Dynamic extra cycles (branch taken, page crossing in branches, etc.) applied after execution
     private int extraCycles;
 
     // Total executed CPU cycles (for tracing / nestest log)
@@ -49,8 +44,7 @@ public class CPU implements iCPU {
     private boolean lastBranchTaken; // whether a branch was taken
     private boolean lastBranchPageCross; // whether a taken branch crossed a page (added +1)
     private int lastInstrPC; // PC at start (fetch) of last instruction - Aux for micro bus simulation
-    private int lastZpOperand; // last zero-page operand byte (for (zp),Y store microsequence) - For optimized
-                               // store (zp),Y microsequencing without duplicate zp pointer reads
+    private int lastZpOperand; // last zero-page operand byte (for (zp),Y store microsequence) - For optimized store (zp),Y microsequencing without duplicate zp pointer reads
     private int lastIndirectBaseLo = -1;
     private int lastIndirectBaseHi = -1;
 
@@ -69,8 +63,7 @@ public class CPU implements iCPU {
 
     /**
      * Starts an RMW sequence in memory. No flag/register modification happens here;
-     * everything is applied in performRmwCommit() on the penultimate cycle (final
-     * write).
+     * everything is applied in performRmwCommit() on the penultimate cycle (final write).
      */
     private void startRmw(int address, int originalValue, RmwKind kind) {
         this.rmwActive = true;
@@ -83,8 +76,7 @@ public class CPU implements iCPU {
     /**
      * Applies the modification and writes the final value to memory. Effect order
      * models 6502 behavior: carry/flags updated based on the original/modified
-     * value
-     * only when the final write happens.
+     * value only when the final write happens.
      */
     private void performRmwCommit() {
         int original = rmwOriginal & 0xFF;
