@@ -6,6 +6,7 @@ import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.rom.INesRom;
+import com.nesemu.memory.Memory;
 import com.nesemu.memory.interfaces.NesMemory; // legacy support
 
 /**
@@ -21,11 +22,11 @@ public class NesEmulator {
     private final Mapper0 mapper; // current mapper (NROM only)
 
     // Legacy path (kept for existing tests using Memory directly)
-    public NesEmulator(NesMemory memory) {
-        this.bus = null;
+    public NesEmulator() {
+        this.bus = new Bus();
         this.ppu = null;
         this.mapper = null;
-        this.cpu = new CPU(memory);
+        this.cpu = new CPU(bus);
     }
 
     // New path: build full stack from ROM (mapper 0 only for now)

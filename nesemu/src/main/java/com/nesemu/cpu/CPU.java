@@ -1,7 +1,6 @@
 package com.nesemu.cpu;
 
 import com.nesemu.cpu.interfaces.NesCPU;
-import com.nesemu.memory.interfaces.NesMemory;
 import com.nesemu.bus.interfaces.NesBus;
 
 /**
@@ -10,7 +9,7 @@ import com.nesemu.bus.interfaces.NesBus;
  */
 public class CPU implements NesCPU {
 
-    //Registers
+    // Registers
     private Registers registers = new Registers();
 
     // Status flags
@@ -22,7 +21,8 @@ public class CPU implements NesCPU {
     private boolean unused;
     private boolean overflow;
     private boolean negative;
-    private final NesMemory memory;
+    // Bus reference (temporary: legacy memory wrapper being removed)
+    private final NesBus busRef;
 
     // Page crossing flag for instructions that may apply an extra cycle
     // (e.g., TOP abs,X in faithful mode)
@@ -31,7 +31,8 @@ public class CPU implements NesCPU {
     // Cycle counter for instruction timing
     private int cycles;
 
-    // Dynamic extra cycles (branch taken, page crossing in branches, etc.) applied after execution
+    // Dynamic extra cycles (branch taken, page crossing in branches, etc.) applied
+    // after execution
     private int extraCycles;
 
     // Total executed CPU cycles (for tracing / nestest log)
@@ -44,7 +45,8 @@ public class CPU implements NesCPU {
     private boolean lastBranchTaken; // whether a branch was taken
     private boolean lastBranchPageCross; // whether a taken branch crossed a page (added +1)
     private int lastInstrPC; // PC at start (fetch) of last instruction - Aux for micro bus simulation
-    private int lastZpOperand; // last zero-page operand byte (for (zp),Y store microsequence) - For optimized store (zp),Y microsequencing without duplicate zp pointer reads
+    private int lastZpOperand; // last zero-page operand byte (for (zp),Y store microsequence) - For optimized
+                               // store (zp),Y microsequencing without duplicate zp pointer reads
     private int lastIndirectBaseLo = -1;
     private int lastIndirectBaseHi = -1;
 
@@ -61,38 +63,20 @@ public class CPU implements NesCPU {
         RLA, RRA, SLO, SRE, DCP, ISC
     }
 
-    /*
-     * CPU constructor
-     * 
-     * @param memory Memory instance to be used by the CPU
-     */
-    public CPU(NesMemory memory) {
-        this.memory = memory;
-        reset();
-    }
-
-    /** 
-     * Alternate constructor for new bus interface (iBus) 
+    /**
+     * Alternate constructor for new bus interface (iBus)
      */
     public CPU(NesBus bus) {
-        // Adapt iBus to iMemory expectations via simple wrapper
-        this.memory = new NesMemory() {
-            @Override
-            public int read(int address) {
-                return bus.read(address);
-            }
-
-            @Override
-            public void write(int address, int value) {
-                bus.write(address, value);
-            }
-        };
+        this.busRef = bus;
+        // Legacy code still references 'memory'; for now we provide an adapter until
+        // full replacement.
         reset();
     }
 
     /**
      * Starts an RMW sequence in memory. No flag/register modification happens here;
-     * everything is applied in performRmwCommit() on the penultimate cycle (final write).
+     * everything is applied in performRmwCommit() on the penultimate cycle (final
+     * write).
      */
     private void startRmw(int address, int originalValue, RmwKind kind) {
         this.rmwActive = true;
@@ -114,26 +98,26 @@ public class CPU implements NesCPU {
             case ASL: {
                 carry = (original & 0x80) != 0;
                 newVal = (original << 1) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 setZeroAndNegative(newVal);
                 break;
             }
             case LSR: {
                 carry = (original & 0x01) != 0;
                 newVal = (original >> 1) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 setZeroAndNegative(newVal);
                 break;
             }
             case INC: {
                 newVal = (original + 1) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 setZeroAndNegative(newVal);
                 break;
             }
             case DEC: {
                 newVal = (original - 1) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 setZeroAndNegative(newVal);
                 break;
             }
@@ -141,7 +125,7 @@ public class CPU implements NesCPU {
                 boolean oldCarry = rmwCarryIn != 0;
                 carry = (original & 0x80) != 0;
                 newVal = ((original << 1) | (oldCarry ? 1 : 0)) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 setZeroAndNegative(newVal);
                 break;
             }
@@ -149,14 +133,14 @@ public class CPU implements NesCPU {
                 boolean oldCarry = rmwCarryIn != 0;
                 carry = (original & 0x01) != 0;
                 newVal = ((original >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 setZeroAndNegative(newVal);
                 break;
             }
             case SLO: { // ASL then ORA
                 carry = (original & 0x80) != 0;
                 newVal = (original << 1) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 registers.A = registers.A | newVal;
                 setZeroAndNegative(registers.A);
                 break;
@@ -164,7 +148,7 @@ public class CPU implements NesCPU {
             case SRE: { // LSR then EOR
                 carry = (original & 0x01) != 0;
                 newVal = (original >> 1) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 registers.A = registers.A ^ newVal;
                 setZeroAndNegative(registers.A);
                 break;
@@ -173,7 +157,7 @@ public class CPU implements NesCPU {
                 boolean oldCarry = rmwCarryIn != 0;
                 carry = (original & 0x80) != 0;
                 newVal = ((original << 1) | (oldCarry ? 1 : 0)) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 registers.A = registers.A & newVal;
                 setZeroAndNegative(registers.A);
                 break;
@@ -182,7 +166,7 @@ public class CPU implements NesCPU {
                 boolean oldCarry = rmwCarryIn != 0;
                 carry = (original & 0x01) != 0;
                 newVal = ((original >> 1) | (oldCarry ? 0x80 : 0)) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 int acc = registers.A & 0xFF;
                 int val = newVal & 0xFF;
                 int cIn = (carry ? 1 : 0); // note: carry now holds bit0 original per 6502 ROR before ADC
@@ -195,7 +179,7 @@ public class CPU implements NesCPU {
             }
             case DCP: { // DEC then CMP (A - newVal)
                 newVal = (original - 1) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 int cmp = (registers.A & 0xFF) - newVal;
                 carry = (registers.A & 0xFF) >= newVal;
                 zero = (cmp & 0xFF) == 0;
@@ -204,7 +188,7 @@ public class CPU implements NesCPU {
             }
             case ISC: { // INC then SBC
                 newVal = (original + 1) & 0xFF;
-                memory.write(rmwAddress, newVal);
+                busRef.write(rmwAddress, newVal);
                 int value = newVal ^ 0xFF; // invert para usar mesmo caminho de ADC
                 int acc = registers.A & 0xFF;
                 int cIn = carry ? 1 : 0; // carry before SBC (not yet altered within this instruction so far)
@@ -265,7 +249,7 @@ public class CPU implements NesCPU {
         registers.SP = 0xFD;
         // PC is initialized from the reset vector (0xFFFC/0xFFFD) - low byte first,
         // then high byte
-        registers.PC = (memory.read(0xFFFC) | (memory.read(0xFFFD) << 8));
+        registers.PC = (busRef.read(0xFFFC) | (busRef.read(0xFFFD) << 8));
         carry = zero = interruptDisable = decimal = breakFlag = overflow = negative = false;
         unused = true; // Bit 5 of the status register is always set
         totalCycles = 0; // external tools may set a baseline (e.g., 7 for nestest) after forceState
@@ -282,12 +266,15 @@ public class CPU implements NesCPU {
         // If cycles remain, process possible RMW phases and consume one cycle
         if (cycles > 0) {
             if (rmwActive) {
-                // 6502 pattern for memory RMW instructions: ... read -> dummy write -> final write
-                // Our 'cycles' counter already includes all remaining cycles for this instruction.
-                // We'll trigger a dummy write when 2 cycles remain, and final commit when 1 remains.
+                // 6502 pattern for memory RMW instructions: ... read -> dummy write -> final
+                // write
+                // Our 'cycles' counter already includes all remaining cycles for this
+                // instruction.
+                // We'll trigger a dummy write when 2 cycles remain, and final commit when 1
+                // remains.
                 if (cycles == 2) {
                     // Dummy write of the original value (no logical side effects)
-                    memory.write(rmwAddress, rmwOriginal & 0xFF);
+                    busRef.write(rmwAddress, rmwOriginal & 0xFF);
                 } else if (cycles == 1) {
                     // Final commit (writes modified value and applies effects on A/flags according
                     // to type)
@@ -310,7 +297,7 @@ public class CPU implements NesCPU {
             cycles = 7 - 1;
             return;
         }
-        int opcodeByte = memory.read(registers.PC);
+        int opcodeByte = busRef.read(registers.PC);
         registers.PC++;
         lastInstrPC = (registers.PC - 1) & 0xFFFF; // store starting PC
         Opcode opcode = Opcode.fromByte(opcodeByte);
@@ -328,8 +315,8 @@ public class CPU implements NesCPU {
         } else if (mode == AddressingMode.INDIRECT_Y && !skipFinalRead) {
             // For loads (and non-stores) we need to detect page crossings (+1 cycle). For
             // stores we ignore the extra cycle and avoid duplicate pointer reads.
-            int zp = memory.read(registers.PC - 1) & 0xFF; // operand byte already fetched
-            int base = (memory.read((zp + 1) & 0xFF) << 8) | memory.read(zp); // two extra reads (expected for load)
+            int zp = busRef.read(registers.PC - 1) & 0xFF; // operand byte already fetched
+            int base = (busRef.read((zp + 1) & 0xFF) << 8) | busRef.read(zp); // two extra reads (expected for load)
             pageCrossed = ((base & 0xFF00) != (opRes.address & 0xFF00));
         }
         int baseCycles = CYCLE_TABLE[opcodeByte & 0xFF];
@@ -340,7 +327,8 @@ public class CPU implements NesCPU {
         lastExtraCycles = 0;
         lastBranchTaken = false;
         lastBranchPageCross = false;
-        // Update lastPageCrossed for instructions that may rely (e.g., TOP abs,X timing)
+        // Update lastPageCrossed for instructions that may rely (e.g., TOP abs,X
+        // timing)
         lastPageCrossed = pageCrossed;
         // Add +1 cycle on page crossing for read-only indexed addressing modes.
         // Official opcodes already covered; include LAX (illegal load A & X) which
@@ -462,8 +450,8 @@ public class CPU implements NesCPU {
         push(registers.PC & 0xFF);
         push(getStatusByte() & ~0x10 | 0x20);
         interruptDisable = true;
-        int lo = memory.read(0xFFFA);
-        int hi = memory.read(0xFFFB);
+        int lo = busRef.read(0xFFFA);
+        int hi = busRef.read(0xFFFB);
         registers.PC = (hi << 8) | lo;
     }
 
@@ -475,8 +463,8 @@ public class CPU implements NesCPU {
         push(registers.PC & 0xFF);
         push(getStatusByte() & ~0x10 | 0x20);
         interruptDisable = true;
-        int lo = memory.read(0xFFFE);
-        int hi = memory.read(0xFFFF);
+        int lo = busRef.read(0xFFFE);
+        int hi = busRef.read(0xFFFF);
         registers.PC = (hi << 8) | lo;
     }
 
@@ -796,66 +784,66 @@ public class CPU implements NesCPU {
         lastPageCrossed = false;
         switch (mode) {
             case IMMEDIATE:
-                return new OperandResult(memory.read(registers.PC++), -1);
+                return new OperandResult(busRef.read(registers.PC++), -1);
             case ZERO_PAGE: {
-                int addr = memory.read(registers.PC) & 0xFF;
+                int addr = busRef.read(registers.PC) & 0xFF;
                 lastZpOperand = addr;
-                int value = skipFinalRead ? 0 : memory.read(addr);
+                int value = skipFinalRead ? 0 : busRef.read(addr);
                 registers.PC++;
                 return new OperandResult(value, addr);
             }
             case ZERO_PAGE_X: {
-                int addr = (memory.read(registers.PC++) + registers.X) & 0xFF;
+                int addr = (busRef.read(registers.PC++) + registers.X) & 0xFF;
                 lastZpOperand = addr; // after index
-                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
             }
             case ZERO_PAGE_Y: {
-                int addr = (memory.read(registers.PC++) + registers.Y) & 0xFF;
+                int addr = (busRef.read(registers.PC++) + registers.Y) & 0xFF;
                 lastZpOperand = addr; // after index
-                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
             }
             case ABSOLUTE: {
-                int lo = memory.read(registers.PC++);
-                int hi = memory.read(registers.PC++);
+                int lo = busRef.read(registers.PC++);
+                int hi = busRef.read(registers.PC++);
                 int addr = (hi << 8) | lo;
-                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
             }
             case ABSOLUTE_X: {
-                int lo = memory.read(registers.PC++);
-                int hi = memory.read(registers.PC++);
+                int lo = busRef.read(registers.PC++);
+                int hi = busRef.read(registers.PC++);
                 int base = (hi << 8) | lo;
                 int addr = (base + registers.X) & 0xFFFF;
                 if (((base ^ addr) & 0xFF00) != 0)
                     lastPageCrossed = true;
-                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
             }
             case ABSOLUTE_Y: {
-                int lo = memory.read(registers.PC++);
-                int hi = memory.read(registers.PC++);
+                int lo = busRef.read(registers.PC++);
+                int hi = busRef.read(registers.PC++);
                 int base = (hi << 8) | lo;
                 int addr = (base + registers.Y) & 0xFFFF;
-                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
             }
             case INDIRECT: {
-                int ptr = memory.read(registers.PC++) | (memory.read(registers.PC++) << 8);
-                int lo = memory.read(ptr);
-                int hi = memory.read((ptr & 0xFF00) | ((ptr + 1) & 0xFF));
+                int ptr = busRef.read(registers.PC++) | (busRef.read(registers.PC++) << 8);
+                int lo = busRef.read(ptr);
+                int hi = busRef.read((ptr & 0xFF00) | ((ptr + 1) & 0xFF));
                 int addr = lo | (hi << 8);
                 return new OperandResult(addr, addr);
             }
             case INDIRECT_X: {
-                int zp = (memory.read(registers.PC++) + registers.X) & 0xFF;
+                int zp = (busRef.read(registers.PC++) + registers.X) & 0xFF;
                 lastZpOperand = zp;
-                int lo = memory.read(zp);
-                int hi = memory.read((zp + 1) & 0xFF);
+                int lo = busRef.read(zp);
+                int hi = busRef.read((zp + 1) & 0xFF);
                 int addr = lo | (hi << 8);
-                return new OperandResult(skipFinalRead ? 0 : memory.read(addr), addr);
+                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
             }
             case INDIRECT_Y: {
-                int zp = memory.read(registers.PC++) & 0xFF;
+                int zp = busRef.read(registers.PC++) & 0xFF;
                 lastZpOperand = zp;
-                int lo = memory.read(zp);
-                int hi = memory.read((zp + 1) & 0xFF);
+                int lo = busRef.read(zp);
+                int hi = busRef.read((zp + 1) & 0xFF);
                 int base = (hi << 8) | lo;
                 int addr = (base + registers.Y) & 0xFFFF;
                 if (skipFinalRead) {
@@ -864,10 +852,10 @@ public class CPU implements NesCPU {
                     lastIndirectBaseHi = hi;
                     return new OperandResult(0, addr);
                 }
-                return new OperandResult(memory.read(addr), addr);
+                return new OperandResult(busRef.read(addr), addr);
             }
             case RELATIVE:
-                return new OperandResult(memory.read(registers.PC++), -1);
+                return new OperandResult(busRef.read(registers.PC++), -1);
             case ACCUMULATOR:
                 return new OperandResult(registers.A, -1);
             case IMPLIED:
@@ -1031,15 +1019,16 @@ public class CPU implements NesCPU {
                 break;
             }
             case BRK:
-                registers.PC = (registers.PC + 1) & 0xFFFF; // BRK increments PC by 2 (already incremented by 1 in clock)
+                registers.PC = (registers.PC + 1) & 0xFFFF; // BRK increments PC by 2 (already incremented by 1 in
+                                                            // clock)
                 push((registers.PC >> 8) & 0xFF); // Push PCH
                 push(registers.PC & 0xFF); // Push PCL
                 breakFlag = true;
                 push(getStatusByte() | 0x10); // Push status with B flag set
                 interruptDisable = true;
                 // Set PC to IRQ/BRK vector
-                int lo = memory.read(0xFFFE);
-                int hi = memory.read(0xFFFF);
+                int lo = busRef.read(0xFFFE);
+                int hi = busRef.read(0xFFFF);
                 registers.PC = (hi << 8) | lo;
                 break;
             case BVC: {
@@ -1147,7 +1136,8 @@ public class CPU implements NesCPU {
                 // Push (PC-1) onto stack (high byte first, then low byte) - 6502 real behavior
                 int returnAddr = (registers.PC - 1) & 0xFFFF;
                 if (TRACE_JSR_RTS) {
-                    System.err.printf("[JSR] PC=%04X, returnAddr=%04X, push high=%02X, low=%02X, SP=%02X\n", registers.PC,
+                    System.err.printf("[JSR] PC=%04X, returnAddr=%04X, push high=%02X, low=%02X, SP=%02X\n",
+                            registers.PC,
                             returnAddr,
                             (returnAddr >> 8) & 0xFF, returnAddr & 0xFF, registers.SP);
                 }
@@ -1271,18 +1261,18 @@ public class CPU implements NesCPU {
                         // Approximate microsequence for STA (zp),Y: generate faithful dummy reads.
                         simulateStoreIndirectY(lastZpOperand, registers.Y, registers.A & 0xFF);
                     } else {
-                        memory.write(memAddr, registers.A & 0xFF);
+                        busRef.write(memAddr, registers.A & 0xFF);
                     }
                 }
                 break;
             case STX:
                 if (memAddr != -1) {
-                    memory.write(memAddr, registers.X & 0xFF);
+                    busRef.write(memAddr, registers.X & 0xFF);
                 }
                 break;
             case STY:
                 if (memAddr != -1) {
-                    memory.write(memAddr, registers.Y & 0xFF);
+                    busRef.write(memAddr, registers.Y & 0xFF);
                 }
                 break;
             case TAX:
@@ -1321,7 +1311,7 @@ public class CPU implements NesCPU {
                 // AAX (SAX): Store A & X to memory
                 if (memAddr != -1) {
                     int val = registers.A & registers.X;
-                    memory.write(memAddr, val);
+                    busRef.write(memAddr, val);
                 }
                 break;
             case AHX:
@@ -1329,7 +1319,7 @@ public class CPU implements NesCPU {
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
                     int value_r = registers.A & registers.X & (high & 0xFF);
-                    memory.write(memAddr, value_r);
+                    busRef.write(memAddr, value_r);
                 }
                 break;
             case ALR:
@@ -1353,7 +1343,7 @@ public class CPU implements NesCPU {
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
                     int axaValue = (registers.A & registers.X) & (high & 0xFF);
-                    memory.write(memAddr, axaValue);
+                    busRef.write(memAddr, axaValue);
                 }
                 break;
             case AXS:
@@ -1427,7 +1417,7 @@ public class CPU implements NesCPU {
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
                     int storeVal = (registers.A & registers.X) & (high & 0xFF);
-                    memory.write(memAddr, storeVal);
+                    busRef.write(memAddr, storeVal);
                 }
                 break;
             case SHX:
@@ -1435,7 +1425,7 @@ public class CPU implements NesCPU {
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_Y || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
                     int shxValue = registers.X & (high & 0xFF);
-                    memory.write(memAddr, shxValue);
+                    busRef.write(memAddr, shxValue);
                 }
                 break;
             case SHY:
@@ -1443,7 +1433,7 @@ public class CPU implements NesCPU {
                 if (memAddr != -1 && (mode == AddressingMode.ABSOLUTE_X || mode == AddressingMode.INDIRECT_Y)) {
                     int high = (memAddr >> 8) + 1;
                     int shyValue = registers.Y & (high & 0xFF);
-                    memory.write(memAddr, shyValue);
+                    busRef.write(memAddr, shyValue);
                 }
                 break;
             case SLO:
@@ -1480,17 +1470,17 @@ public class CPU implements NesCPU {
             lo = lastIndirectBaseLo & 0xFF;
             hi = lastIndirectBaseHi & 0xFF;
         } else {
-            lo = memory.read(zpPtr & 0xFF); // fallback if not cached
-            hi = memory.read((zpPtr + 1) & 0xFF);
+            lo = busRef.read(zpPtr & 0xFF); // fallback if not cached
+            hi = busRef.read((zpPtr + 1) & 0xFF);
         }
         int sum = lo + (yReg & 0xFF);
         int effLow = sum & 0xFF;
         int carry = (sum >> 8) & 0x1;
         int dummyAddr = (hi << 8) | effLow; // dummy read (old high, even if carry)
-        memory.read(dummyAddr & 0xFFFF); // dummy fetch
+        busRef.read(dummyAddr & 0xFFFF); // dummy fetch
         int effHigh = (hi + carry) & 0xFF;
         int effAddr = (effHigh << 8) | effLow;
-        memory.write(effAddr, value & 0xFF); // final store
+        busRef.write(effAddr, value & 0xFF); // final store
         // Reset cache so next store cannot wrongly reuse
         lastIndirectBaseLo = lastIndirectBaseHi = -1;
     }
@@ -1503,7 +1493,7 @@ public class CPU implements NesCPU {
      * @param value
      */
     private void push(int value) {
-        memory.write(0x100 + (registers.SP & 0xFF), value & 0xFF);
+        busRef.write(0x100 + (registers.SP & 0xFF), value & 0xFF);
         registers.SP = (registers.SP - 1) & 0xFF;
     }
 
@@ -1516,7 +1506,7 @@ public class CPU implements NesCPU {
      */
     private int pop() {
         registers.SP = (registers.SP + 1) & 0xFF;
-        return memory.read(0x100 + (registers.SP & 0xFF));
+        return busRef.read(0x100 + (registers.SP & 0xFF));
     }
 
     /**

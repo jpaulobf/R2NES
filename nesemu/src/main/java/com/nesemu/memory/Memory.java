@@ -98,8 +98,10 @@ public class Memory implements NesMemory {
             // SRAM (battery-backed RAM)
             sram[address - 0x6000] = value;
         } else {
-            // PRG-ROM (cartridge) is read-only
-            // TODO: Integrar com Mapper
+            // PRG-ROM region. In production this would be read-only (mapper controlled),
+            // but for unit tests (no mapper) we allow direct injection so the Bus
+            // fallback can populate opcodes and vectors.
+            prgRom[address - 0x8000] = value;
         }
     }
 
@@ -117,5 +119,22 @@ public class Memory implements NesMemory {
     public void clearPRGROM() {
         for (int i = 0; i < prgRom.length; i++)
             prgRom[i] = 0;
+    }
+
+    // --- Fine-grained accessors for Bus delegation ---
+    public int readInternalRam(int address) {
+        return ram[address & 0x07FF] & 0xFF;
+    }
+
+    public void writeInternalRam(int address, int value) {
+        ram[address & 0x07FF] = value & 0xFF;
+    }
+
+    public int readSram(int address) { // address in full CPU space 0x6000-0x7FFF
+        return sram[address - 0x6000] & 0xFF;
+    }
+
+    public void writeSram(int address, int value) {
+        sram[address - 0x6000] = value & 0xFF;
     }
 }
