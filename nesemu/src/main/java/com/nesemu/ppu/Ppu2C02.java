@@ -78,7 +78,6 @@ public class Ppu2C02 implements PPU {
 
     // Latches
     private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
-    private boolean justReloaded; // skip one shift after reload so first pixel uses new high bits
     // Removed hack fields (firstTileReady, scanlinePixelCounter) in favour of
     // direct cycle-based x computation
 
@@ -156,6 +155,10 @@ public class Ppu2C02 implements PPU {
             // Visible or pre-render scanlines only
             if (isVisibleScanline() || isPreRender()) {
                 // Background pipeline per-cycle operations (simplified subset)
+                // Shift at start of each visible cycle before sampling pixel
+                if (isVisibleScanline() && cycle >= 1 && cycle <= 256) {
+                    shiftBackgroundRegisters();
+                }
                 backgroundPipeline();
                 if (isVisibleScanline() && cycle >= 1 && cycle <= 256) {
                     produceBackgroundPixel();
@@ -321,7 +324,7 @@ public class Ppu2C02 implements PPU {
                 || (isPreRender() && ((cycle >= 321 && cycle <= 336) || (cycle >= 1 && cycle <= 256)));
         if (!fetchRegion)
             return;
-        int phase = cycle & 0x7; // 8-cycle tile fetch phase
+        int phase = cycle & 0x7; // 8-cycle tile fetch phase (1..7,0)
         switch (phase) {
             case 1: // Fetch nametable byte
                 ntLatch = ppuMemoryRead(0x2000 | (vramAddress & 0x0FFF));
@@ -346,34 +349,18 @@ public class Ppu2C02 implements PPU {
                 patternHighLatch = ppuMemoryRead(base);
                 break;
             }
-            case 0: // Reload shift registers with latched tile data
+            case 0: // Reload: insert new tile bytes into low 8 bits (faithful orientation)
                 loadShiftRegisters();
-                justReloaded = true; // defer shift this cycle so first pixel after reload samples new data
                 break;
-        }
-
-        // Perform shifting AFTER phase work so freshly loaded data isn't advanced
-        // prematurely
-        if (cycle != 0) {
-            if (justReloaded) {
-                // Skip one shift cycle so first pixel after reload (next cycle) uses bit7
-                justReloaded = false;
-            } else {
-                patternLowShift = (patternLowShift << 1) & 0xFFFF;
-                patternHighShift = (patternHighShift << 1) & 0xFFFF;
-                attributeLowShift = (attributeLowShift << 1) & 0xFFFF;
-                attributeHighShift = (attributeHighShift << 1) & 0xFFFF;
-            }
         }
     }
 
     private void produceBackgroundPixel() {
         if ((regMASK & 0x08) == 0)
             return; // background disabled
-        // Map first rendered background pixel (tile 0, bit7) to cycle 8 so we account
-        // for
-        // the initial 8-cycle fetch latency (cycles 1-8 fetch first tile data).
-        int x = cycle - 8; // cycle 8 -> x0
+        // Faithful mapping: first tile becomes visible after its fetch completes and
+        // shifts propagate; we choose cycle 9 -> pixel 0 to reflect 8-cycle latency.
+        int x = cycle - 9; // cycle 9 -> pixel 0
         if (x < 0 || x >= 256)
             return;
         if ((regMASK & 0x02) == 0 && x < 8) { // left clip
@@ -389,7 +376,9 @@ public class Ppu2C02 implements PPU {
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
         int paletteIndex = (attr << 2) | pattern; // 0..15 background palette index
-        frameIndexBuffer[scanline * 256 + x] = paletteIndex;
+        // For pattern==0 (transparent background texel) store raw index 0 so tests /
+        // logic referencing background transparency see universal bg index.
+        frameIndexBuffer[scanline * 256 + x] = (pattern == 0) ? 0 : paletteIndex;
         // Background palette selects at $3F00 + ( (pattern==0?0: ( (attr<<2)|pattern ))
         // ) with universal color for pattern==0
         int paletteBaseEntry = (pattern == 0) ? 0 : paletteIndex;
@@ -400,21 +389,26 @@ public class Ppu2C02 implements PPU {
     }
 
     private void loadShiftRegisters() {
-        // Load pattern bytes ONLY into high 8 bits (authentic orientation for our
-        // simplified priming).
         int pl = patternLowLatch & 0xFF;
         int ph = patternHighLatch & 0xFF;
-        patternLowShift = (pl << 8); // low 8 bits left as previous/zero; high bits contain new tile
-        patternHighShift = (ph << 8);
-        // Attribute quadrant extraction; replicate bit pair into high 8 bits only
+        // Insert into low 8 bits; older bits continue to shift out through bit15
+        patternLowShift = (patternLowShift & 0xFF00) | pl;
+        patternHighShift = (patternHighShift & 0xFF00) | ph;
         int coarseX = vramAddress & 0x1F;
         int coarseY = (vramAddress >> 5) & 0x1F;
         int quadrant = ((coarseY & 0x02) << 1) | (coarseX & 0x02);
         int attributeBits = (atLatch >> quadrant) & 0x03;
         int lowBit = attributeBits & 0x01;
         int highBit = (attributeBits >> 1) & 0x01;
-        attributeLowShift = (lowBit != 0 ? 0xFF00 : 0x0000) | (attributeLowShift & 0x00FF);
-        attributeHighShift = (highBit != 0 ? 0xFF00 : 0x0000) | (attributeHighShift & 0x00FF);
+        attributeLowShift = (attributeLowShift & 0xFF00) | (lowBit != 0 ? 0x00FF : 0x0000);
+        attributeHighShift = (attributeHighShift & 0xFF00) | (highBit != 0 ? 0x00FF : 0x0000);
+    }
+
+    private void shiftBackgroundRegisters() {
+        patternLowShift = (patternLowShift << 1) & 0xFFFF;
+        patternHighShift = (patternHighShift << 1) & 0xFFFF;
+        attributeLowShift = (attributeLowShift << 1) & 0xFFFF;
+        attributeHighShift = (attributeHighShift << 1) & 0xFFFF;
     }
 
     // priming hack removed – rely on pre-render line (if enabled early) or natural

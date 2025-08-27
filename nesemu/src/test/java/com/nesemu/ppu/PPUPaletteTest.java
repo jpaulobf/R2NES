@@ -50,9 +50,13 @@ public class PPUPaletteTest {
         p.writeRegister(1, 0x08 | 0x02); // enable bg + left 8
         while (!(p.getScanline() == 0 && p.getCycle() == 0))
             p.clock();
-        for (int i = 0; i < 8; i++)
+        // Esperar até que o primeiro pixel (posição 0) seja realmente escrito
+        // (frameBuffer inicial começa em 0xFF000000)
+        int safety = 200; // limite para evitar loop infinito em caso de regressão
+        while (p.getFrameBufferRef()[0] == 0xFF000000 && safety-- > 0) {
             p.clock();
-        p.clock(); // produce pixel x0
+        }
+        assertTrue(safety > 0, "Primeiro pixel não foi produzido dentro do limite esperado");
         int rawIndex = p.getPixel(0, 0);
         assertEquals(0, rawIndex, "Raw background palette index should be 0 for pattern 0");
         int argb = p.getFrameBufferRef()[0];
@@ -73,5 +77,17 @@ public class PPUPaletteTest {
         assertNotEquals(normal, emphR, "R emphasis changes color");
         assertNotEquals(normal, emphG, "G emphasis changes color");
         assertNotEquals(normal, emphB, "B emphasis changes color");
+    }
+
+    @Test
+    public void testEmphasisAppliedBeforeGrayscale() {
+        Palette pal = new Palette();
+        pal.write(0x3F00, 0x16); // reddish color so luma shifts with emphasis
+        int idx = pal.read(0x3F00);
+        int grayOnly = pal.getArgb(idx, 0x01); // grayscale bit
+        int grayWithREmph = pal.getArgb(idx, 0x01 | 0x20); // grayscale + R emphasis
+        // Because emphasis now precedes grayscale, luma should change and thus final
+        // gray differs
+        assertNotEquals(grayOnly, grayWithREmph, "Grayscale should reflect prior emphasis application");
     }
 }
