@@ -1510,13 +1510,6 @@ public class CPU implements NesCPU {
     }
 
     /**
-     * Sets the zero and negative flags based on the value.
-     * This method updates the zero and negative flags based on the provided value.
-     * 
-     * @return
-     */
-
-    /**
      * Sets the status flags based on the provided byte value.
      * This method updates the processor status flags based on the provided byte
      * value.

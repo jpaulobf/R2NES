@@ -2261,7 +2261,7 @@ public class CPUTest {
         cpu.reset();
         cpu.setX(0x20);
         int cycles = runInstr(); // base 0x80F0 + 0x20 -> 0x8110 (page cross) expect 4 base +1 extra if
-                            // implementation adds
+        // implementation adds
         assertTrue(cycles == 4 || cycles == 5);
     }
 
@@ -2333,5 +2333,602 @@ public class CPUTest {
         int pc2 = cpu.getPC();
         assertEquals(pc1, pc2);
         assertTrue(cycles >= 1);
+    }
+
+    // --- SEC ---
+    @Test
+    public void secSetsCarryOnly() {
+        setReset(0x8000);
+        w(0x8000, 0x38); // SEC
+        cpu.reset();
+        cpu.setCarry(false);
+        cpu.setZero(true);
+        cpu.setNegative(true);
+        cpu.setOverflow(true);
+        cpu.setDecimal(true);
+        int c = runInstr();
+        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isZero());
+        assertTrue(cpu.isNegative());
+        assertTrue(cpu.isOverflow());
+        assertTrue(cpu.isDecimal());
+        assertEquals(2, c);
+    }
+
+    // --- SED ---
+    @Test
+    public void sedSetsDecimalOnly() {
+        setReset(0x8000);
+        w(0x8000, 0xF8); // SED
+        cpu.reset();
+        cpu.setDecimal(false);
+        cpu.setCarry(true);
+        cpu.setZero(true);
+        cpu.setNegative(true);
+        int c = runInstr();
+        assertTrue(cpu.isDecimal());
+        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isZero());
+        assertTrue(cpu.isNegative());
+        assertEquals(2, c);
+    }
+
+    // --- SEI ---
+    @Test
+    public void seiSetsInterruptDisableOnly() {
+        setReset(0x8000);
+        w(0x8000, 0x78); // SEI
+        cpu.reset();
+        cpu.setInterruptDisable(false);
+        cpu.setCarry(true);
+        cpu.setZero(false);
+        int c = runInstr();
+        assertTrue(cpu.isInterruptDisable());
+        assertTrue(cpu.isCarry());
+        assertFalse(cpu.isZero());
+        assertEquals(2, c);
+    }
+
+    // --- STA (todos os modos relevantes) ---
+    @Test
+    public void staZeroPageStoresAndKeepsFlags() {
+        setReset(0x8000);
+        w(0x8000, 0x85); // STA zp
+        w(0x8001, 0x40);
+        cpu.reset();
+        cpu.setA(0xF3);
+        cpu.setZero(false);
+        cpu.setNegative(true); // Deve permanecer
+        int c = runInstr();
+        assertEquals(0xF3, bus.read(0x0040));
+        assertFalse(cpu.isZero());
+        assertTrue(cpu.isNegative());
+        assertEquals(3, c);
+    }
+
+    @Test
+    public void staZeroPageXIndexed() {
+        setReset(0x8000);
+        w(0x8000, 0x95); // STA zp,X
+        w(0x8001, 0x10);
+        cpu.reset();
+        cpu.setA(0x7E);
+        cpu.setX(0x05);
+        int c = runInstr();
+        assertEquals(0x7E, bus.read(0x0015));
+        assertEquals(4, c);
+    }
+
+    @Test
+    public void staAbsolute() {
+        setReset(0x8000);
+        w(0x8000, 0x8D); // STA abs
+        w(0x8001, 0x34);
+        w(0x8002, 0x12);
+        cpu.reset();
+        cpu.setA(0xAA);
+        int c = runInstr();
+        assertEquals(0xAA, bus.read(0x1234));
+        assertEquals(4, c);
+    }
+
+    @Test
+    public void staAbsoluteXNoExtraOnPageCross() {
+        setReset(0x8000);
+        w(0x8000, 0x9D); // STA abs,X
+        w(0x8001, 0xF0);
+        w(0x8002, 0x80); // base 0x80F0
+        cpu.reset();
+        cpu.setX(0x30);
+        cpu.setA(0x11); // efetivo 0x8120 cruza página
+        int c = runInstr();
+        assertEquals(0x11, bus.read(0x8120));
+        assertEquals(5, c, "Store não adiciona ciclo em crossing");
+    }
+
+    @Test
+    public void staAbsoluteYNoExtraOnPageCross() {
+        setReset(0x8000);
+        w(0x8000, 0x99); // STA abs,Y
+        w(0x8001, 0xFF);
+        w(0x8002, 0x80); // base 0x80FF
+        cpu.reset();
+        cpu.setY(0x02);
+        cpu.setA(0x3C); // efetivo 0x8101 cruza página
+        int c = runInstr();
+        assertEquals(0x3C, bus.read(0x8101));
+        assertEquals(5, c);
+    }
+
+    @Test
+    public void staIndirectX() {
+        setReset(0x8000);
+        w(0x8000, 0x81); // STA (zp,X)
+        w(0x8001, 0x20);
+        cpu.reset();
+        cpu.setX(0x04);
+        cpu.setA(0x55);
+        int zp = (0x20 + 0x04) & 0xFF; // pointer location
+        w(zp, 0x40);
+        w((zp + 1) & 0xFF, 0x90); // target 0x9040
+        int c = runInstr();
+        assertEquals(0x55, bus.read(0x9040));
+        assertEquals(6, c);
+    }
+
+    @Test
+    public void staIndirectYPageCrossNoExtra() {
+        setReset(0x8000);
+        w(0x8000, 0x91); // STA (zp),Y
+        w(0x8001, 0x30);
+        cpu.reset();
+        w(0x0030, 0xF5);
+        w(0x0031, 0x80); // base 0x80F5
+        cpu.setY(0x20);
+        cpu.setA(0xBE); // efetivo 0x8115 cruza página
+        int c = runInstr();
+        assertEquals(0xBE, bus.read(0x8115));
+        assertEquals(6, c);
+    }
+
+    // --- STX ---
+    @Test
+    public void stxZeroPage() {
+        setReset(0x8000);
+        w(0x8000, 0x86);
+        w(0x8001, 0x44);
+        cpu.reset();
+        cpu.setX(0x99);
+        int c = runInstr();
+        assertEquals(0x99, bus.read(0x0044));
+        assertEquals(3, c);
+    }
+
+    @Test
+    public void stxZeroPageYIndexed() {
+        setReset(0x8000);
+        w(0x8000, 0x96); // STX zp,Y
+        w(0x8001, 0x10);
+        cpu.reset();
+        cpu.setY(0x05);
+        cpu.setX(0x7E);
+        int c = runInstr();
+        assertEquals(0x7E, bus.read(0x0015));
+        assertEquals(4, c);
+    }
+
+    @Test
+    public void stxAbsolute() {
+        setReset(0x8000);
+        w(0x8000, 0x8E);
+        w(0x8001, 0x00);
+        w(0x8002, 0x90);
+        cpu.reset();
+        cpu.setX(0xC3);
+        int c = runInstr();
+        assertEquals(0xC3, bus.read(0x9000));
+        assertEquals(4, c);
+    }
+
+    // --- STY ---
+    @Test
+    public void styZeroPage() {
+        setReset(0x8000);
+        w(0x8000, 0x84);
+        w(0x8001, 0x22);
+        cpu.reset();
+        cpu.setY(0x5A);
+        int c = runInstr();
+        assertEquals(0x5A, bus.read(0x0022));
+        assertEquals(3, c);
+    }
+
+    @Test
+    public void styZeroPageXIndexed() {
+        setReset(0x8000);
+        w(0x8000, 0x94); // STY zp,X
+        w(0x8001, 0x30);
+        cpu.reset();
+        cpu.setX(0x07);
+        cpu.setY(0xE1);
+        int c = runInstr();
+        assertEquals(0xE1, bus.read(0x0037));
+        assertEquals(4, c);
+    }
+
+    @Test
+    public void styAbsolute() {
+        setReset(0x8000);
+        w(0x8000, 0x8C);
+        w(0x8001, 0x10);
+        w(0x8002, 0x88);
+        cpu.reset();
+        cpu.setY(0x42);
+        int c = runInstr();
+        assertEquals(0x42, bus.read(0x8810));
+        assertEquals(4, c);
+    }
+
+    // --- TAX / TAY / TSX / TXA / TXS / TYA ---
+    @Test
+    public void taxTransfersAndSetsFlags() {
+        setReset(0x8000);
+        w(0x8000, 0xAA); // TAX
+        cpu.reset();
+        cpu.setA(0x80); // negative
+        int c = runInstr();
+        assertEquals(0x80, cpu.getX());
+        assertTrue(cpu.isNegative());
+        assertFalse(cpu.isZero());
+        assertEquals(2, c);
+    }
+
+    @Test
+    public void taxZeroResultSetsZ() {
+        setReset(0x8000);
+        w(0x8000, 0xAA);
+        cpu.reset();
+        cpu.setA(0x00);
+        cpu.setX(0x10);
+        runInstr();
+        assertEquals(0x00, cpu.getX());
+        assertTrue(cpu.isZero());
+    }
+
+    @Test
+    public void tayTransfersAndSetsFlags() {
+        setReset(0x8000);
+        w(0x8000, 0xA8);
+        cpu.reset();
+        cpu.setA(0x7F);
+        int c = runInstr();
+        assertEquals(0x7F, cpu.getY());
+        assertFalse(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        assertEquals(2, c);
+    }
+
+    @Test
+    public void tsxTransfersSPToXUpdatesFlags() {
+        setReset(0x8000);
+        w(0x8000, 0xBA);
+        cpu.reset();
+        cpu.setSP(0x00); // should set zero flag
+        int c = runInstr();
+        assertEquals(0x00, cpu.getX());
+        assertTrue(cpu.isZero());
+        assertEquals(2, c);
+    }
+
+    @Test
+    public void txaTransfersAndSetsFlags() {
+        setReset(0x8000);
+        w(0x8000, 0x8A);
+        cpu.reset();
+        cpu.setX(0x01);
+        int c = runInstr();
+        assertEquals(0x01, cpu.getA());
+        assertFalse(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        assertEquals(2, c);
+    }
+
+    @Test
+    public void txsTransfersWithoutChangingFlags() {
+        setReset(0x8000);
+        w(0x8000, 0x9A); // TXS
+        cpu.reset();
+        cpu.setX(0xFE);
+        cpu.setZero(true);
+        cpu.setNegative(true);
+        int c = runInstr();
+        assertEquals(0xFE, cpu.getSP());
+        // Flags unchanged
+        assertTrue(cpu.isZero());
+        assertTrue(cpu.isNegative());
+        assertEquals(2, c);
+    }
+
+    @Test
+    public void tyaTransfersAndSetsFlags() {
+        setReset(0x8000);
+        w(0x8000, 0x98);
+        cpu.reset();
+        cpu.setY(0x00);
+        int c = runInstr();
+        assertEquals(0x00, cpu.getA());
+        assertTrue(cpu.isZero());
+        assertEquals(2, c);
+    }
+
+    // --- AAC / ANC (0x0B e 0x2B) ---
+    @Test
+    public void aacImmediateBit7SetsCarryAndNegative() {
+        setReset(0x8000);
+        w(0x8000, 0x0B);
+        w(0x8001, 0xF0); // A=0xC3 & 0xF0 => 0xC0
+        cpu.reset();
+        cpu.setA(0xC3);
+        cpu.setCarry(false);
+        int c = runInstr();
+        assertEquals(0xC0, cpu.getA());
+        assertTrue(cpu.isNegative());
+        assertTrue(cpu.isCarry());
+        assertFalse(cpu.isZero());
+        assertEquals(2, c);
+    }
+
+    @Test
+    public void aacImmediateZeroClearsCarryAndSetsZero() {
+        setReset(0x8000);
+        w(0x8000, 0x2B);
+        w(0x8001, 0x0F); // A=0x30 &0x0F => 0x00
+        cpu.reset();
+        cpu.setA(0x30);
+        cpu.setCarry(true);
+        cpu.setNegative(true);
+        int c = runInstr();
+        assertEquals(0x00, cpu.getA());
+        assertTrue(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        assertFalse(cpu.isCarry());
+        assertEquals(2, c);
+    }
+
+    @Test
+    public void roundTripAllStatusValues() {
+        // Verifica todos os 256 valores de P
+        for (int p = 0; p < 256; p++) {
+            cpu.forceState(0x1234, 0xAA, 0xBB, 0xCC, p, 0xFD);
+            assertEquals(p, cpu.getStatusByte(), String.format("Round‑trip falhou para P=%02X", p));
+            assertFlagsMatch(p);
+        }
+    }
+
+    @Test
+    public void registerMaskingApplied() {
+        // Valores extrapolados serão mascarados
+        int pcIn = 0x123456; // espera 0x3456
+        int aIn = 0x1FF; // espera 0xFF
+        int xIn = 0x100; // espera 0x00
+        int yIn = 0x10F; // espera 0x0F
+        int spIn = 0x1AB; // espera 0xAB
+        int p = 0xFF; // todas as flags
+        cpu.forceState(pcIn, aIn, xIn, yIn, p, spIn);
+        assertEquals(0x3456, cpu.getPC());
+        assertEquals(0xFF, cpu.getA());
+        assertEquals(0x00, cpu.getX());
+        assertEquals(0x0F, cpu.getY());
+        assertEquals(0xAB, cpu.getSP());
+        assertEquals(0xFF, cpu.getStatusByte());
+    }
+
+    @Test
+    public void flagsDoNotDependOnRegisterContents() {
+        // A = 0 mas bit Z NÃO setado -> zero flag deve ficar false
+        int p = 0x00; // todas flags limpas
+        cpu.forceState(0x8000, 0x00, 0x7F, 0x80, p, 0x10);
+        assertFalse(cpu.isZero(), "Zero flag não deveria ser setada se bit1 de P=0");
+        // Negative deve vir de P, não do valor 0x80 em Y (que seria negativo se
+        // calculado)
+        assertFalse(cpu.isNegative(), "Negative deve refletir P e não o conteúdo de Y");
+        // Agora força somente bit N
+        p = 0x80; // apenas negativo
+        cpu.forceState(0x8000, 0x01, 0x02, 0x03, p, 0x20);
+        assertTrue(cpu.isNegative());
+        assertFalse(cpu.isZero());
+    }
+
+    @Test
+    public void unusedBitRespectsInputBothStates() {
+        // Primeiro com unused=0
+        int p1 = 0x00; // unused limpo
+        cpu.forceState(0x1000, 0x11, 0x22, 0x33, p1, 0x40);
+        assertFalse(cpu.isUnused());
+        assertEquals(p1, cpu.getStatusByte());
+        // Agora com unused=1 somente
+        int p2 = 0x20; // somente bit 5
+        cpu.forceState(0x1000, 0x11, 0x22, 0x33, p2, 0x40);
+        assertTrue(cpu.isUnused());
+        assertEquals(p2, cpu.getStatusByte());
+    }
+
+    @Test
+    public void selectiveFlagsCombinationSample() {
+        // Combinação arbitrária para garantir mistura de bits
+        int p = 0b1010_0101; // N=1 V=0 U=1 B=0 D=0 I=1 Z=0 C=1
+        cpu.forceState(0xABCD, 0x10, 0x20, 0x30, p, 0x50);
+        assertFlagsMatch(p);
+        assertEquals(p, cpu.getStatusByte());
+    }
+
+    // Helper para assertar flags contra um P esperado
+    private void assertFlagsMatch(int p) {
+        assertEquals((p & 0x01) != 0, cpu.isCarry(), "Carry incorreto");
+        assertEquals((p & 0x02) != 0, cpu.isZero(), "Zero incorreto");
+        assertEquals((p & 0x04) != 0, cpu.isInterruptDisable(), "InterruptDisable incorreto");
+        assertEquals((p & 0x08) != 0, cpu.isDecimal(), "Decimal incorreto");
+        assertEquals((p & 0x10) != 0, cpu.isBreakFlag(), "Break incorreto");
+        assertEquals((p & 0x20) != 0, cpu.isUnused(), "Unused incorreto");
+        assertEquals((p & 0x40) != 0, cpu.isOverflow(), "Overflow incorreto");
+        assertEquals((p & 0x80) != 0, cpu.isNegative(), "Negative incorreto");
+    }
+
+    @Test
+    public void stepExecutesSingleInstructionFully() {
+        setReset(0x8000);
+        w(0x8000, 0xA9); // LDA #$55
+        w(0x8001, 0x55);
+        cpu.reset();
+        assertTrue(cpu.isInstructionBoundary());
+        cpu.stepInstruction();
+        assertEquals(0x55, cpu.getA());
+        assertEquals(0x8002, cpu.getPC());
+        assertTrue(cpu.isInstructionBoundary());
+    }
+
+    @Test
+    public void stepCompletesRmwInstruction() {
+        setReset(0x8000);
+        w(0x8000, 0x06); // ASL zp $40
+        w(0x8001, 0x40);
+        w(0x0040, 0x81);
+        cpu.reset();
+        cpu.stepInstruction(); // deve efetuar RMW completo (5 ciclos no total)
+        assertEquals(0x02, bus.read(0x0040)); // 0x81<<1 => 0x02, carry=1
+        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isZero()==false);
+        assertTrue(cpu.isInstructionBoundary());
+    }
+
+    @Test
+    public void stepHandlesInstructionAlreadyInProgress() {
+        setReset(0x8000);
+        w(0x8000, 0xE6); // INC zp $20 (RMW)
+        w(0x8001, 0x20);
+        w(0x0020, 0x7F);
+        cpu.reset();
+        // Avança apenas primeiro ciclo manualmente
+        cpu.clock(); // inicia instrução (ciclos restantes>0)
+        assertFalse(cpu.isInstructionBoundary());
+        cpu.stepInstruction(); // deve terminar INC e parar antes da próxima
+        assertEquals(0x80, bus.read(0x0020));
+        assertTrue(cpu.isNegative());
+        assertTrue(cpu.isInstructionBoundary());
+        // Próxima stepInstruction não altera mais memória
+        int pcAfter = cpu.getPC();
+        cpu.stepInstruction();
+        assertEquals(pcAfter, cpu.getPC()); // próxima é whatever at next address (not set) -> treated as NOP
+    }
+
+    @Test
+    public void stepBranchTakesExtraCycleOnTaken() {
+        setReset(0x8000);
+        w(0x8000, 0xB0); // BCS +4
+        w(0x8001, 0x04);
+        w(0x8002, 0xEA); // NOP (padding)
+        w(0x8003, 0xEA);
+        w(0x8004, 0xEA);
+        w(0x8005, 0xEA);
+        cpu.reset(); cpu.setCarry(true);
+        cpu.stepInstruction();
+        assertEquals(0x8006, cpu.getPC()); // base 0x8002 + 4
+        assertTrue(cpu.wasLastBranchTaken());
+    }
+
+    @Test
+    public void stepBranchPageCrossAddsAnotherCycle() {
+        setReset(0x80F0);
+        w(0x80F0, 0xB0); // BCS +0x20
+        w(0x80F1, 0x20);
+        cpu.reset(); cpu.setCarry(true);
+        cpu.stepInstruction();
+        assertEquals(0x8112, cpu.getPC());
+        assertTrue(cpu.wasLastBranchTaken());
+        assertTrue(cpu.wasLastBranchPageCross());
+    }
+
+    @Test
+    public void stepAddsPageCrossCycleForLdaAbsoluteX() {
+        setReset(0x8000);
+        w(0x8000, 0xBD); // LDA abs,X
+        w(0x8001, 0xFF); w(0x8002, 0x80); // base 0x80FF
+        w(0x8100, 0x42); // efetivo 0x8100
+        cpu.reset(); cpu.setX(0x01);
+        long cyclesBefore = cpu.getTotalCycles();
+        cpu.stepInstruction();
+        long consumed = cpu.getTotalCycles() - cyclesBefore;
+        assertEquals(0x42, cpu.getA());
+        assertTrue(consumed >= 5); // 4 +1 page cross
+    }
+
+    @Test
+    public void stepHandlesNmiBeforeNextFetch() {
+        setReset(0x9000);
+        // Vetor NMI -> 0x3456
+        w(0xFFFA, 0x56); w(0xFFFB, 0x34);
+        w(0x9000, 0xEA); // NOP (não será executado primeiro se NMI pendente)
+        cpu.reset();
+        cpu.nmi(); // marca NMI
+        cpu.stepInstruction(); // deve executar sequência NMI (7 ciclos) e deixar PC em 0x3456
+        assertEquals(0x3456, cpu.getPC());
+        assertTrue(cpu.isInterruptDisable());
+    }
+
+    @Test
+    public void stepHandlesIrqIfNotDisabled() {
+        setReset(0xA000);
+        // Vetor IRQ/BRK -> 0x4000
+        w(0xFFFE, 0x00); w(0xFFFF, 0x40);
+        w(0xA000, 0xEA);
+        cpu.reset(); cpu.setInterruptDisable(false);
+        cpu.irq();
+        cpu.stepInstruction();
+        assertEquals(0x4000, cpu.getPC());
+        assertTrue(cpu.isInterruptDisable());
+    }
+
+    @Test
+    public void nmiHasPriorityOverIrq() {
+        setReset(0xB000);
+        w(0xFFFA, 0x34); w(0xFFFB, 0x12); // NMI -> 0x1234
+        w(0xFFFE, 0x78); w(0xFFFF, 0x56); // IRQ -> 0x5678
+        w(0xB000, 0xEA);
+    // Coloca KIL (0x02) no endereço alvo da NMI para impedir execução de BRK (0x00 default) que saltaria ao vetor IRQ/BRK
+    w(0x1234, 0x02);
+        cpu.reset(); cpu.setInterruptDisable(false);
+        cpu.irq(); cpu.nmi();
+        cpu.stepInstruction();
+    assertEquals(0x1234, cpu.getPC()); // NMI primeiro
+    cpu.stepInstruction(); // executa KIL e permanece parado
+    assertEquals(0x1234, cpu.getPC()); // ainda parado no alvo da NMI
+    assertNotEquals(0x5678, cpu.getPC(), "IRQ não deve ter sido atendida devido a interruptDisable");
+    }
+
+    @Test
+    public void stepSequenceOfMultipleInstructions() {
+        setReset(0x8000);
+        w(0x8000, 0xA9); w(0x8001, 0x01); // LDA #1
+        w(0x8002, 0x69); w(0x8003, 0x05); // ADC #5
+        w(0x8004, 0x18);                 // CLC
+        cpu.reset(); cpu.setCarry(false);
+        cpu.stepInstruction(); // LDA
+        cpu.stepInstruction(); // ADC
+        assertEquals(0x06, cpu.getA());
+        cpu.setCarry(true); // set carry then CLC should clear
+        cpu.stepInstruction(); // CLC
+        assertFalse(cpu.isCarry());
+        assertEquals(0x8005, cpu.getPC());
+    }
+
+    @Test
+    public void stepWithKilHaltsProgress() {
+        setReset(0x8000);
+        w(0x8000, 0x02); // KIL
+        cpu.reset();
+        cpu.stepInstruction();
+        int pc = cpu.getPC();
+        cpu.stepInstruction(); // não deve avançar
+        assertEquals(pc, cpu.getPC());
     }
 }
