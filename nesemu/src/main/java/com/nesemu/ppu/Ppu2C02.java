@@ -1,6 +1,8 @@
 package com.nesemu.ppu;
 
 import com.nesemu.cpu.CPU;
+import com.nesemu.mapper.Mapper;
+import com.nesemu.mapper.Mapper.MirrorType;
 
 /**
  * Minimal 2C02 PPU skeleton: implements core registers and a basic
@@ -22,9 +24,15 @@ public class Ppu2C02 implements PPU {
 
     // Optional CPU callback for NMI (set by Bus/emulator)
     private CPU cpu;
+    // Optional mapper reference (for CHR access + mirroring metadata)
+    private Mapper mapper;
 
     public void attachCPU(CPU cpu) {
         this.cpu = cpu;
+    }
+
+    public void attachMapper(Mapper mapper) {
+        this.mapper = mapper;
     }
 
     // Registers
@@ -419,14 +427,22 @@ public class Ppu2C02 implements PPU {
     private int ppuMemoryRead(int addr) {
         addr &= 0x3FFF;
         if (addr < 0x2000) { // pattern tables
-            return patternTables[addr] & 0xFF;
-        } else if (addr < 0x3F00) { // nametables (0x2000-0x2FFF) mirror every 0x1000
+            if (mapper != null) {
+                return mapper.ppuRead(addr) & 0xFF;
+            }
+            return patternTables[addr] & 0xFF; // fallback (tests / bootstrap)
+        } else if (addr < 0x3F00) { // nametables (0x2000-0x2FFF)
             int nt = (addr - 0x2000) & 0x0FFF;
-            int index = nt & 0x03FF; // 1KB region
-            int table = (nt >> 10) & 0x03; // 4 possible, we only store 2 -> mirror 2 & 3 to 0 & 1
-            if (table >= 2)
-                table -= 2;
-            return nameTables[(table * 0x0400) + index] & 0xFF;
+            int index = nt & 0x03FF; // 1KB region within a logical table
+            int table = (nt >> 10) & 0x03; // 0..3 logical tables before mirroring
+            int physical = table; // map to 0 or 1 based on mirroring
+            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL; // default vertical
+            if (mt == MirrorType.VERTICAL) {
+                physical = table & 0x01; // 0,1,0,1
+            } else { // HORIZONTAL
+                physical = (table >> 1); // 0,0,1,1
+            }
+            return nameTables[(physical * 0x0400) + index] & 0xFF;
         } else if (addr < 0x4000) {
             // Palette RAM $3F00-$3F1F mirrored every 32 bytes up to 0x3FFF
             return palette.read(addr);
@@ -438,14 +454,23 @@ public class Ppu2C02 implements PPU {
         addr &= 0x3FFF;
         value &= 0xFF;
         if (addr < 0x2000) {
-            patternTables[addr] = (byte) value; // CHR RAM case
+            if (mapper != null) {
+                mapper.ppuWrite(addr, value);
+            } else {
+                patternTables[addr] = (byte) value; // CHR RAM case
+            }
         } else if (addr < 0x3F00) {
             int nt = (addr - 0x2000) & 0x0FFF;
             int index = nt & 0x03FF;
-            int table = (nt >> 10) & 0x03;
-            if (table >= 2)
-                table -= 2;
-            nameTables[(table * 0x0400) + index] = (byte) value;
+            int table = (nt >> 10) & 0x03; // logical
+            int physical;
+            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
+            if (mt == MirrorType.VERTICAL) {
+                physical = table & 0x01; // 0,1,0,1
+            } else {
+                physical = (table >> 1); // 0,0,1,1
+            }
+            nameTables[(physical * 0x0400) + index] = (byte) value;
         } else if (addr < 0x4000) {
             palette.write(addr, value);
         }
@@ -545,6 +570,19 @@ public class Ppu2C02 implements PPU {
 
     int[] getFrameBufferRef() { // returns ARGB buffer
         return frameBuffer;
+    }
+
+    /** Public accessor for rendering layer (returns direct reference). */
+    public int[] getFrameBuffer() {
+        return frameBuffer;
+    }
+
+    /** Load CHR ROM data into internal pattern tables (mapper0 bootstrap). */
+    public void loadChr(byte[] chr) {
+        if (chr == null)
+            return;
+        int len = Math.min(chr.length, patternTables.length);
+        System.arraycopy(chr, 0, patternTables, 0, len);
     }
 
     // TEST HELPERS for palette

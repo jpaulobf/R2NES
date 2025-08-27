@@ -34,6 +34,11 @@ public class NesEmulator {
         this.mapper = new Mapper0(rom);
         this.ppu = new Ppu2C02();
         this.ppu.reset();
+        this.ppu.attachMapper(this.mapper);
+        // Bootstrap CHR contents into PPU pattern table space (Mapper0 direct copy)
+        if (rom.getChrRom() != null && rom.getChrRom().length > 0) {
+            this.ppu.loadChr(rom.getChrRom());
+        }
         this.bus = new Bus();
         bus.attachPPU(ppu);
         bus.attachMapper(mapper, rom);
@@ -81,5 +86,13 @@ public class NesEmulator {
     public void runInstructions(long count) {
         for (long i = 0; i < count; i++)
             cpu.stepInstruction();
+    }
+
+    /** Advance until end of current frame (when PPU scanline wraps to -1). */
+    public void stepFrame() {
+        long targetFrame = ppu.getFrame();
+        while (ppu.getFrame() == targetFrame) {
+            runCycles(1); // 1 CPU cycle -> 3 PPU cycles
+        }
     }
 }

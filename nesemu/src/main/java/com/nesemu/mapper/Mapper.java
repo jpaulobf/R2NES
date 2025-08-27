@@ -17,4 +17,15 @@ public interface Mapper {
     int ppuRead(int address);
 
     void ppuWrite(int address, int value);
+
+    /**
+     * Nametable mirroring type (horizontal/vertical) to guide PPU address decode.
+     */
+    default MirrorType getMirrorType() {
+        return MirrorType.HORIZONTAL;
+    }
+
+    enum MirrorType {
+        HORIZONTAL, VERTICAL
+    }
 }

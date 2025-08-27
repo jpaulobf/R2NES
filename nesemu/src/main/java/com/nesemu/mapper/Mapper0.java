@@ -22,6 +22,7 @@ public class Mapper0 implements Mapper {
         this.prgPageCount = rom.getHeader().getPrgRomPages();
         this.chrPageCount = rom.getHeader().getChrRomPages();
         this.chrRam = (chr.length == 0) ? new byte[0x2000] : null; // 8KB CHR RAM
+        this.headerVertical = rom.getHeader().isVerticalMirroring();
     }
 
     @Override
@@ -71,4 +72,17 @@ public class Mapper0 implements Mapper {
         }
         // Otherwise ignore (CHR ROM read-only).
     }
+
+    @Override
+    public MirrorType getMirrorType() {
+        // Derive from iNES header flag6 bit0 via stored page counts; need header. We
+        // don't keep header here, so assume vertical if chrPageCount even not helpful.
+        // Better: pass rom header in ctor (rom available). For now, infer from rom
+        // param.
+        // We'll store a cached value.
+        // (Refactor: stash boolean on construction.)
+        return headerVertical ? MirrorType.VERTICAL : MirrorType.HORIZONTAL;
+    }
+
+    private final boolean headerVertical;
 }

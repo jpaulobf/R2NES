@@ -7,5 +7,10 @@ package com.nesemu.ppu;
  */
 public interface PPU {
     void reset();
+
     void clock();
+
+    default int[] getFrameBuffer() {
+        return new int[0];
+    }
 }
