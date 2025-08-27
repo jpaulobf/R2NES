@@ -148,16 +148,6 @@ public class Ppu2C02 implements PPU {
             // no per-scanline pixel counter reset needed now
         }
 
-        // Odd frame cycle skip (short frame): skip cycle 340 on pre-render line (-1)
-        // when rendering enabled and frame is odd. We implement by skipping directly
-        // from cycle 339 to new scanline 0 (dropping the would-be 340).
-        if (isPreRender() && cycle == 339 && renderingEnabled() && (frame & 1) == 1) {
-            cycle = 0; // start next scanline
-            scanline = 0; // move to first visible scanline
-            // frame counter NOT incremented here (increment happens when wrapping 260->-1)
-            return;
-        }
-
         // (No priming hack) – rely on 8‑cycle pipeline latency.
 
         // Enter vblank at scanline 241, cycle 1 (NES spec; some docs cite cycle 0)
@@ -243,16 +233,9 @@ public class Ppu2C02 implements PPU {
                 return 0; // future: read OAM[oamAddr]
             }
             case 7: { // PPUDATA
-                int addr = vramAddress & 0x3FFF;
-                int value;
-                if (addr >= 0x3F00 && addr < 0x4000) {
-                    // Palette reads are immediate (not buffered) on real hardware.
-                    value = ppuMemoryRead(addr) & 0xFF;
-                } else {
-                    // Buffered read behaviour: return previous buffer, then fill with current.
-                    value = readBuffer;
-                    readBuffer = ppuMemoryRead(addr) & 0xFF;
-                }
+                // Buffered read behaviour: return previous buffer, then fill
+                int value = readBuffer;
+                readBuffer = ppuMemoryRead(vramAddress) & 0xFF;
                 incrementVram();
                 return value;
             }
@@ -434,11 +417,12 @@ public class Ppu2C02 implements PPU {
             frameIndexBuffer[scanline * 256 + x] = 0;
             return;
         }
-        int tap = 15 - (fineX & 0x7);
-        int bit0 = (patternLowShift >> tap) & 0x1;
-        int bit1 = (patternHighShift >> tap) & 0x1;
-        int attrLow = (attributeLowShift >> tap) & 0x1;
-        int attrHigh = (attributeHighShift >> tap) & 0x1;
+        int bitIndex = 15 - (fineX & 0x7); // use fine X to select bit from 16-bit shift registers
+        int mask = 1 << bitIndex;
+        int bit0 = (patternLowShift & mask) != 0 ? 1 : 0;
+        int bit1 = (patternHighShift & mask) != 0 ? 1 : 0;
+        int attrLow = (attributeLowShift & mask) != 0 ? 1 : 0;
+        int attrHigh = (attributeHighShift & mask) != 0 ? 1 : 0;
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
         int paletteIndex = (attr << 2) | pattern; // 0..15
@@ -479,11 +463,12 @@ public class Ppu2C02 implements PPU {
         int attributeBits = (atLatch >> shift) & 0x03;
         int lowBit = attributeBits & 0x01;
         int highBit = (attributeBits >> 1) & 0x01;
-        // Replicate attribute bits into low byte only (8-bit pattern) like hardware;
-        // previous high byte continues shifting out while new tile occupies low bits.
-        attributeLowShift = (attributeLowShift & 0xFF00) | (lowBit != 0 ? 0x00FF : 0x0000);
-        attributeHighShift = (attributeHighShift & 0xFF00) | (highBit != 0 ? 0x00FF : 0x0000);
-        // No pre-shift; fineX handled at sampling time.
+        // Replicate attribute bits across both bytes so bit15 (first pixel after
+        // reload)
+        // reflects current tile's palette selection (avoids leaking previous tile's
+        // high byte).
+        attributeLowShift = (lowBit != 0 ? 0xFFFF : 0x0000);
+        attributeHighShift = (highBit != 0 ? 0xFFFF : 0x0000);
     }
 
     private void shiftBackgroundRegisters() {
@@ -690,159 +675,5 @@ public class Ppu2C02 implements PPU {
     // Raw status for deeper debug if needed
     public int getStatusRegister() {
         return regSTATUS & 0xFF;
-    }
-
-    // --- Debug / inspection helpers ---
-    /**
-     * Dump background raw palette indices (0..15) into a simple ASCII PGM-like
-     * PPM (P3) file for quick inspection (grayscale mapping). Each index scaled to
-     * 0..255 by *17.
-     */
-    public void dumpBackgroundToPpm(java.nio.file.Path path) {
-        try (java.io.BufferedWriter w = java.nio.file.Files.newBufferedWriter(path)) {
-            w.write("P3\n");
-            w.write("256 240\n255\n");
-            for (int y = 0; y < 240; y++) {
-                for (int x = 0; x < 256; x++) {
-                    int v = frameIndexBuffer[y * 256 + x] & 0x0F;
-                    int g = v * 17; // expand 0..15 to 0..255
-                    w.write(g + " " + g + " " + g + (x == 255 ? "" : " "));
-                }
-                w.write("\n");
-            }
-        } catch (Exception e) {
-            System.err.println("PPU dumpBackgroundToPpm failed: " + e.getMessage());
-        }
-    }
-
-    /** Print a 32x30 tile map of first scanline of each tile row (indices) */
-    public void printTileIndexMatrix() {
-        // Mode options: "first" (top-left pixel), "center" (pixel 4,4), "nonzero"
-        // (first non-zero pixel in tile)
-        String mode = tileMatrixMode;
-        StringBuilder sb = new StringBuilder();
-        for (int ty = 0; ty < 30; ty++) {
-            for (int tx = 0; tx < 32; tx++) {
-                int v = 0;
-                if ("first".equals(mode)) {
-                    v = frameIndexBuffer[(ty * 8) * 256 + tx * 8] & 0x0F;
-                } else if ("center".equals(mode)) {
-                    int x = tx * 8 + 4;
-                    int y = ty * 8 + 4;
-                    v = frameIndexBuffer[y * 256 + x] & 0x0F;
-                } else if ("nonzero".equals(mode)) {
-                    int baseY = ty * 8;
-                    int baseX = tx * 8;
-                    int found = 0;
-                    outer: for (int py = 0; py < 8; py++) {
-                        int rowOff = (baseY + py) * 256 + baseX;
-                        for (int px = 0; px < 8; px++) {
-                            int val = frameIndexBuffer[rowOff + px] & 0x0F;
-                            if (val != 0) {
-                                found = val;
-                                break outer;
-                            }
-                        }
-                    }
-                    v = found;
-                } else {
-                    // fallback to first
-                    v = frameIndexBuffer[(ty * 8) * 256 + tx * 8] & 0x0F;
-                }
-                sb.append(String.format("%X", v));
-            }
-            sb.append('\n');
-        }
-        System.out.print(sb.toString());
-    }
-
-    // Tile matrix sampling mode (default "first")
-    private String tileMatrixMode = "first";
-
-    public void setTileMatrixMode(String mode) {
-        if (mode == null)
-            return;
-        switch (mode.toLowerCase()) {
-            case "first":
-            case "center":
-            case "nonzero":
-                tileMatrixMode = mode.toLowerCase();
-                break;
-            default:
-                // ignore invalid, keep previous
-        }
-    }
-
-    /**
-     * Print histogram of background palette indices 0..15 for current frame buffer.
-     */
-    public void printBackgroundIndexHistogram() {
-        int[] counts = new int[16];
-        for (int i = 0; i < frameIndexBuffer.length; i++) {
-            counts[frameIndexBuffer[i] & 0x0F]++;
-        }
-        System.out.println("--- Background index histogram (count) ---");
-        for (int i = 0; i < 16; i++) {
-            int c = counts[i];
-            if (c > 0) {
-                System.out.printf("%X: %d%n", i, c);
-            }
-        }
-    }
-
-    /**
-     * Debug: imprime os IDs de tiles (bytes de nametable) de uma nametable lógica
-     * (0..3). Espelha conforme mirroring ativo no mapper. Mostra 32x30 valores em
-     * hex (duas casas) separados por espaço.
-     */
-    public void printNameTableTileIds(int logicalIndex) {
-        if (logicalIndex < 0 || logicalIndex > 3)
-            logicalIndex = 0;
-        System.out.printf("--- NameTable %d tile IDs ---\n", logicalIndex);
-        MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
-        for (int row = 0; row < 30; row++) {
-            StringBuilder sb = new StringBuilder();
-            for (int col = 0; col < 32; col++) {
-                int logicalAddr = 0x2000 + logicalIndex * 0x0400 + row * 32 + col; // dentro da parte de tiles
-                                                                                   // (0..0x03BF)
-                int nt = (logicalAddr - 0x2000) & 0x0FFF;
-                int index = nt & 0x03FF; // posição dentro da tabela lógica
-                int table = (nt >> 10) & 0x03; // tabela lógica 0..3
-                int physical;
-                if (mt == MirrorType.VERTICAL) {
-                    physical = table & 0x01; // 0,1,0,1
-                } else { // HORIZONTAL
-                    physical = (table >> 1); // 0,0,1,1
-                }
-                int value = nameTables[(physical * 0x0400) + index] & 0xFF;
-                sb.append(String.format("%02X", value));
-                if (col != 31)
-                    sb.append(' ');
-            }
-            System.out.println(sb.toString());
-        }
-    }
-
-    /**
-     * Dump a pattern tile (0-255) of current background pattern table to stdout.
-     */
-    public void dumpPatternTile(int tile) {
-        tile &= 0xFF;
-        // Usa bit 3 (0x08) de PPUCTRL para seleção da pattern table de background (como
-        // no pipeline)
-        int base = ((regCTRL & 0x08) != 0 ? 0x1000 : 0x0000) + tile * 16; // background table select corrigido
-        System.out.printf("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
-        for (int row = 0; row < 8; row++) {
-            int lo = ppuMemoryRead(base + row) & 0xFF;
-            int hi = ppuMemoryRead(base + row + 8) & 0xFF;
-            StringBuilder bits = new StringBuilder();
-            for (int bit = 7; bit >= 0; bit--) {
-                int b0 = (lo >> bit) & 1;
-                int b1 = (hi >> bit) & 1;
-                int pix = (b1 << 1) | b0;
-                bits.append(pix);
-            }
-            System.out.println(bits.toString());
-        }
     }
 }
