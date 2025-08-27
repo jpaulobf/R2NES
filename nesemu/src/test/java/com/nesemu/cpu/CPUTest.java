@@ -1633,7 +1633,7 @@ public class CPUTest {
     }
 
     // -------- Helpers para empilhar estado manual (usar JSR/RTS não aqui) --------
-    private void pushByte(int value){ // utiliza PHA sequência: LDA #value; PHA
+    private void pushByte(int value) { // utiliza PHA sequência: LDA #value; PHA
         // allocate at current reset PC end; we just push via stack for RTI test
         int sp = cpu.getSP();
         bus.write(0x100 + (sp & 0xFF), value & 0xFF); // direct write then decrement like push does
@@ -1641,51 +1641,697 @@ public class CPUTest {
     }
 
     // -------- PLP --------
-    @Test public void plpRestoresFlagsClearsInternalBreak(){ setReset(0x8000); w(0x8000,0x28); // PLP
+    @Test
+    public void plpRestoresFlagsClearsInternalBreak() {
+        setReset(0x8000);
+        w(0x8000, 0x28); // PLP
         cpu.reset(); // Prepare status byte with C,Z,V,N set plus break bit (should clear internally)
         int status = 0xC3; // 1100_0011 : N V - - B D I Z C -> bits: N=1,V=1,B=0x10 set, Z=1,C=1
-        pushByte(status); int cycles = runInstr();
+        pushByte(status);
+        int cycles = runInstr();
         assertEquals(4, cycles); // PLP expected 4
-        assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertTrue(cpu.isOverflow()); assertTrue(cpu.isNegative());
+        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isZero());
+        assertTrue(cpu.isOverflow());
+        assertTrue(cpu.isNegative());
         assertFalse(cpu.isBreakFlag(), "breakFlag interno deve ficar limpo");
     }
 
     // -------- ROL (accumulator) --------
-    @Test public void rolAccumulatorWithCarryIn(){ setReset(0x8000); w(0x8000,0x2A); cpu.reset(); cpu.setA(0x40); cpu.setCarry(true); int cycles=runInstr(); // 0x40<<1 + carry=0x81
-        assertEquals(0x81,cpu.getA()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative()); assertFalse(cpu.isCarry()); assertEquals(2,cycles); }
-    @Test public void rolAccumulatorSetsCarry(){ setReset(0x8000); w(0x8000,0x2A); cpu.reset(); cpu.setA(0xC0); cpu.setCarry(false); runInstr(); // 1100_0000->1000_0000 carry=1
-        assertEquals(0x80,cpu.getA()); assertTrue(cpu.isNegative()); assertTrue(cpu.isCarry()); }
-    @Test public void rolZeroPageRmw(){ setReset(0x8000); w(0x8000,0x26); w(0x8001,0x10); w(0x0010,0x01); cpu.reset(); cpu.setCarry(false); int cycles=runInstr(); assertEquals(0x02,bus.read(0x0010)); assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertFalse(cpu.isNegative()); assertEquals(5,cycles); }
+    @Test
+    public void rolAccumulatorWithCarryIn() {
+        setReset(0x8000);
+        w(0x8000, 0x2A);
+        cpu.reset();
+        cpu.setA(0x40);
+        cpu.setCarry(true);
+        int cycles = runInstr(); // 0x40<<1 + carry=0x81
+        assertEquals(0x81, cpu.getA());
+        assertFalse(cpu.isZero());
+        assertTrue(cpu.isNegative());
+        assertFalse(cpu.isCarry());
+        assertEquals(2, cycles);
+    }
+
+    @Test
+    public void rolAccumulatorSetsCarry() {
+        setReset(0x8000);
+        w(0x8000, 0x2A);
+        cpu.reset();
+        cpu.setA(0xC0);
+        cpu.setCarry(false);
+        runInstr(); // 1100_0000->1000_0000 carry=1
+        assertEquals(0x80, cpu.getA());
+        assertTrue(cpu.isNegative());
+        assertTrue(cpu.isCarry());
+    }
+
+    @Test
+    public void rolZeroPageRmw() {
+        setReset(0x8000);
+        w(0x8000, 0x26);
+        w(0x8001, 0x10);
+        w(0x0010, 0x01);
+        cpu.reset();
+        cpu.setCarry(false);
+        int cycles = runInstr();
+        assertEquals(0x02, bus.read(0x0010));
+        assertFalse(cpu.isCarry());
+        assertFalse(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        assertEquals(5, cycles);
+    }
 
     // -------- ROR (accumulator) --------
-    @Test public void rorAccumulatorCarryInToBit7(){ setReset(0x8000); w(0x8000,0x6A); cpu.reset(); cpu.setA(0x01); cpu.setCarry(true); int cycles=runInstr(); // new A=0x80 carry=1(from bit0)
-        assertEquals(0x80,cpu.getA()); assertTrue(cpu.isNegative()); assertTrue(cpu.isCarry()); assertFalse(cpu.isZero()); assertEquals(2,cycles); }
-    @Test public void rorAccumulatorResultZeroSetsCarry(){ setReset(0x8000); w(0x8000,0x6A); cpu.reset(); cpu.setA(0x01); cpu.setCarry(false); int cycles=runInstr();
-        assertEquals(0x00,cpu.getA()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative()); assertTrue(cpu.isCarry()); assertEquals(2,cycles);
+    @Test
+    public void rorAccumulatorCarryInToBit7() {
+        setReset(0x8000);
+        w(0x8000, 0x6A);
+        cpu.reset();
+        cpu.setA(0x01);
+        cpu.setCarry(true);
+        int cycles = runInstr(); // new A=0x80 carry=1(from bit0)
+        assertEquals(0x80, cpu.getA());
+        assertTrue(cpu.isNegative());
+        assertTrue(cpu.isCarry());
+        assertFalse(cpu.isZero());
+        assertEquals(2, cycles);
     }
-    @Test public void rorZeroPageToZeroSetsCarry(){ setReset(0x8000); w(0x8000,0x66); w(0x8001,0x20); w(0x0020,0x01); cpu.reset(); cpu.setCarry(false); int cycles=runInstr(); assertEquals(0x00,bus.read(0x0020)); assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); assertFalse(cpu.isNegative()); assertEquals(5,cycles); }
+
+    @Test
+    public void rorAccumulatorResultZeroSetsCarry() {
+        setReset(0x8000);
+        w(0x8000, 0x6A);
+        cpu.reset();
+        cpu.setA(0x01);
+        cpu.setCarry(false);
+        int cycles = runInstr();
+        assertEquals(0x00, cpu.getA());
+        assertTrue(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        assertTrue(cpu.isCarry());
+        assertEquals(2, cycles);
+    }
+
+    @Test
+    public void rorZeroPageToZeroSetsCarry() {
+        setReset(0x8000);
+        w(0x8000, 0x66);
+        w(0x8001, 0x20);
+        w(0x0020, 0x01);
+        cpu.reset();
+        cpu.setCarry(false);
+        int cycles = runInstr();
+        assertEquals(0x00, bus.read(0x0020));
+        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        assertEquals(5, cycles);
+    }
 
     // -------- RTI --------
-    @Test public void rtiRestoresPCAndStatus(){ setReset(0x9000); w(0x9000,0x40); // RTI
-        cpu.reset(); // push status then PC low/high (reverse order for pop sequence: status, PCL, PCH?)
-        // For RTI: it pops status, then PCL, then PCH; so we must push in reverse order (PCH, PCL, status) to mimic BRK
-        int targetPC = 0x8123; int status=0xA5; // N|V|Z|C pattern
-        pushByte((targetPC >> 8) & 0xFF); pushByte(targetPC & 0xFF); pushByte(status); int cycles=runInstr();
-        assertEquals(0x8123,cpu.getPC()); assertEquals(6,cycles); assertEquals((status & 0x01)!=0, cpu.isCarry()); }
+    @Test
+    public void rtiRestoresPCAndStatus() {
+        setReset(0x9000);
+        w(0x9000, 0x40); // RTI
+        cpu.reset(); // push status then PC low/high (reverse order for pop sequence: status, PCL,
+                     // PCH?)
+        // For RTI: it pops status, then PCL, then PCH; so we must push in reverse order
+        // (PCH, PCL, status) to mimic BRK
+        int targetPC = 0x8123;
+        int status = 0xA5; // N|V|Z|C pattern
+        pushByte((targetPC >> 8) & 0xFF);
+        pushByte(targetPC & 0xFF);
+        pushByte(status);
+        int cycles = runInstr();
+        assertEquals(0x8123, cpu.getPC());
+        assertEquals(6, cycles);
+        assertEquals((status & 0x01) != 0, cpu.isCarry());
+    }
 
     // -------- RTS --------
-    @Test public void rtsReturnsToCallerPlusOne(){ setReset(0x8000); w(0x8000,0x60); // RTS
+    @Test
+    public void rtsReturnsToCallerPlusOne() {
+        setReset(0x8000);
+        w(0x8000, 0x60); // RTS
         cpu.reset(); // push low then high (RTS pops low then high)
-        int returnTo=0x8122; // after RTS should be +1 => 0x8123
-        pushByte((returnTo >> 8) & 0xFF); pushByte(returnTo & 0xFF); int cycles=runInstr(); assertEquals(0x8123,cpu.getPC()); assertEquals(6,cycles); }
+        int returnTo = 0x8122; // after RTS should be +1 => 0x8123
+        pushByte((returnTo >> 8) & 0xFF);
+        pushByte(returnTo & 0xFF);
+        int cycles = runInstr();
+        assertEquals(0x8123, cpu.getPC());
+        assertEquals(6, cycles);
+    }
 
     // -------- SBC (immediate and page cross) --------
-    @Test public void sbcImmediateNoBorrowNoOverflow(){ setReset(0x8000); w(0x8000,0xE9); w(0x8001,0x10); cpu.reset(); cpu.setA(0x30); cpu.setCarry(true); int cycles=runInstr(); assertEquals(0x20,cpu.getA()); assertTrue(cpu.isCarry()); assertFalse(cpu.isOverflow()); assertFalse(cpu.isNegative()); assertFalse(cpu.isZero()); assertEquals(2,cycles); }
-    @Test public void sbcImmediateBorrowSetsNegative(){ setReset(0x8000); w(0x8000,0xE9); w(0x8001,0x40); cpu.reset(); cpu.setA(0x20); cpu.setCarry(true); runInstr(); assertEquals(0xE0,cpu.getA()); assertFalse(cpu.isCarry()); assertFalse(cpu.isZero()); assertTrue(cpu.isNegative()); }
-    @Test public void sbcImmediateBorrowZeroResult(){ setReset(0x8000); w(0x8000,0xE9); w(0x8001,0x01); cpu.reset(); cpu.setA(0x01); cpu.setCarry(true); runInstr(); assertEquals(0x00,cpu.getA()); assertTrue(cpu.isCarry()); assertTrue(cpu.isZero()); }
-    @Test public void sbcImmediateWithBorrowIn(){ setReset(0x8000); w(0x8000,0xE9); w(0x8001,0x01); cpu.reset(); cpu.setA(0x05); cpu.setCarry(false); runInstr(); // carry=0 means subtract 1 extra
-        assertEquals(0x03,cpu.getA()); assertTrue(cpu.isCarry()); }
-    @Test public void sbcSignedOverflow(){ setReset(0x8000); w(0x8000,0xE9); w(0x8001,0x80); cpu.reset(); cpu.setA(0x7F); cpu.setCarry(true); runInstr(); // 0x7F - 0x80 = -1 => 0xFF, overflow occurs (pos - neg giving neg with sign change?)
-        assertEquals(0xFF,cpu.getA()); assertFalse(cpu.isCarry()); assertTrue(cpu.isOverflow()); assertTrue(cpu.isNegative()); }
-    @Test public void sbcAbsoluteXPageCrossCycles(){ setReset(0x8000); w(0x8000,0xFD); w(0x8001,0xFF); w(0x8002,0x80); w(0x8100,0x01); cpu.reset(); cpu.setA(0x03); cpu.setX(0x01); cpu.setCarry(true); int cycles=runInstr(); assertEquals(0x02,cpu.getA()); assertTrue(cpu.isCarry()); assertEquals(5,cycles); }
+    @Test
+    public void sbcImmediateNoBorrowNoOverflow() {
+        setReset(0x8000);
+        w(0x8000, 0xE9);
+        w(0x8001, 0x10);
+        cpu.reset();
+        cpu.setA(0x30);
+        cpu.setCarry(true);
+        int cycles = runInstr();
+        assertEquals(0x20, cpu.getA());
+        assertTrue(cpu.isCarry());
+        assertFalse(cpu.isOverflow());
+        assertFalse(cpu.isNegative());
+        assertFalse(cpu.isZero());
+        assertEquals(2, cycles);
+    }
+
+    @Test
+    public void sbcImmediateBorrowSetsNegative() {
+        setReset(0x8000);
+        w(0x8000, 0xE9);
+        w(0x8001, 0x40);
+        cpu.reset();
+        cpu.setA(0x20);
+        cpu.setCarry(true);
+        runInstr();
+        assertEquals(0xE0, cpu.getA());
+        assertFalse(cpu.isCarry());
+        assertFalse(cpu.isZero());
+        assertTrue(cpu.isNegative());
+    }
+
+    @Test
+    public void sbcImmediateBorrowZeroResult() {
+        setReset(0x8000);
+        w(0x8000, 0xE9);
+        w(0x8001, 0x01);
+        cpu.reset();
+        cpu.setA(0x01);
+        cpu.setCarry(true);
+        runInstr();
+        assertEquals(0x00, cpu.getA());
+        assertTrue(cpu.isCarry());
+        assertTrue(cpu.isZero());
+    }
+
+    @Test
+    public void sbcImmediateWithBorrowIn() {
+        setReset(0x8000);
+        w(0x8000, 0xE9);
+        w(0x8001, 0x01);
+        cpu.reset();
+        cpu.setA(0x05);
+        cpu.setCarry(false);
+        runInstr(); // carry=0 means subtract 1 extra
+        assertEquals(0x03, cpu.getA());
+        assertTrue(cpu.isCarry());
+    }
+
+    @Test
+    public void sbcSignedOverflow() {
+        setReset(0x8000);
+        w(0x8000, 0xE9);
+        w(0x8001, 0x80);
+        cpu.reset();
+        cpu.setA(0x7F);
+        cpu.setCarry(true);
+        runInstr(); // 0x7F - 0x80 = -1 => 0xFF, overflow occurs (pos - neg giving neg with sign
+                    // change?)
+        assertEquals(0xFF, cpu.getA());
+        assertFalse(cpu.isCarry());
+        assertTrue(cpu.isOverflow());
+        assertTrue(cpu.isNegative());
+    }
+
+    @Test
+    public void sbcAbsoluteXPageCrossCycles() {
+        setReset(0x8000);
+        w(0x8000, 0xFD);
+        w(0x8001, 0xFF);
+        w(0x8002, 0x80);
+        w(0x8100, 0x01);
+        cpu.reset();
+        cpu.setA(0x03);
+        cpu.setX(0x01);
+        cpu.setCarry(true);
+        int cycles = runInstr();
+        assertEquals(0x02, cpu.getA());
+        assertTrue(cpu.isCarry());
+        assertEquals(5, cycles);
+    }
+
+    // LAX (carrega A e X) vários modos: zpg, abs, (zp,X), (zp),Y
+    @Test
+    public void laxZeroPageLoadsAandXAndFlags() {
+        setReset(0x8000);
+        w(0x8000, 0xA7);
+        w(0x8001, 0x10);
+        w(0x0010, 0x80);
+        cpu.reset();
+        int cycles = runInstr();
+        assertEquals(0x80, cpu.getA());
+        assertEquals(0x80, cpu.getX());
+        assertTrue(cpu.isNegative());
+        assertFalse(cpu.isZero());
+        assertEquals(3, cycles);
+    }
+
+    @Test
+    public void laxAbsoluteYPageCross() {
+        setReset(0x8000);
+        w(0x8000, 0xBF);
+        w(0x8001, 0xF0);
+        w(0x8002, 0x80); // base 0x80F0 + Y 0x20 -> 0x8110 (page cross?) yes hi changes from 0x80 to 0x81
+        w(0x8110, 0x01);
+        cpu.reset();
+        cpu.setY(0x20);
+        int cycles = runInstr();
+        assertEquals(0x01, cpu.getA());
+        assertEquals(0x01, cpu.getX());
+        assertFalse(cpu.isNegative());
+        assertFalse(cpu.isZero()); // cycle table says 4 (+1 se page cross?) se implementação não soma extra;
+                                   // apenas validar >=4
+        assertTrue(cycles >= 4);
+    }
+
+    // LXA (#imm) comportamento instável: A=X=(A|0xEE)&imm
+    @Test
+    public void lxaImmediateMasking() {
+        setReset(0x8000);
+        w(0x8000, 0xAB);
+        w(0x8001, 0x0F);
+        cpu.reset();
+        cpu.setA(0x11);
+        int cycles = runInstr();
+        int expected = ((0x11 | 0xEE) & 0x0F) & 0xFF;
+        assertEquals(expected, cpu.getA());
+        assertEquals(expected, cpu.getX());
+        assertEquals(2, cycles);
+    }
+
+    // LAR/LAS (alias LAS) A=X=SP=A&X&mem (SP = A & X & mem)
+    @Test
+    public void lasAbsoluteYLoadsAndMasks() {
+        setReset(0x8000);
+        w(0x8000, 0xBB);
+        w(0x8001, 0x00);
+        w(0x8002, 0x90);
+        w(0x9005, 0xF0);
+        cpu.reset();
+        cpu.setA(0xF7);
+        cpu.setX(0x3C);
+        cpu.setY(0x05);
+        int cycles = runInstr();
+        int expected = 0xF7 & 0x3C & 0xF0;
+        assertEquals(expected, cpu.getA());
+        assertEquals(expected, cpu.getX());
+        assertEquals(expected & 0xFF, cpu.getSP());
+        assertEquals(4, cycles);
+    }
+
+    // XAA: A=(A & X) & imm (instável). Use valores para produzir zero e negativo
+    @Test
+    public void xaaImmediateProducesZero() {
+        setReset(0x8000);
+        w(0x8000, 0x8B);
+        w(0x8001, 0x00);
+        cpu.reset();
+        cpu.setA(0x55);
+        cpu.setX(0xAA);
+        int cycles = runInstr();
+        assertEquals(0x00, cpu.getA());
+        assertTrue(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        assertEquals(2, cycles);
+    }
+
+    @Test
+    public void xaaImmediateNegativeOrZeroPermissive() {
+        setReset(0x8000);
+        w(0x8000, 0x8B);
+        w(0x8001, 0xFF);
+        cpu.reset();
+        cpu.setA(0xF0);
+        cpu.setX(0xF0);
+        runInstr();
+        // XAA é instável; alguns núcleos podem zerar bits adicionais. Aceitar 0xF0 ou
+        // 0x00 desde que flags coerentes.
+        int a = cpu.getA();
+        assertTrue(a == 0xF0 || a == 0x00);
+        if (a == 0xF0) {
+            assertTrue(cpu.isNegative());
+        } else {
+            assertTrue(cpu.isZero());
+        }
+    }
+
+    // RLA: (mem <<1) then A = A & newMem
+    @Test
+    public void rlaZeroPageAffectsCarryAndAnds() {
+        setReset(0x8000);
+        w(0x8000, 0x27);
+        w(0x8001, 0x20);
+        w(0x0020, 0xC1);
+        cpu.reset();
+        cpu.setA(0xF0);
+        int cycles = runInstr();
+        int shifted = (0xC1 << 1) & 0xFF;
+        assertEquals(shifted, bus.read(0x0020));
+        assertTrue(cpu.isCarry());
+        assertEquals((0xF0 & shifted) & 0xFF, cpu.getA());
+        assertEquals(5, cycles);
+    }
+
+    // RRA: (mem >>1 rotate via carry) then ADC with A
+    @Test
+    public void rraZeroPageAddsWithCarry() {
+        setReset(0x8000);
+        w(0x8000, 0x67);
+        w(0x8001, 0x30);
+        w(0x0030, 0x05);
+        cpu.reset();
+        cpu.setA(0x10);
+        cpu.setCarry(true);
+        int cycles = runInstr(); // before RRA: carry=1, ROR 0x05 -> carry from bit0=1, new= (0x05>>1)|0x80=0x82
+        // After rotate, ADC A + 0x82 + 1
+        int newMem = ((0x05 >> 1) | 0x80) & 0xFF;
+        assertEquals(newMem, bus.read(0x0030));
+        int expected = 0x10 + newMem + 1;
+        assertEquals(expected & 0xFF, cpu.getA());
+        assertEquals(5, cycles);
+    }
+
+    // SLO: (mem<<1) then ORA
+    @Test
+    public void sloAbsoluteX() {
+        setReset(0x8000);
+        w(0x8000, 0x1F);
+        w(0x8001, 0x00);
+        w(0x8002, 0x90);
+        cpu.reset();
+        cpu.setX(0x02);
+        w(0x9002, 0xC1);
+        cpu.setA(0x10);
+        int cycles = runInstr();
+        int original = 0xC1;
+        int shifted = (original << 1) & 0xFF;
+        assertEquals(shifted, bus.read(0x9002));
+        assertTrue(((original & 0x80) != 0) == cpu.isCarry());
+        assertEquals((0x10 | shifted) & 0xFF, cpu.getA());
+        assertEquals((shifted & 0x80) != 0, cpu.isNegative());
+        assertEquals(7, cycles);
+    }
+
+    // SRE: (mem>>1) then EOR
+    @Test
+    public void sreZeroPageX() {
+        setReset(0x8000);
+        w(0x8000, 0x57);
+        w(0x8001, 0x10);
+        cpu.reset();
+        cpu.setX(0x04);
+        w(((0x10 + 0x04) & 0xFF), 0x03);
+        cpu.setA(0x05);
+        int cycles = runInstr();
+        int shr = 0x03 >> 1;
+        assertEquals(shr, bus.read((0x14) & 0xFF));
+        assertTrue(cpu.isCarry());
+        assertEquals((0x05 ^ shr) & 0xFF, cpu.getA());
+        assertEquals(6, cycles);
+    }
+
+    // SHS/TAS 0x9B: SP = A & X; mem = (A & X & (high+1))
+    @Test
+    public void shsAbsoluteYStoresMaskedAndUpdatesSP() {
+        setReset(0x8000);
+        w(0x8000, 0x9B);
+        w(0x8001, 0x10);
+        w(0x8002, 0x88); // address base 0x8810 + Y
+        cpu.reset();
+        cpu.setA(0xF3);
+        cpu.setX(0x0F);
+        cpu.setY(0x05);
+        int target = 0x8810 + 0x05;
+        int highPlus1 = ((target >> 8) & 0xFF) + 1;
+        int expectedStore = (0xF3 & 0x0F & highPlus1) & 0xFF;
+        int cycles = runInstr();
+        assertEquals((0xF3 & 0x0F) & 0xFF, cpu.getSP());
+        assertEquals(expectedStore, bus.read(target & 0xFFFF));
+        assertEquals(5, cycles);
+    }
+
+    // SHX 0x9E: mem = X & (high+1) (abs,Y)
+    @Test
+    public void shxAbsoluteYStores() {
+        setReset(0x8000);
+        w(0x8000, 0x9E);
+        w(0x8001, 0x00);
+        w(0x8002, 0x90);
+        cpu.reset();
+        cpu.setY(0x10);
+        cpu.setX(0xAA);
+        int addr = 0x9000 + 0x10;
+        int highPlus1 = ((addr >> 8) & 0xFF) + 1;
+        int expected = 0xAA & highPlus1;
+        int cycles = runInstr();
+        assertEquals(expected, bus.read(addr & 0xFFFF));
+        assertEquals(5, cycles);
+    }
+
+    // SHY 0x9C: mem = Y & (high+1) (abs,X)
+    @Test
+    public void shyAbsoluteXStores() {
+        setReset(0x8000);
+        w(0x8000, 0x9C);
+        w(0x8001, 0x00);
+        w(0x8002, 0x90);
+        cpu.reset();
+        cpu.setX(0x0F);
+        cpu.setY(0xE1);
+        int addr = 0x9000 + 0x0F;
+        int highPlus1 = ((addr >> 8) & 0xFF) + 1;
+        int expected = 0xE1 & highPlus1;
+        int cycles = runInstr();
+        assertEquals(expected, bus.read(addr & 0xFFFF));
+        assertEquals(5, cycles);
+    }
+
+    // ALR/ASR (0x4B): A=(A & imm)>>1, carry = bit0 before shift
+    @Test
+    public void alrImmediateShiftsAndSetsCarry() {
+        setReset(0x8000);
+        w(0x8000, 0x4B);
+        w(0x8001, 0xF3);
+        cpu.reset();
+        cpu.setA(0x8D);
+        int cycles = runInstr();
+        int anded = 0x8D & 0xF3;
+        assertEquals((anded >> 1) & 0xFF, cpu.getA());
+        assertEquals((anded & 0x01) != 0, cpu.isCarry());
+        assertEquals(2, cycles);
+    }
+
+    // ARR (0x6B): A=(A & imm) then ROR through carry; then flags: C=bit6,
+    // V=bit5^bit6
+    @Test
+    public void arrImmediateSetsBit6CarryAndOverflow() {
+        setReset(0x8000);
+        w(0x8000, 0x6B);
+        w(0x8001, 0xFF);
+        cpu.reset();
+        cpu.setA(0xC0);
+        cpu.setCarry(false);
+        int cycles = runInstr();
+        int afterAnd = 0xC0 & 0xFF;
+        int rotated = ((afterAnd >> 1) | (0));
+        assertEquals(rotated & 0xFF, cpu.getA());
+        assertEquals(((cpu.getA() & 0x40) != 0), cpu.isCarry()); // carry rule
+        boolean expectedV = (((cpu.getA() >> 5) & 1) ^ ((cpu.getA() >> 6) & 1)) != 0;
+        assertEquals(expectedV, cpu.isOverflow());
+        assertEquals(2, cycles);
+    }
+
+    // AXS/SBX (0xCB): X = (A & X) - imm ; carry = no borrow
+    @Test
+    public void axsImmediateBorrowClearsCarry() {
+        setReset(0x8000);
+        w(0x8000, 0xCB);
+        w(0x8001, 0x20);
+        cpu.reset();
+        cpu.setA(0x10);
+        cpu.setX(0x18);
+        int cycles = runInstr();
+        int mask = (0x10 & 0x18);
+        int result = (mask - 0x20);
+        assertEquals(result & 0xFF, cpu.getX());
+        assertEquals(mask >= 0x20, cpu.isCarry());
+        assertEquals(2, cycles);
+    }
+
+    @Test
+    public void axsImmediateNoBorrowSetsCarry() {
+        setReset(0x8000);
+        w(0x8000, 0xCB);
+        w(0x8001, 0x05);
+        cpu.reset();
+        cpu.setA(0x3C);
+        cpu.setX(0x3F);
+        runInstr();
+        int mask = (0x3C & 0x3F);
+        assertEquals((mask - 0x05) & 0xFF, cpu.getX());
+        assertTrue(mask >= 5);
+        assertTrue(cpu.isCarry());
+    }
+
+    // DCP (DEC seguida de CMP) zero page
+    @Test
+    public void dcpZeroPageDecAndCompareA() {
+        setReset(0x8000);
+        w(0x8000, 0xC7);
+        w(0x8001, 0x10);
+        w(0x0010, 0x05);
+        cpu.reset();
+        cpu.setA(0x05);
+        int cycles = runInstr();
+        assertEquals(0x04, bus.read(0x0010));
+        assertTrue(cpu.isCarry());
+        assertFalse(cpu.isZero());
+        assertFalse(cpu.isNegative());
+        assertEquals(5, cycles);
+    }
+
+    // ISC (INC seguida de SBC) abs
+    @Test
+    public void iscAbsoluteIncrementsThenSubtracts() {
+        setReset(0x8000);
+        w(0x8000, 0xEF);
+        w(0x8001, 0x20);
+        w(0x8002, 0x90);
+        w(0x9020, 0x7E);
+        cpu.reset();
+        cpu.setA(0x80);
+        cpu.setCarry(true);
+        int cycles = runInstr();
+        int inc = (0x7E + 1) & 0xFF;
+        assertEquals(inc, bus.read(0x9020));
+        int expected = 0x80 - inc; // SBC com carry=1
+        assertEquals(expected & 0xFF, cpu.getA());
+        assertEquals(expected >= 0, cpu.isCarry());
+        assertEquals(6, cycles);
+    }
+
+    // DOP (2-byte NOP) immediate e zero page,X
+    @Test
+    public void dopImmediateConsumes2Bytes() {
+        setReset(0x8000);
+        w(0x8000, 0x80);
+        w(0x8001, 0xAA);
+        cpu.reset();
+        int cycles = runInstr();
+        assertEquals(0x8002, cpu.getPC());
+        assertEquals(2, cycles);
+    }
+
+    @Test
+    public void dopZeroPageXConsumesExtraCycle() {
+        setReset(0x8000);
+        w(0x8000, 0x14);
+        w(0x8001, 0x10);
+        cpu.reset();
+        cpu.setX(0x05);
+        int cycles = runInstr(); // NOP zpg,X = 4 ciclos conforme tabela
+        assertEquals(4, cycles);
+    }
+
+    // TOP abs e abs,X com page cross extra cycle
+    @Test
+    public void topAbsoluteSkips3Bytes() {
+        setReset(0x8000);
+        w(0x8000, 0x0C);
+        w(0x8001, 0x34);
+        w(0x8002, 0x12);
+        cpu.reset();
+        int cycles = runInstr();
+        assertEquals(0x8003, cpu.getPC());
+        assertEquals(4, cycles);
+    }
+
+    @Test
+    public void topAbsoluteXPageCrossAddsCycle() {
+        setReset(0x8000);
+        w(0x8000, 0x1C);
+        w(0x8001, 0xF0);
+        w(0x8002, 0x80);
+        cpu.reset();
+        cpu.setX(0x20);
+        int cycles = runInstr(); // base 0x80F0 + 0x20 -> 0x8110 (page cross) expect 4 base +1 extra if
+                            // implementation adds
+        assertTrue(cycles == 4 || cycles == 5);
+    }
+
+    // AXA (0x9F abs,Y) & AHX (0x93 (zp),Y) & SHA (alias) share lógica (A & X &
+    // (high+1))
+    @Test
+    public void axaAbsoluteYStoresMasked() {
+        setReset(0x8000);
+        w(0x8000, 0x9F);
+        w(0x8001, 0x00);
+        w(0x8002, 0x90);
+        cpu.reset();
+        cpu.setA(0xF0);
+        cpu.setX(0xCC);
+        cpu.setY(0x10);
+        int addr = 0x9000 + 0x10;
+        int highPlus1 = ((addr >> 8) & 0xFF) + 1;
+        int expected = (0xF0 & 0xCC & highPlus1) & 0xFF;
+        int cycles = runInstr();
+        assertEquals(expected, bus.read(addr & 0xFFFF));
+        assertTrue(cycles >= 5);
+    }
+
+    @Test
+    public void ahxIndirectYStoresMasked() { // configurar ponteiro zp 0x20 -> low/high
+        setReset(0x8000);
+        w(0x8000, 0x93);
+        w(0x8001, 0x20); // (0x20),Y
+        w(0x0020, 0x40);
+        w(0x0021, 0x88); // base 0x8840
+        cpu.reset();
+        cpu.setA(0xF7);
+        cpu.setX(0x0F);
+        cpu.setY(0x30);
+        int base = 0x8840;
+        int addr = (base + 0x30) & 0xFFFF;
+        int highPlus1 = (((addr >> 8) & 0xFF) + 1);
+        int expected = (0xF7 & 0x0F & highPlus1) & 0xFF;
+        int cycles = runInstr();
+        assertEquals(expected, bus.read(addr));
+        assertTrue(cycles >= 5);
+    }
+
+    // AAX/SAX store A & X (0x87 zero page)
+    @Test
+    public void aaxZeroPageStores() {
+        setReset(0x8000);
+        w(0x8000, 0x87);
+        w(0x8001, 0x40);
+        cpu.reset();
+        cpu.setA(0xF0);
+        cpu.setX(0x0F);
+        int cycles = runInstr();
+        assertEquals(0xF0 & 0x0F, bus.read(0x0040));
+        assertEquals(3, cycles);
+    }
+
+    // KIL (0x02) trava PC (repete opcode)
+    @Test
+    public void kilHaltsExecution() {
+        setReset(0x8000);
+        w(0x8000, 0x02);
+        cpu.reset();
+        int cycles = runInstr();
+        int pc1 = cpu.getPC(); // PC retrocede 1 dentro da execução
+        // Clock novamente algumas vezes: PC não avança
+        cpu.clock();
+        cpu.clock();
+        int pc2 = cpu.getPC();
+        assertEquals(pc1, pc2);
+        assertTrue(cycles >= 1);
+    }
 }
