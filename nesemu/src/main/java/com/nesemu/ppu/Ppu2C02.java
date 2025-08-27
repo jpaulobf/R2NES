@@ -69,12 +69,12 @@ public class Ppu2C02 implements PPU {
     private final int[] frameBuffer = new int[256 * 240]; // ARGB color
     private final int[] frameIndexBuffer = new int[256 * 240]; // raw palette index (0..15 background)
 
-        // Synthetic test patterns
-        private static final int TEST_NONE = 0;
-        private static final int TEST_BANDS_H = 1;
-        private static final int TEST_BANDS_V = 2;
-        private static final int TEST_CHECKER = 3;
-        private int testPatternMode = TEST_NONE;
+    // Synthetic test patterns
+    private static final int TEST_NONE = 0;
+    private static final int TEST_BANDS_H = 1;
+    private static final int TEST_BANDS_V = 2;
+    private static final int TEST_CHECKER = 3;
+    private int testPatternMode = TEST_NONE;
     // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
     private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
     // Extended attribute writes log
@@ -441,37 +441,38 @@ public class Ppu2C02 implements PPU {
         if (x < 0 || x >= 256 || !isVisibleScanline())
             return;
         // Test mode: render 5 horizontal color bands ignoring normal pipeline/mask.
-            // Test patterns override normal pipeline
-            if (testPatternMode != TEST_NONE) {
-                int paletteIndex = 0;
-                switch (testPatternMode) {
-                    case TEST_BANDS_H: {
-                        int band = scanline / 48; // 5 bands
-                        if (band > 4)
-                            band = 4;
-                        paletteIndex = (band + 1) & 0x0F;
-                        break;
-                    }
-                    case TEST_BANDS_V: {
-                        int band = x / 51; // 256/5 ≈ 51
-                        if (band > 4)
-                            band = 4;
-                        paletteIndex = (band + 1) & 0x0F;
-                        break;
-                    }
-                    case TEST_CHECKER: {
-                        // Alterna por tile (8x8). Usa 4 cores repetindo 1..4
-                        int tileX = x / 8;
-                        int tileY = scanline / 8;
-                        int idx = ((tileX + tileY) & 0x03) + 1; // 1..4
-                        paletteIndex = idx;
-                        break;
-                    }
+        // Test patterns override normal pipeline
+        if (testPatternMode != TEST_NONE) {
+            int paletteIndex = 0;
+            switch (testPatternMode) {
+                case TEST_BANDS_H: {
+                    int band = scanline / 48; // 5 bands
+                    if (band > 4)
+                        band = 4;
+                    paletteIndex = (band + 1) & 0x0F;
+                    break;
                 }
-                frameIndexBuffer[scanline * 256 + x] = paletteIndex;
-                int colorIndex = palette.read(0x3F00 + paletteIndex);
-                frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK & ~0x01); // força color (remove grayscale bit)
-                return;
+                case TEST_BANDS_V: {
+                    int band = x / 51; // 256/5 ≈ 51
+                    if (band > 4)
+                        band = 4;
+                    paletteIndex = (band + 1) & 0x0F;
+                    break;
+                }
+                case TEST_CHECKER: {
+                    // Alterna por tile (8x8). Usa 4 cores repetindo 1..4
+                    int tileX = x / 8;
+                    int tileY = scanline / 8;
+                    int idx = ((tileX + tileY) & 0x03) + 1; // 1..4
+                    paletteIndex = idx;
+                    break;
+                }
+            }
+            frameIndexBuffer[scanline * 256 + x] = paletteIndex;
+            int colorIndex = palette.read(0x3F00 + paletteIndex);
+            frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK & ~0x01); // força color (remove
+                                                                                            // grayscale bit)
+            return;
         }
         if (!bgEnabled) {
             if (debugBgSampleAll && debugBgSampleCount < debugBgSampleLimit) {
@@ -970,18 +971,22 @@ public class Ppu2C02 implements PPU {
             case "hor":
             case "hbands":
             case "bands-h":
-                testPatternMode = TEST_BANDS_H; break;
+                testPatternMode = TEST_BANDS_H;
+                break;
             case "v":
             case "ver":
             case "vbands":
             case "bands-v":
-                testPatternMode = TEST_BANDS_V; break;
+                testPatternMode = TEST_BANDS_V;
+                break;
             case "checker":
             case "xadrez":
             case "check":
-                testPatternMode = TEST_CHECKER; break;
+                testPatternMode = TEST_CHECKER;
+                break;
             default:
-                testPatternMode = TEST_NONE; break;
+                testPatternMode = TEST_NONE;
+                break;
         }
         if (testPatternMode != TEST_NONE) {
             // Initialize palette entries for indices 1..5 with distinct vivid colors.
