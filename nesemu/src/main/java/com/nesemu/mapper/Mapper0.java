@@ -25,6 +25,17 @@ public class Mapper0 implements Mapper {
         this.headerVertical = rom.getHeader().isVerticalMirroring();
     }
 
+    // Debug logging de acessos CHR
+    private boolean chrLogEnabled = false;
+    private int chrLogLimit = 128;
+    private int chrLogCount = 0;
+
+    public void enableChrLogging(int limit) {
+        this.chrLogEnabled = true;
+        if (limit > 0)
+            this.chrLogLimit = limit;
+    }
+
     @Override
     public int cpuRead(int address) {
         address &= 0xFFFF;
@@ -53,11 +64,22 @@ public class Mapper0 implements Mapper {
         address &= 0x3FFF; // PPU address space
         if (address < 0x2000) {
             if (chr.length > 0) {
-                if (address < chr.length)
-                    return chr[address] & 0xFF;
+                if (address < chr.length) {
+                    int val = chr[address] & 0xFF;
+                    if (chrLogEnabled && chrLogCount < chrLogLimit) {
+                        System.out.printf("[CHR RD] addr=%04X val=%02X%n", address, val);
+                        chrLogCount++;
+                    }
+                    return val;
+                }
                 return 0;
             } else {
-                return chrRam[address & 0x1FFF] & 0xFF;
+                int val = chrRam[address & 0x1FFF] & 0xFF;
+                if (chrLogEnabled && chrLogCount < chrLogLimit) {
+                    System.out.printf("[CHR RD] addr=%04X val=%02X (RAM)%n", address, val);
+                    chrLogCount++;
+                }
+                return val;
             }
         }
         // Nametables / palette not handled here (Bus/PPU will manage). Return 0.

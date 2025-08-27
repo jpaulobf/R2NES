@@ -403,13 +403,15 @@ public class Ppu2C02 implements PPU {
             }
             case 5: { // Pattern low
                 int fineY = (vramAddress >> 12) & 0x07;
-                int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
+                // PPUCTRL bit 3 (0x08) selects background pattern table (0: $0000, 1: $1000)
+                int base = ((regCTRL & 0x08) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
                 patternLowLatch = ppuMemoryRead(base);
                 break;
             }
             case 7: { // Pattern high
                 int fineY = (vramAddress >> 12) & 0x07;
-                int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
+                // Use same (corrected) background pattern table selection (bit 3)
+                int base = ((regCTRL & 0x08) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
                 patternHighLatch = ppuMemoryRead(base);
                 break;
             }
@@ -740,6 +742,39 @@ public class Ppu2C02 implements PPU {
             if (c > 0) {
                 System.out.printf("%X: %d%n", i, c);
             }
+        }
+    }
+
+    /**
+     * Debug: imprime os IDs de tiles (bytes de nametable) de uma nametable lógica
+     * (0..3). Espelha conforme mirroring ativo no mapper. Mostra 32x30 valores em
+     * hex (duas casas) separados por espaço.
+     */
+    public void printNameTableTileIds(int logicalIndex) {
+        if (logicalIndex < 0 || logicalIndex > 3)
+            logicalIndex = 0;
+        System.out.printf("--- NameTable %d tile IDs ---\n", logicalIndex);
+        MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
+        for (int row = 0; row < 30; row++) {
+            StringBuilder sb = new StringBuilder();
+            for (int col = 0; col < 32; col++) {
+                int logicalAddr = 0x2000 + logicalIndex * 0x0400 + row * 32 + col; // dentro da parte de tiles
+                                                                                   // (0..0x03BF)
+                int nt = (logicalAddr - 0x2000) & 0x0FFF;
+                int index = nt & 0x03FF; // posição dentro da tabela lógica
+                int table = (nt >> 10) & 0x03; // tabela lógica 0..3
+                int physical;
+                if (mt == MirrorType.VERTICAL) {
+                    physical = table & 0x01; // 0,1,0,1
+                } else { // HORIZONTAL
+                    physical = (table >> 1); // 0,0,1,1
+                }
+                int value = nameTables[(physical * 0x0400) + index] & 0xFF;
+                sb.append(String.format("%02X", value));
+                if (col != 31)
+                    sb.append(' ');
+            }
+            System.out.println(sb.toString());
         }
     }
 

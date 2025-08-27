@@ -60,6 +60,37 @@ public class Bus implements NesBus {
     // Minimal APU register latches ($4000-$4017)
     private final int[] apuRegs = new int[0x18];
 
+    // --- Debug instrumentation ---
+    private boolean logPpuRegs = false;
+    private int ppuRegLogLimit = 500; // evita inundar saída
+    private int ppuRegLogCount = 0;
+    private int watchReadAddress = -1; // endereço para break em leitura
+    private boolean watchTriggered = false;
+    private int watchTriggerCount = 0;
+    private int watchReadLimit = 1;
+
+    public void enablePpuRegLogging(int limit) {
+        this.logPpuRegs = true;
+        if (limit > 0)
+            this.ppuRegLogLimit = limit;
+    }
+
+    public void setWatchReadAddress(int address, int limit) {
+        this.watchReadAddress = address & 0xFFFF;
+        this.watchTriggered = false;
+        this.watchTriggerCount = 0;
+        if (limit > 0)
+            this.watchReadLimit = limit;
+    }
+
+    public boolean isWatchTriggered() {
+        return watchTriggered;
+    }
+
+    public void clearWatchTrigger() {
+        watchTriggered = false;
+    }
+
     public void attachPPU(PPU ppu) {
         this.ppu = ppu;
         // If CPU already attached through some pathway, attempt to link for NMI
@@ -111,7 +142,21 @@ public class Bus implements NesBus {
                 return testShadow[address - 0x2000] & 0xFF;
             }
             int reg = 0x2000 + (address & 0x7);
-            return readPpuRegister(reg);
+            int value = readPpuRegister(reg) & 0xFF;
+            if (logPpuRegs && ppuRegLogCount < ppuRegLogLimit) {
+                System.out.printf("[PPU REG RD] %04X = %02X frame=%d scan=%d cyc=%d\n", reg, value, getPpuFrame(),
+                        getPpuScanline(), getPpuCycle());
+                ppuRegLogCount++;
+            }
+            if (watchReadAddress == reg) {
+                watchTriggerCount++;
+                watchTriggered = true;
+                if (watchTriggerCount <= watchReadLimit) {
+                    System.out.printf("[WATCH READ HIT] addr=%04X count=%d frame=%d scan=%d cyc=%d val=%02X\n", reg,
+                            watchTriggerCount, getPpuFrame(), getPpuScanline(), getPpuCycle(), value);
+                }
+            }
+            return value;
         } else if (address < 0x6000) {
             // Expansion ROM / rarely used (shadow)
             return testShadow[address - 0x2000] & 0xFF;
@@ -135,6 +180,12 @@ public class Bus implements NesBus {
             return;
         } else if (address < 0x4000) {
             if (ppu != null) {
+                int regFull = 0x2000 + (address & 0x7);
+                if (logPpuRegs && ppuRegLogCount < ppuRegLogLimit) {
+                    System.out.printf("[PPU REG WR] %04X = %02X frame=%d scan=%d cyc=%d\n", regFull, value & 0xFF,
+                            getPpuFrame(), getPpuScanline(), getPpuCycle());
+                    ppuRegLogCount++;
+                }
                 writePpuRegister(0x2000 + (address & 0x7), value);
             } else {
                 // Shadow store for tests
@@ -237,5 +288,38 @@ public class Bus implements NesBus {
     // Test helper: expose minimal write for loading code without mapper
     public Memory getMemory() {
         return memory;
+    }
+
+    // Debug: retornar mapper concreto se for Mapper0
+    public com.nesemu.mapper.Mapper0 getMapper0() {
+        if (mapper instanceof com.nesemu.mapper.Mapper0) {
+            return (com.nesemu.mapper.Mapper0) mapper;
+        }
+        return null;
+    }
+
+    // PPU state helpers for logging
+    private long getPpuFrame() {
+        try {
+            return (long) ppu.getClass().getMethod("getFrame").invoke(ppu);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private int getPpuScanline() {
+        try {
+            return (int) ppu.getClass().getMethod("getScanline").invoke(ppu);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private int getPpuCycle() {
+        try {
+            return (int) ppu.getClass().getMethod("getCycle").invoke(ppu);
+        } catch (Exception e) {
+            return -1;
+        }
     }
 }
