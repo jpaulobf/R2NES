@@ -32,6 +32,17 @@ public class Main {
         int breakReadAddr = -1;
         int breakReadCount = 1;
         boolean untilVblank = false; // novo modo: roda até primeiro vblank
+        int dbgBgSample = 0; // N amostras de pixels de background para debug
+        boolean dbgBgAll = false; // logar todos (até limite)
+        boolean initScroll = false; // inicializar scroll/addr manualmente
+        boolean timingSimple = false; // modo simples de mapeamento ciclo->pixel
+        int logAttrLimit = 0; // ativa logging de attribute table writes
+        int logNtLimit = 0; // logging de writes de nametable (tiles)
+        Integer ntBaseline = null; // filtrar valor repetitivo
+        boolean forceBg = false; // força bit 3 do PPUMASK
+        boolean bgColStats = false; // imprime estatísticas de colunas
+        boolean hud = false; // exibe HUD na GUI
+    String testPattern = null; // modos: h, v, checker
         for (String a : args) {
             if (a.equalsIgnoreCase("--gui"))
                 gui = true;
@@ -81,11 +92,68 @@ public class Main {
                 } catch (NumberFormatException e) {
                     System.err.println("Formato --break-read=ADDR[,count] inválido");
                 }
+            } else if (a.startsWith("--dbg-bg-sample=")) {
+                try {
+                    dbgBgSample = Integer.parseInt(a.substring(17));
+                } catch (NumberFormatException e) {
+                    System.err.println("Valor inválido em --dbg-bg-sample (usar número)");
+                }
+            } else if (a.equalsIgnoreCase("--dbg-bg-all")) {
+                dbgBgAll = true;
+            } else if (a.equalsIgnoreCase("--init-scroll")) {
+                initScroll = true;
+            } else if (a.equalsIgnoreCase("--timing-simple")) {
+                timingSimple = true;
+            } else if (a.startsWith("--log-attr")) {
+                if (a.contains("=")) {
+                    try {
+                        logAttrLimit = Integer.parseInt(a.substring(a.indexOf('=') + 1));
+                    } catch (NumberFormatException e) {
+                        System.err.println("Valor inválido em --log-attr= (usar número)");
+                    }
+                } else {
+                    logAttrLimit = 200; // default
+                }
+            } else if (a.startsWith("--log-nt")) {
+                if (a.contains("=")) {
+                    try {
+                        logNtLimit = Integer.parseInt(a.substring(a.indexOf('=') + 1));
+                    } catch (NumberFormatException e) {
+                        System.err.println("Valor inválido em --log-nt= (usar número)");
+                    }
+                } else {
+                    logNtLimit = 200;
+                }
+            } else if (a.equalsIgnoreCase("--force-bg")) {
+                forceBg = true;
+            } else if (a.equalsIgnoreCase("--bg-col-stats")) {
+                bgColStats = true;
+            } else if (a.equalsIgnoreCase("--hud")) {
+                hud = true;
+            } else if (a.equalsIgnoreCase("--test-bands")) { // retrocompatível -> horizontal
+                testPattern = "h";
+            } else if (a.equalsIgnoreCase("--test-bands-h")) {
+                testPattern = "h";
+            } else if (a.equalsIgnoreCase("--test-bands-v")) {
+                testPattern = "v";
+            } else if (a.equalsIgnoreCase("--test-checker") || a.equalsIgnoreCase("--test-xadrez")) {
+                testPattern = "checker";
+            } else if (a.startsWith("--nt-baseline=")) {
+                try {
+                    int eq = a.indexOf('=');
+                    if (eq >= 0 && eq + 1 < a.length()) {
+                        ntBaseline = Integer.parseInt(a.substring(eq + 1), 16) & 0xFF;
+                    } else {
+                        throw new NumberFormatException("empty");
+                    }
+                } catch (NumberFormatException e) {
+                    System.err.println("Valor inválido em --nt-baseline= (usar hex)");
+                }
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
         if (romPath == null)
-            romPath = "roms/donkeykong.nes";
+            romPath = "D:\\Desenvolvimento\\Games\\Nesemu\\nesemu\\roms\\donkeykong.nes";
         Path p = Path.of(romPath);
         if (!Files.exists(p)) {
             System.err.println("ROM não encontrada: " + romPath);
@@ -97,6 +165,38 @@ public class Main {
         if (tileMatrixMode != null) {
             emu.getPpu().setTileMatrixMode(tileMatrixMode);
             System.out.println("Tile matrix mode: " + tileMatrixMode);
+        }
+        if (dbgBgSample > 0) {
+            if (dbgBgAll)
+                emu.getPpu().enableBackgroundSampleDebugAll(dbgBgSample);
+            else
+                emu.getPpu().enableBackgroundSampleDebug(dbgBgSample);
+        }
+        if (timingSimple) {
+            emu.getPpu().setSimpleTiming(true);
+        }
+        if (forceBg) {
+            emu.getPpu().setForceBackgroundEnable(true);
+            System.out.println("[FORCE-BG] Forçando bit 3 (background) em PPUMASK");
+        }
+        if (testPattern != null) {
+            emu.getPpu().setTestPatternMode(testPattern);
+            System.out.println("[TEST-PATTERN] modo=" + testPattern);
+        }
+        if (logAttrLimit > 0) {
+            emu.getPpu().enableAttributeRuntimeLog(logAttrLimit);
+        }
+        if (logNtLimit > 0) {
+            emu.getPpu().enableNametableRuntimeLog(logNtLimit, ntBaseline == null ? -1 : ntBaseline);
+        }
+        if (initScroll) {
+            // Configura scroll e VRAM address iniciais (coarse/fine = 0, nametable 0)
+            emu.getBus().cpuWrite(0x2000, 0x10); // background pattern table = $1000
+            emu.getBus().cpuWrite(0x2005, 0x00); // X scroll
+            emu.getBus().cpuWrite(0x2005, 0x00); // Y scroll
+            emu.getBus().cpuWrite(0x2006, 0x20); // high byte (0x2000)
+            emu.getBus().cpuWrite(0x2006, 0x00); // low byte
+            System.out.println("[INIT-SCROLL] Scroll e VRAM inicializados (nametable 0, pattern $1000)");
         }
         if (showHeader) {
             var h = rom.getHeader();
@@ -127,6 +227,24 @@ public class Main {
         if (gui) {
             NesWindow window = new NesWindow("NESemu - " + p.getFileName(), 3);
             window.show(emu.getPpu().getFrameBuffer());
+            if (hud) {
+                var ppu = emu.getPpu();
+                window.setOverlay(g2 -> {
+                    int pad = 4;
+                    String l1 = String.format("Frame:%d FPS:%.1f", ppu.getFrame(), window.getLastFps());
+                    String l2 = String.format("Scan:%d Cyc:%d VRAM:%04X", ppu.getScanline(), ppu.getCycle(),
+                            ppu.getVramAddress() & 0x3FFF);
+                    String l3 = String.format("MASK:%02X STAT:%02X fineX:%d", ppu.getMaskRegister(),
+                            ppu.getStatusRegister(), ppu.getFineX());
+                    int boxH = 44;
+                    g2.setColor(new java.awt.Color(0, 0, 0, 160));
+                    g2.fillRect(0, 0, 210, boxH);
+                    g2.setColor(java.awt.Color.WHITE);
+                    g2.drawString(l1, pad, 12);
+                    g2.drawString(l2, pad, 24);
+                    g2.drawString(l3, pad, 36);
+                });
+            }
             System.out.println("Iniciando loop de render em modo GUI (Ctrl+C para sair)...");
             window.startRenderLoop(() -> {
                 emu.stepFrame();
@@ -203,10 +321,16 @@ public class Main {
             long elapsedNs = System.nanoTime() - start;
             double fpsSim = frames / (elapsedNs / 1_000_000_000.0);
             System.out.printf("Frames simulados: %d (%.2f fps simulado)\n", frames, fpsSim);
+            if (dbgBgSample > 0) {
+                emu.getPpu().dumpFirstBackgroundSamples(Math.min(dbgBgSample, 50));
+            }
             // Dump ASCII matrix (first pixel per tile)
             System.out.println("--- Tile index matrix (hex of first pixel per tile) ---");
             emu.getPpu().printTileIndexMatrix();
             emu.getPpu().printBackgroundIndexHistogram();
+            if (bgColStats) {
+                emu.getPpu().printBackgroundColumnStats();
+            }
             // Dump PPM (palette index grayscale)
             Path out = Path.of("background.ppm");
             emu.getPpu().dumpBackgroundToPpm(out);

@@ -69,6 +69,12 @@ public class Ppu2C02 implements PPU {
     private final int[] frameBuffer = new int[256 * 240]; // ARGB color
     private final int[] frameIndexBuffer = new int[256 * 240]; // raw palette index (0..15 background)
 
+        // Synthetic test patterns
+        private static final int TEST_NONE = 0;
+        private static final int TEST_BANDS_H = 1;
+        private static final int TEST_BANDS_V = 2;
+        private static final int TEST_CHECKER = 3;
+        private int testPatternMode = TEST_NONE;
     // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
     private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
     // Extended attribute writes log
@@ -271,6 +277,12 @@ public class Ppu2C02 implements PPU {
                 break;
             case 1: // $2001 PPUMASK
                 regMASK = value;
+                if (forceBgEnable && (regMASK & 0x08) == 0) {
+                    int before = regMASK;
+                    regMASK |= 0x08;
+                    System.out.printf("[PPU FORCE BG] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
+                            scanline, cycle, before & 0xFF, regMASK & 0xFF);
+                }
                 logEarlyWrite(reg, value);
                 break; // removed mid-scanline priming hack
             case 2: // STATUS is read-only
@@ -422,13 +434,54 @@ public class Ppu2C02 implements PPU {
     }
 
     private void produceBackgroundPixel() {
-        if ((regMASK & 0x08) == 0)
-            return; // background disabled
+        boolean bgEnabled = (regMASK & 0x08) != 0;
         // Cycle->pixel mapping with 8-cycle fetch latency: first visible pixel (x=0) at
-        // cycle 9
-        int x = cycle - 9; // cycle 9 -> pixel 0
+        // cycle 9 no modo pipeline completo; em modo simples usamos cycle 1
+        int x = simpleTiming ? (cycle - 1) : (cycle - 9);
         if (x < 0 || x >= 256 || !isVisibleScanline())
             return;
+        // Test mode: render 5 horizontal color bands ignoring normal pipeline/mask.
+            // Test patterns override normal pipeline
+            if (testPatternMode != TEST_NONE) {
+                int paletteIndex = 0;
+                switch (testPatternMode) {
+                    case TEST_BANDS_H: {
+                        int band = scanline / 48; // 5 bands
+                        if (band > 4)
+                            band = 4;
+                        paletteIndex = (band + 1) & 0x0F;
+                        break;
+                    }
+                    case TEST_BANDS_V: {
+                        int band = x / 51; // 256/5 ≈ 51
+                        if (band > 4)
+                            band = 4;
+                        paletteIndex = (band + 1) & 0x0F;
+                        break;
+                    }
+                    case TEST_CHECKER: {
+                        // Alterna por tile (8x8). Usa 4 cores repetindo 1..4
+                        int tileX = x / 8;
+                        int tileY = scanline / 8;
+                        int idx = ((tileX + tileY) & 0x03) + 1; // 1..4
+                        paletteIndex = idx;
+                        break;
+                    }
+                }
+                frameIndexBuffer[scanline * 256 + x] = paletteIndex;
+                int colorIndex = palette.read(0x3F00 + paletteIndex);
+                frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK & ~0x01); // força color (remove grayscale bit)
+                return;
+        }
+        if (!bgEnabled) {
+            if (debugBgSampleAll && debugBgSampleCount < debugBgSampleLimit) {
+                System.out.printf("[BG-DISABLED] frame=%d scan=%d cyc=%d x=%d regMASK=%02X\n", frame, scanline, cycle,
+                        x,
+                        regMASK & 0xFF);
+                debugBgSampleCount++;
+            }
+            return;
+        }
         if ((regMASK & 0x02) == 0 && x < 8) { // left column clip
             frameBuffer[scanline * 256 + x] = 0;
             frameIndexBuffer[scanline * 256 + x] = 0;
@@ -446,6 +499,17 @@ public class Ppu2C02 implements PPU {
         frameIndexBuffer[scanline * 256 + x] = store;
         int colorIndex = palette.read(0x3F00 + ((pattern == 0) ? 0 : paletteIndex));
         frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK);
+        if ((debugBgSample || debugBgSampleAll) && debugBgSampleCount < debugBgSampleLimit) {
+            // Log sample with enough context to reason about shift orientation
+            System.out.printf(
+                    "[BG-SAMPLE] frame=%d scan=%d cyc=%d x=%d fineX=%d tap=%d patLoSh=%04X patHiSh=%04X attrLoSh=%04X attrHiSh=%04X nt=%02X at=%02X bits={%d%d attr=%d} palIdx=%X store=%X\n",
+                    frame, scanline, cycle, x, fineX, 15 - (fineX & 7),
+                    patternLowShift & 0xFFFF, patternHighShift & 0xFFFF,
+                    attributeLowShift & 0xFFFF, attributeHighShift & 0xFFFF,
+                    ntLatch & 0xFF, atLatch & 0xFF,
+                    bit1, bit0, attr, paletteIndex, store);
+            debugBgSampleCount++;
+        }
     }
 
     private void loadShiftRegisters() {
@@ -548,13 +612,26 @@ public class Ppu2C02 implements PPU {
             }
             nameTables[(physical * 0x0400) + index] = (byte) value;
             // Attribute table logging ($23C0-$23FF etc.) after mirroring mapping
-            if (LOG_ATTR) {
-                // Reconstruct base logical address for determining attribute section
-                int logicalBase = 0x2000 | nt; // before mirroring
-                int logicalInTable = logicalBase & 0x03FF; // 0..0x3FF inside logically selected table
-                if ((logicalInTable & 0x03C0) == 0x03C0) { // attribute quadrant area (top 64 bytes of table)
+            // Reconstruct base logical address for determining attribute section
+            int logicalBase = 0x2000 | nt; // before mirroring
+            int logicalInTable = logicalBase & 0x03FF; // 0..0x3FF inside logically selected table
+            boolean isAttr = (logicalInTable & 0x03C0) == 0x03C0;
+            if (!isAttr && nametableRuntimeLog) {
+                boolean pass = true;
+                if (nametableBaselineFilter >= 0 && value == nametableBaselineFilter)
+                    pass = false;
+                if (pass && nametableLogCount < nametableLogLimit) {
+                    System.out.printf(
+                            "[PPU NT WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d index=%03X%n",
+                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical, index);
+                    nametableLogCount++;
+                }
+            }
+            if (isAttr && (LOG_ATTR || attrRuntimeLog)) {
+                if (!attrRuntimeLog || attrLogCount < attrLogLimit) {
                     System.out.printf("[PPU ATTR WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d%n",
                             logicalBase, value & 0xFF, frame, scanline, cycle, table, physical);
+                    attrLogCount++;
                 }
             }
         } else if (addr < 0x4000) {
@@ -690,6 +767,10 @@ public class Ppu2C02 implements PPU {
     // Raw status for deeper debug if needed
     public int getStatusRegister() {
         return regSTATUS & 0xFF;
+    }
+
+    public int getMaskRegister() {
+        return regMASK & 0xFF;
     }
 
     // --- Debug / inspection helpers ---
@@ -844,5 +925,167 @@ public class Ppu2C02 implements PPU {
             }
             System.out.println(bits.toString());
         }
+    }
+
+    // --- Debug helpers for background sampling investigation ---
+    private boolean debugBgSample = false;
+    private boolean debugBgSampleAll = false; // log mesmo se for muitos pixels (até limite)
+    private int debugBgSampleLimit = 0;
+    private int debugBgSampleCount = 0;
+    private boolean simpleTiming = false; // modo experimental de timing simplificado
+    // Runtime attribute logging
+    private boolean attrRuntimeLog = false;
+    private int attrLogLimit = 200;
+    private int attrLogCount = 0;
+    // Nametable runtime logging
+    private boolean nametableRuntimeLog = false;
+    private int nametableLogLimit = 200;
+    private int nametableLogCount = 0;
+    private int nametableBaselineFilter = -1; // se >=0 filtra esse valor
+
+    public void enableBackgroundSampleDebug(int limit) {
+        this.debugBgSample = true;
+        this.debugBgSampleLimit = (limit <= 0 ? 50 : limit);
+        this.debugBgSampleCount = 0;
+        System.out.printf("[PPU] Background sample debug enabled (limit=%d)\n", this.debugBgSampleLimit);
+    }
+
+    public void enableBackgroundSampleDebugAll(int limit) {
+        this.debugBgSampleAll = true;
+        this.debugBgSample = false; // prevalece modo ALL
+        this.debugBgSampleLimit = (limit <= 0 ? 200 : limit);
+        this.debugBgSampleCount = 0;
+        System.out.printf("[PPU] Background sample ALL debug enabled (limit=%d)\n", this.debugBgSampleLimit);
+    }
+
+    public void setSimpleTiming(boolean simple) {
+        this.simpleTiming = simple;
+        System.out.println("[PPU] simpleTiming=" + simple);
+    }
+
+    public void setTestPatternMode(String mode) {
+        int prev = this.testPatternMode;
+        switch (mode == null ? "" : mode.toLowerCase()) {
+            case "h":
+            case "hor":
+            case "hbands":
+            case "bands-h":
+                testPatternMode = TEST_BANDS_H; break;
+            case "v":
+            case "ver":
+            case "vbands":
+            case "bands-v":
+                testPatternMode = TEST_BANDS_V; break;
+            case "checker":
+            case "xadrez":
+            case "check":
+                testPatternMode = TEST_CHECKER; break;
+            default:
+                testPatternMode = TEST_NONE; break;
+        }
+        if (testPatternMode != TEST_NONE) {
+            // Initialize palette entries for indices 1..5 with distinct vivid colors.
+            palette.write(0x3F00, 0x00);
+            int[] cols = { 0x01, 0x21, 0x11, 0x31, 0x16 }; // reused set
+            for (int i = 0; i < cols.length; i++) {
+                palette.write(0x3F01 + i, cols[i]);
+            }
+        }
+        System.out.println("[PPU] testPatternMode=" + testPatternMode + " (prev=" + prev + ")");
+    }
+
+    public void enableAttributeRuntimeLog(int limit) {
+        this.attrRuntimeLog = true;
+        if (limit > 0)
+            this.attrLogLimit = limit;
+        this.attrLogCount = 0;
+        System.out.printf("[PPU] Attribute runtime logging enabled (limit=%d)\n", attrLogLimit);
+    }
+
+    public void enableNametableRuntimeLog(int limit, int baselineFilter) {
+        this.nametableRuntimeLog = true;
+        if (limit > 0)
+            this.nametableLogLimit = limit;
+        this.nametableLogCount = 0;
+        this.nametableBaselineFilter = baselineFilter;
+        System.out.printf("[PPU] Nametable runtime logging enabled (limit=%d, baselineFilter=%s)\n", nametableLogLimit,
+                baselineFilter >= 0 ? String.format("%02X", baselineFilter) : "NONE");
+    }
+
+    /**
+     * Fallback: se nenhuma amostra foi registrada em tempo real, varre o frame e
+     * imprime primeiras N não-zero.
+     */
+    public void dumpFirstBackgroundSamples(int n) {
+        if (!debugBgSample)
+            return;
+        if (debugBgSampleCount > 0)
+            return; // já temos logs realtime
+        int printed = 0;
+        for (int y = 0; y < 240 && printed < n; y++) {
+            for (int x = 0; x < 256 && printed < n; x++) {
+                int idx = frameIndexBuffer[y * 256 + x] & 0x0F;
+                if (idx != 0) {
+                    System.out.printf("[BG-SAMPLE-FALLBACK] frame=%d x=%d y=%d idx=%X\n", frame, x, y, idx);
+                    printed++;
+                }
+            }
+        }
+        if (printed == 0) {
+            System.out.println("[BG-SAMPLE-FALLBACK] Nenhum pixel não-zero encontrado neste frame.");
+        }
+    }
+
+    /**
+     * Estatísticas por coluna: conta pixels de background !=0 em cada coluna de 256
+     * e por coluna de tile (32).
+     */
+    public void printBackgroundColumnStats() {
+        int[] pixelCounts = new int[256];
+        for (int y = 0; y < 240; y++) {
+            int rowOff = y * 256;
+            for (int x = 0; x < 256; x++) {
+                if ((frameIndexBuffer[rowOff + x] & 0x0F) != 0)
+                    pixelCounts[x]++;
+            }
+        }
+        int[] tileCounts = new int[32];
+        for (int t = 0; t < 32; t++) {
+            int sum = 0;
+            for (int x = t * 8; x < t * 8 + 8; x++)
+                sum += pixelCounts[x];
+            tileCounts[t] = sum; // max 8*240=1920
+        }
+        System.out.println("--- Background non-zero pixel counts per pixel column (only columns >0) ---");
+        StringBuilder sb = new StringBuilder();
+        int shown = 0;
+        for (int x = 0; x < 256; x++) {
+            if (pixelCounts[x] != 0) {
+                sb.append(String.format("%d:%d ", x, pixelCounts[x]));
+                shown++;
+                if (shown % 16 == 0) {
+                    System.out.println(sb.toString());
+                    sb.setLength(0);
+                }
+            }
+        }
+        if (sb.length() > 0)
+            System.out.println(sb.toString());
+        if (shown == 0)
+            System.out.println("(nenhuma coluna com pixels !=0)");
+        System.out.println("--- Background non-zero pixel counts per tile column (0..31) ---");
+        for (int t = 0; t < 32; t++) {
+            int cnt = tileCounts[t];
+            double pct = (cnt / 1920.0) * 100.0;
+            System.out.printf("T%02d=%4d (%.1f%%)  %s%n", t, cnt, pct, (t < 4 ? "<- esquerda 32px" : ""));
+        }
+    }
+
+    // Força habilitar background independentemente do valor escrito em $2001
+    private boolean forceBgEnable = false;
+
+    public void setForceBackgroundEnable(boolean enable) {
+        this.forceBgEnable = enable;
+        System.out.println("[PPU] forceBgEnable=" + enable);
     }
 }
