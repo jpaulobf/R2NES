@@ -57,6 +57,7 @@ public class Main {
             // Dump ASCII matrix (first pixel per tile)
             System.out.println("--- Tile index matrix (hex of first pixel per tile) ---");
             emu.getPpu().printTileIndexMatrix();
+            emu.getPpu().printBackgroundIndexHistogram();
             // Dump PPM (palette index grayscale)
             Path out = Path.of("background.ppm");
             emu.getPpu().dumpBackgroundToPpm(out);

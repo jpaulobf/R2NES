@@ -71,6 +71,10 @@ public class Ppu2C02 implements PPU {
 
     // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
     private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
+    // Extended attribute writes log
+    private static final boolean LOG_ATTR = Boolean.getBoolean("nes.ppu.logAttr");
+    // If true, don't cap register write logs
+    private static final boolean LOG_EXTENDED = Boolean.getBoolean("nes.ppu.logExtended");
 
     // Palette subsystem
     private final Palette palette = new Palette();
@@ -263,18 +267,22 @@ public class Ppu2C02 implements PPU {
             case 0: // $2000 PPUCTRL
                 regCTRL = value;
                 tempAddress = (tempAddress & 0x73FF) | ((value & 0x03) << 10); // nametable bits into t
+                logEarlyWrite(reg, value);
                 break;
             case 1: // $2001 PPUMASK
                 regMASK = value;
+                logEarlyWrite(reg, value);
                 break; // removed mid-scanline priming hack
             case 2: // STATUS is read-only
                 break;
             case 3: // OAMADDR
                 oamAddr = value & 0xFF;
+                logEarlyWrite(reg, value);
                 break;
             case 4: // OAMDATA (stub)
                 // future: write to OAM[oamAddr++]
                 oamAddr = (oamAddr + 1) & 0xFF;
+                logEarlyWrite(reg, value);
                 break;
             case 5: // PPUSCROLL
                 if (addrLatchHigh) {
@@ -288,6 +296,7 @@ public class Ppu2C02 implements PPU {
                     tempAddress = (tempAddress & 0x0C1F) | (coarseY << 5) | (fineY << 12);
                     addrLatchHigh = true;
                 }
+                logEarlyWrite(reg, value);
                 break;
             case 6: // PPUADDR
                 if (addrLatchHigh) {
@@ -298,11 +307,26 @@ public class Ppu2C02 implements PPU {
                     vramAddress = tempAddress;
                     addrLatchHigh = true;
                 }
+                logEarlyWrite(reg, value);
                 break;
             case 7: // PPUDATA
                 ppuMemoryWrite(vramAddress, value);
                 incrementVram();
+                logEarlyWrite(reg, value);
                 break;
+        }
+    }
+
+    // --- Early register write logging (first few only to avoid spam) ---
+    private static final int EARLY_WRITE_LOG_LIMIT = 40; // cap (unless LOG_EXTENDED)
+    private int earlyWriteLogCount = 0;
+
+    private void logEarlyWrite(int reg, int val) {
+        if (LOG_EXTENDED || earlyWriteLogCount < EARLY_WRITE_LOG_LIMIT) {
+            System.out.printf("[PPU WR %02X] val=%02X frame=%d scan=%d cyc=%d v=%04X t=%04X fineX=%d%n",
+                    0x2000 + (reg & 0x7), val & 0xFF, frame, scanline, cycle, vramAddress & 0x7FFF,
+                    tempAddress & 0x7FFF, fineX);
+            earlyWriteLogCount++;
         }
     }
 
@@ -521,6 +545,16 @@ public class Ppu2C02 implements PPU {
                 physical = (table >> 1); // 0,0,1,1
             }
             nameTables[(physical * 0x0400) + index] = (byte) value;
+            // Attribute table logging ($23C0-$23FF etc.) after mirroring mapping
+            if (LOG_ATTR) {
+                // Reconstruct base logical address for determining attribute section
+                int logicalBase = 0x2000 | nt; // before mirroring
+                int logicalInTable = logicalBase & 0x03FF; // 0..0x3FF inside logically selected table
+                if ((logicalInTable & 0x03C0) == 0x03C0) { // attribute quadrant area (top 64 bytes of table)
+                    System.out.printf("[PPU ATTR WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d%n",
+                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical);
+                }
+            }
         } else if (addr < 0x4000) {
             palette.write(addr, value);
         }
@@ -690,5 +724,43 @@ public class Ppu2C02 implements PPU {
             sb.append('\n');
         }
         System.out.print(sb.toString());
+    }
+
+    /**
+     * Print histogram of background palette indices 0..15 for current frame buffer.
+     */
+    public void printBackgroundIndexHistogram() {
+        int[] counts = new int[16];
+        for (int i = 0; i < frameIndexBuffer.length; i++) {
+            counts[frameIndexBuffer[i] & 0x0F]++;
+        }
+        System.out.println("--- Background index histogram (count) ---");
+        for (int i = 0; i < 16; i++) {
+            int c = counts[i];
+            if (c > 0) {
+                System.out.printf("%X: %d%n", i, c);
+            }
+        }
+    }
+
+    /**
+     * Dump a pattern tile (0-255) of current background pattern table to stdout.
+     */
+    public void dumpPatternTile(int tile) {
+        tile &= 0xFF;
+        int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + tile * 16; // background table select
+        System.out.printf("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
+        for (int row = 0; row < 8; row++) {
+            int lo = ppuMemoryRead(base + row) & 0xFF;
+            int hi = ppuMemoryRead(base + row + 8) & 0xFF;
+            StringBuilder bits = new StringBuilder();
+            for (int bit = 7; bit >= 0; bit--) {
+                int b0 = (lo >> bit) & 1;
+                int b1 = (hi >> bit) & 1;
+                int pix = (b1 << 1) | b0;
+                bits.append(pix);
+            }
+            System.out.println(bits.toString());
+        }
     }
 }
