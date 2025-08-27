@@ -577,13 +577,7 @@ public class Ppu2C02 implements PPU {
         return frameBuffer;
     }
 
-    /** Load CHR ROM data into internal pattern tables (mapper0 bootstrap). */
-    public void loadChr(byte[] chr) {
-        if (chr == null)
-            return;
-        int len = Math.min(chr.length, patternTables.length);
-        System.arraycopy(chr, 0, patternTables, 0, len);
-    }
+    // loadChr removed: pattern fetches now always routed via mapper when attached.
 
     // TEST HELPERS for palette
     void pokePalette(int addr, int value) {

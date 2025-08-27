@@ -35,10 +35,6 @@ public class NesEmulator {
         this.ppu = new Ppu2C02();
         this.ppu.reset();
         this.ppu.attachMapper(this.mapper);
-        // Bootstrap CHR contents into PPU pattern table space (Mapper0 direct copy)
-        if (rom.getChrRom() != null && rom.getChrRom().length > 0) {
-            this.ppu.loadChr(rom.getChrRom());
-        }
         this.bus = new Bus();
         bus.attachPPU(ppu);
         bus.attachMapper(mapper, rom);
