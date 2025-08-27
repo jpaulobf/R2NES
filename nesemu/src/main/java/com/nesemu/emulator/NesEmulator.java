@@ -91,4 +91,16 @@ public class NesEmulator {
             runCycles(1); // 1 CPU cycle -> 3 PPU cycles
         }
     }
+
+    /** Convenience: run a number of whole frames. */
+    public void runFrames(int frames) {
+        for (int i = 0; i < frames; i++) {
+            stepFrame();
+        }
+    }
+
+    /** Expose current rendered frame index (proxy to PPU). */
+    public long getFrame() {
+        return ppu.getFrame();
+    }
 }
