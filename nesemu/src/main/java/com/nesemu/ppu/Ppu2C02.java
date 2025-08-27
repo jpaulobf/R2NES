@@ -188,13 +188,13 @@ public class Ppu2C02 implements PPU {
             if (isVisibleScanline() || isPreRender()) {
                 // Background pipeline per-cycle operations (simplified subset)
                 // Shift at start of each visible cycle before sampling pixel
-                if (isVisibleScanline() && cycle >= 1 && cycle <= 256) {
-                    // Shift first (like hardware) then later sample pixel (after fetch/reload)
-                    shiftBackgroundRegisters();
-                }
+                // Fetch pipeline for this cycle
                 backgroundPipeline();
+                // Produce pixel using current shift register state (before shifting)
                 if (isVisibleScanline() && cycle >= 1 && cycle <= 256) {
                     produceBackgroundPixel();
+                    // Shift after sampling (hardware shifts once per pixel after use)
+                    shiftBackgroundRegisters();
                 }
                 // Increment coarse X at cycles 8,16,...,256 and 328,336 (simplified: every 8
                 // cycles in the fetch regions)
@@ -408,13 +408,11 @@ public class Ppu2C02 implements PPU {
             frameIndexBuffer[scanline * 256 + x] = 0;
             return;
         }
-        // Fixed bit 15 sampling: emulate hardware multiplexer by shifting logical view
-        // with fine X instead of selecting different bit each pixel.
-        int shiftAdj = fineX & 0x7;
-        int bit0 = ((patternLowShift << shiftAdj) & 0x8000) != 0 ? 1 : 0;
-        int bit1 = ((patternHighShift << shiftAdj) & 0x8000) != 0 ? 1 : 0;
-        int attrLow = ((attributeLowShift << shiftAdj) & 0x8000) != 0 ? 1 : 0;
-        int attrHigh = ((attributeHighShift << shiftAdj) & 0x8000) != 0 ? 1 : 0;
+        int tap = 15 - (fineX & 0x7);
+        int bit0 = (patternLowShift >> tap) & 0x1;
+        int bit1 = (patternHighShift >> tap) & 0x1;
+        int attrLow = (attributeLowShift >> tap) & 0x1;
+        int attrHigh = (attributeHighShift >> tap) & 0x1;
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
         int paletteIndex = (attr << 2) | pattern; // 0..15
@@ -459,6 +457,7 @@ public class Ppu2C02 implements PPU {
         // previous high byte continues shifting out while new tile occupies low bits.
         attributeLowShift = (attributeLowShift & 0xFF00) | (lowBit != 0 ? 0x00FF : 0x0000);
         attributeHighShift = (attributeHighShift & 0xFF00) | (highBit != 0 ? 0x00FF : 0x0000);
+        // No pre-shift; fineX handled at sampling time.
     }
 
     private void shiftBackgroundRegisters() {
