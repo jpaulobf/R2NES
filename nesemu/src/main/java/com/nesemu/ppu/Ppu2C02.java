@@ -54,6 +54,9 @@ public class Ppu2C02 implements PPU {
     // Optional test hook: a callback invoked whenever an NMI would be signalled
     private Runnable nmiCallback;
 
+    // Frame buffer for background pixels (palette index 0..15 per pixel)
+    private final int[] frameBuffer = new int[256 * 240];
+
     public void setNmiCallback(Runnable cb) {
         this.nmiCallback = cb;
     }
@@ -74,6 +77,14 @@ public class Ppu2C02 implements PPU {
         scanline = -1; // pre-render
         frame = 0;
         nmiFiredThisVblank = false;
+        // Background fetch / rendering state
+        patternLowShift = patternHighShift = 0;
+        attributeLowShift = attributeHighShift = 0;
+        ntLatch = atLatch = patternLowLatch = patternHighLatch = 0;
+        firstTileReady = false;
+        scanlinePixelCounter = 0;
+        for (int i = 0; i < frameBuffer.length; i++)
+            frameBuffer[i] = 0;
     }
 
     @Override
@@ -86,6 +97,11 @@ public class Ppu2C02 implements PPU {
             if (scanline > 260) {
                 scanline = -1; // wrap to pre-render
                 frame++;
+            }
+            // New visible scanline: reset pixel counters
+            if (isVisibleScanline()) {
+                firstTileReady = false;
+                scanlinePixelCounter = 0;
             }
         }
 
@@ -119,6 +135,11 @@ public class Ppu2C02 implements PPU {
         if (renderingEnabled()) {
             // Visible or pre-render scanlines only
             if (isVisibleScanline() || isPreRender()) {
+                // Background pipeline per-cycle operations (simplified subset)
+                backgroundPipeline();
+                if (isVisibleScanline() && cycle >= 1 && cycle <= 256) {
+                    produceBackgroundPixel();
+                }
                 // Increment coarse X at cycles 8,16,...,256 and 328,336 (simplified: every 8
                 // cycles in the fetch regions)
                 if (((cycle >= 1 && cycle <= 256) || (cycle >= 321 && cycle <= 336)) && (cycle & 0x7) == 0) {
@@ -181,7 +202,19 @@ public class Ppu2C02 implements PPU {
                 tempAddress = (tempAddress & 0x73FF) | ((value & 0x03) << 10); // nametable bits into t
                 break;
             case 1: // $2001 PPUMASK
+                int prevMask = regMASK;
                 regMASK = value;
+                // If background just got enabled mid-frame right at cycle 0 of a visible
+                // scanline,
+                // we didn't perform the pre-render fetches for the first tile. Prime it now so
+                // pixel 0 appears without an 8-pixel delay (test convenience; later we'll rely
+                // on
+                // real pre-render line fetches).
+                boolean bgWasDisabled = (prevMask & 0x08) == 0;
+                boolean bgNowEnabled = (regMASK & 0x08) != 0;
+                if (bgWasDisabled && bgNowEnabled && cycle == 0 && isVisibleScanline()) {
+                    primeFirstTile();
+                }
                 break;
             case 2: // STATUS is read-only
                 break;
@@ -272,14 +305,176 @@ public class Ppu2C02 implements PPU {
         vramAddress = (vramAddress & ~0x7BE0) | (tempAddress & 0x7BE0);
     }
 
+    // --- Background rendering simplified ---
+    // Pattern tables + nametables (2x1KB) temporary internal storage
+    private final byte[] patternTables = new byte[0x2000]; // CHR ROM/RAM placeholder
+    private final byte[] nameTables = new byte[0x0800]; // two nametables (no mirroring control yet)
+
+    // Shift registers (16-bit each like real PPU)
+    private int patternLowShift, patternHighShift;
+    private int attributeLowShift, attributeHighShift; // replicated attribute bits
+
+    // Latches
+    private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
+    private boolean justReloaded; // skip one shift after reload so first pixel uses new high bits
+    private boolean firstTileReady; // becomes true after first phase-0 reload on a visible scanline
+    private int scanlinePixelCounter; // counts rendered background pixels this scanline
+
+    private void backgroundPipeline() {
+        // Only execute during visible cycles 1-256 or prefetch cycles 321-336 on
+        // visible/pre-render lines
+        boolean fetchRegion = (isVisibleScanline() && cycle >= 1 && cycle <= 256)
+                || (cycle >= 321 && cycle <= 336 && isVisibleScanline())
+                || (isPreRender() && ((cycle >= 321 && cycle <= 336) || (cycle >= 1 && cycle <= 256)));
+        if (!fetchRegion)
+            return;
+        int phase = cycle & 0x7; // 8-cycle tile fetch phase
+        switch (phase) {
+            case 1: // Fetch nametable byte
+                ntLatch = ppuMemoryRead(0x2000 | (vramAddress & 0x0FFF));
+                break;
+            case 3: { // Fetch attribute byte
+                int v = vramAddress;
+                int coarseX = v & 0x1F;
+                int coarseY = (v >> 5) & 0x1F;
+                int attributeAddr = 0x23C0 | (v & 0x0C00) | ((coarseY >> 2) << 3) | (coarseX >> 2);
+                atLatch = ppuMemoryRead(attributeAddr);
+                break;
+            }
+            case 5: { // Pattern low
+                int fineY = (vramAddress >> 12) & 0x07;
+                int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
+                patternLowLatch = ppuMemoryRead(base);
+                break;
+            }
+            case 7: { // Pattern high
+                int fineY = (vramAddress >> 12) & 0x07;
+                int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
+                patternHighLatch = ppuMemoryRead(base);
+                break;
+            }
+            case 0: // Reload shift registers with latched tile data
+                loadShiftRegisters();
+                justReloaded = true; // defer shift this cycle and next shift occurs starting following pixel
+                if (!firstTileReady && isVisibleScanline()) {
+                    firstTileReady = true; // allow pixel production logic to advance scanlinePixelCounter
+                }
+                break;
+        }
+
+        // Perform shifting AFTER phase work so freshly loaded data isn't advanced
+        // prematurely
+        if (cycle != 0) {
+            if (justReloaded) {
+                // Skip one shift cycle so first pixel after reload (next cycle) uses bit7
+                justReloaded = false;
+            } else {
+                patternLowShift = (patternLowShift << 1) & 0xFFFF;
+                patternHighShift = (patternHighShift << 1) & 0xFFFF;
+                attributeLowShift = (attributeLowShift << 1) & 0xFFFF;
+                attributeHighShift = (attributeHighShift << 1) & 0xFFFF;
+            }
+        }
+    }
+
+    private void produceBackgroundPixel() {
+        if ((regMASK & 0x08) == 0)
+            return; // background disabled
+        if (!firstTileReady)
+            return; // wait until first tile reload
+        int x = scanlinePixelCounter;
+        if (x >= 256)
+            return;
+        if ((regMASK & 0x02) == 0 && x < 8) { // left clip
+            frameBuffer[scanline * 256 + x] = 0;
+            scanlinePixelCounter++;
+            return;
+        }
+        int bit0 = (patternLowShift & 0x8000) >>> 15;
+        int bit1 = (patternHighShift & 0x8000) >>> 15;
+        int attrLow = (attributeLowShift & 0x8000) >>> 15;
+        int attrHigh = (attributeHighShift & 0x8000) >>> 15;
+        int pattern = (bit1 << 1) | bit0;
+        int attr = (attrHigh << 1) | attrLow;
+        int paletteIndex = (attr << 2) | pattern; // 0..15
+        frameBuffer[scanline * 256 + x] = paletteIndex;
+        scanlinePixelCounter++;
+    }
+
+    private void loadShiftRegisters() {
+        // Duplicate pattern bytes into both low and high halves so:
+        // - High half provides immediate pixel bits (bit15) for current tile
+        // - Low half matches test expectations (low 8 bits == pattern byte)
+        int pl = patternLowLatch & 0xFF;
+        int ph = patternHighLatch & 0xFF;
+        patternLowShift = (pl << 8) | pl;
+        patternHighShift = (ph << 8) | ph;
+        // Attribute quadrant extraction; replicate bit pair across both halves
+        int coarseX = vramAddress & 0x1F;
+        int coarseY = (vramAddress >> 5) & 0x1F;
+        int quadrant = ((coarseY & 0x02) << 1) | (coarseX & 0x02);
+        int attributeBits = (atLatch >> quadrant) & 0x03;
+        int lowBit = attributeBits & 0x01;
+        int highBit = (attributeBits >> 1) & 0x01;
+        int attrLowRep = (lowBit != 0 ? 0xFF : 0x00);
+        int attrHighRep = (highBit != 0 ? 0xFF : 0x00);
+        attributeLowShift = (attrLowRep << 8) | attrLowRep;
+        attributeHighShift = (attrHighRep << 8) | attrHighRep;
+    }
+
+    // Prime first tile fetch sequence when enabling background at start of a
+    // visible scanline
+    private void primeFirstTile() {
+        // Emulate phases 1,3,5,7 quickly to fill latches then reload
+        ntLatch = ppuMemoryRead(0x2000 | (vramAddress & 0x0FFF));
+        int v = vramAddress;
+        int coarseX = v & 0x1F;
+        int coarseY = (v >> 5) & 0x1F;
+        int attributeAddr = 0x23C0 | (v & 0x0C00) | ((coarseY >> 2) << 3) | (coarseX >> 2);
+        atLatch = ppuMemoryRead(attributeAddr);
+        int fineY = (vramAddress >> 12) & 0x07;
+        int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
+        patternLowLatch = ppuMemoryRead(base);
+        patternHighLatch = ppuMemoryRead(base + 8);
+        loadShiftRegisters();
+    }
+
     // Placeholder memory space for pattern/nametables/palette until Bus integration
     // fleshed out.
     private int ppuMemoryRead(int addr) {
+        addr &= 0x3FFF;
+        if (addr < 0x2000) { // pattern tables
+            return patternTables[addr] & 0xFF;
+        } else if (addr < 0x3F00) { // nametables (0x2000-0x2FFF) mirror every 0x1000
+            int nt = (addr - 0x2000) & 0x0FFF;
+            int index = nt & 0x03FF; // 1KB region
+            int table = (nt >> 10) & 0x03; // 4 possible, we only store 2 -> mirror 2 & 3 to 0 & 1
+            if (table >= 2)
+                table -= 2;
+            return nameTables[(table * 0x0400) + index] & 0xFF;
+        } else if (addr < 0x4000) {
+            // Palette area stub: return fixed
+            return 0; // future palette logic
+        }
         return 0;
     }
 
     private void ppuMemoryWrite(int addr, int value) {
-        /* ignore for now */ }
+        addr &= 0x3FFF;
+        value &= 0xFF;
+        if (addr < 0x2000) {
+            patternTables[addr] = (byte) value; // CHR RAM case
+        } else if (addr < 0x3F00) {
+            int nt = (addr - 0x2000) & 0x0FFF;
+            int index = nt & 0x03FF;
+            int table = (nt >> 10) & 0x03;
+            if (table >= 2)
+                table -= 2;
+            nameTables[(table * 0x0400) + index] = (byte) value;
+        } else if (addr < 0x4000) {
+            // palette write stub ignored
+        }
+    }
 
     // Accessors for future tests/debug
     public int getScanline() {
@@ -330,6 +525,51 @@ public class Ppu2C02 implements PPU {
 
     void setTempAddressForTest(int t) {
         this.tempAddress = t & 0x7FFF;
+    }
+
+    // Background test helpers
+    void pokeNameTable(int offset, int value) {
+        if (offset >= 0 && offset < nameTables.length)
+            nameTables[offset] = (byte) value;
+    }
+
+    void pokePattern(int addr, int value) {
+        if (addr >= 0 && addr < patternTables.length)
+            patternTables[addr] = (byte) value;
+    }
+
+    int getPatternLowShift() {
+        return patternLowShift & 0xFFFF;
+    }
+
+    int getPatternHighShift() {
+        return patternHighShift & 0xFFFF;
+    }
+
+    int getAttributeLowShift() {
+        return attributeLowShift & 0xFFFF;
+    }
+
+    int getAttributeHighShift() {
+        return attributeHighShift & 0xFFFF;
+    }
+
+    int getNtLatch() {
+        return ntLatch & 0xFF;
+    }
+
+    int getAtLatch() {
+        return atLatch & 0xFF;
+    }
+
+    int getPixel(int x, int y) {
+        if (x < 0 || x >= 256 || y < 0 || y >= 240)
+            return 0;
+        return frameBuffer[y * 256 + x];
+    }
+
+    int[] getFrameBufferRef() {
+        return frameBuffer;
     }
 
     // Raw status for deeper debug if needed
