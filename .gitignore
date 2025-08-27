@@ -2,3 +2,5 @@
 .vscode/settings.json
 nesemu/out.log
 nesemu/nestest/out.log
+nesemu/background.ppm
+nesemu/roms/donkeykong.nes
