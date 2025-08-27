@@ -86,6 +86,9 @@ public class Ppu2C02 implements PPU {
 
     // Latches
     private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
+    // Raw background palette index per pixel (0..15) stored for tests (pattern 0 ->
+    // 0)
+    // Already used internally in produceBackgroundPixel; accessor added below.
     // Removed hack fields (firstTileReady, scanlinePixelCounter) in favour of
     // direct cycle-based x computation
 
@@ -127,10 +130,21 @@ public class Ppu2C02 implements PPU {
             if (scanline > 260) {
                 scanline = -1; // wrap to pre-render
                 frame++;
+                if (DEBUG) {
+                    // Dump first 32 background indices of scanline 0 for debugging
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("[PPU] First scanline indices: ");
+                    for (int i = 0; i < 32; i++) {
+                        sb.append(String.format("%02x ", frameIndexBuffer[i] & 0xFF));
+                    }
+                    System.out.println(sb.toString());
+                }
             }
             // New visible scanline: reset pixel counters
             // no per-scanline pixel counter reset needed now
         }
+
+        // (No priming hack) – rely on 8‑cycle pipeline latency.
 
         // Enter vblank at scanline 241, cycle 1 (NES spec; some docs cite cycle 0)
         if (scanline == 241 && cycle == 1) {
@@ -165,6 +179,7 @@ public class Ppu2C02 implements PPU {
                 // Background pipeline per-cycle operations (simplified subset)
                 // Shift at start of each visible cycle before sampling pixel
                 if (isVisibleScanline() && cycle >= 1 && cycle <= 256) {
+                    // Shift first (like hardware) then later sample pixel (after fetch/reload)
                     shiftBackgroundRegisters();
                 }
                 backgroundPipeline();
@@ -332,7 +347,7 @@ public class Ppu2C02 implements PPU {
                 || (isPreRender() && ((cycle >= 321 && cycle <= 336) || (cycle >= 1 && cycle <= 256)));
         if (!fetchRegion)
             return;
-        int phase = cycle & 0x7; // 8-cycle tile fetch phase (1..7,0)
+        int phase = cycle & 0x7; // 8-cycle tile fetch phase (1,3,5,7 fetch; 0 reload)
         switch (phase) {
             case 1: // Fetch nametable byte
                 ntLatch = ppuMemoryRead(0x2000 | (vramAddress & 0x0FFF));
@@ -366,16 +381,17 @@ public class Ppu2C02 implements PPU {
     private void produceBackgroundPixel() {
         if ((regMASK & 0x08) == 0)
             return; // background disabled
-        // Faithful mapping: first tile becomes visible after its fetch completes and
-        // shifts propagate; we choose cycle 9 -> pixel 0 to reflect 8-cycle latency.
+        // Cycle->pixel mapping with 8-cycle fetch latency: first visible pixel (x=0) at
+        // cycle 9
         int x = cycle - 9; // cycle 9 -> pixel 0
-        if (x < 0 || x >= 256)
+        if (x < 0 || x >= 256 || !isVisibleScanline())
             return;
-        if ((regMASK & 0x02) == 0 && x < 8) { // left clip
+        if ((regMASK & 0x02) == 0 && x < 8) { // left column clip
             frameBuffer[scanline * 256 + x] = 0;
+            frameIndexBuffer[scanline * 256 + x] = 0;
             return;
         }
-        int bitIndex = 15 - (fineX & 0x7);
+        int bitIndex = 15 - (fineX & 0x7); // use fine X to select bit from 16-bit shift registers
         int mask = 1 << bitIndex;
         int bit0 = (patternLowShift & mask) != 0 ? 1 : 0;
         int bit1 = (patternHighShift & mask) != 0 ? 1 : 0;
@@ -383,33 +399,50 @@ public class Ppu2C02 implements PPU {
         int attrHigh = (attributeHighShift & mask) != 0 ? 1 : 0;
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
-        int paletteIndex = (attr << 2) | pattern; // 0..15 background palette index
-        // For pattern==0 (transparent background texel) store raw index 0 so tests /
-        // logic referencing background transparency see universal bg index.
-        frameIndexBuffer[scanline * 256 + x] = (pattern == 0) ? 0 : paletteIndex;
-        // Background palette selects at $3F00 + ( (pattern==0?0: ( (attr<<2)|pattern ))
-        // ) with universal color for pattern==0
-        int paletteBaseEntry = (pattern == 0) ? 0 : paletteIndex;
-        // Background uses entries 0x00-0x0F in palette RAM
-        int colorIndex = palette.read(0x3F00 + paletteBaseEntry);
-        int argb = palette.getArgb(colorIndex, regMASK);
-        frameBuffer[scanline * 256 + x] = argb;
+        int paletteIndex = (attr << 2) | pattern; // 0..15
+        int store = (pattern == 0) ? 0 : paletteIndex; // universal bg for transparent pattern
+        frameIndexBuffer[scanline * 256 + x] = store;
+        int colorIndex = palette.read(0x3F00 + ((pattern == 0) ? 0 : paletteIndex));
+        frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK);
     }
 
     private void loadShiftRegisters() {
         int pl = patternLowLatch & 0xFF;
         int ph = patternHighLatch & 0xFF;
-        // Insert into low 8 bits; older bits continue to shift out through bit15
+        // Insert new tile bytes into LOW 8 bits; existing bits keep shifting toward
+        // bit15
         patternLowShift = (patternLowShift & 0xFF00) | pl;
         patternHighShift = (patternHighShift & 0xFF00) | ph;
         int coarseX = vramAddress & 0x1F;
         int coarseY = (vramAddress >> 5) & 0x1F;
-        int quadrant = ((coarseY & 0x02) << 1) | (coarseX & 0x02);
-        int attributeBits = (atLatch >> quadrant) & 0x03;
+        int quadSelector = ((coarseY & 0x02) << 1) | (coarseX & 0x02); // 0,2,4,6
+        int shift;
+        switch (quadSelector) {
+            case 0:
+                shift = 0;
+                break; // TL
+            case 2:
+                shift = 2;
+                break; // TR
+            case 4:
+                shift = 4;
+                break; // BL
+            case 6:
+                shift = 6;
+                break; // BR
+            default:
+                shift = 0;
+                break;
+        }
+        int attributeBits = (atLatch >> shift) & 0x03;
         int lowBit = attributeBits & 0x01;
         int highBit = (attributeBits >> 1) & 0x01;
-        attributeLowShift = (attributeLowShift & 0xFF00) | (lowBit != 0 ? 0x00FF : 0x0000);
-        attributeHighShift = (attributeHighShift & 0xFF00) | (highBit != 0 ? 0x00FF : 0x0000);
+        // Replicate attribute bits across both bytes so bit15 (first pixel after
+        // reload)
+        // reflects current tile's palette selection (avoids leaking previous tile's
+        // high byte).
+        attributeLowShift = (lowBit != 0 ? 0xFFFF : 0x0000);
+        attributeHighShift = (highBit != 0 ? 0xFFFF : 0x0000);
     }
 
     private void shiftBackgroundRegisters() {
@@ -418,6 +451,8 @@ public class Ppu2C02 implements PPU {
         attributeLowShift = (attributeLowShift << 1) & 0xFFFF;
         attributeHighShift = (attributeHighShift << 1) & 0xFFFF;
     }
+
+    // (No priming helper in accurate pipeline mode)
 
     // priming hack removed – rely on pre-render line (if enabled early) or natural
     // 8-cycle pipeline delay
@@ -503,6 +538,19 @@ public class Ppu2C02 implements PPU {
 
     public long getFrame() {
         return frame;
+    }
+
+    // --- Testing / debug accessors ---
+    public int getBackgroundIndex(int x, int y) {
+        if (x < 0 || x >= 256 || y < 0 || y >= 240)
+            return 0;
+        return frameIndexBuffer[y * 256 + x] & 0xFF;
+    }
+
+    public int[] getBackgroundIndexBufferCopy() {
+        int[] copy = new int[frameIndexBuffer.length];
+        System.arraycopy(frameIndexBuffer, 0, copy, 0, frameIndexBuffer.length);
+        return copy;
     }
 
     // Testing accessors (safe read-only)
