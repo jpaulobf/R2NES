@@ -1,5 +1,7 @@
 package com.nesemu.ppu;
 
+import com.nesemu.cpu.CPU;
+
 /**
  * Minimal 2C02 PPU skeleton: implements core registers and a basic
  * cycle/scanline counter.
@@ -17,10 +19,11 @@ package com.nesemu.ppu;
  * mirroring, sprite system.
  */
 public class Ppu2C02 implements PPU {
-    // Optional CPU callback for NMI (set by Bus/emulator)
-    private com.nesemu.cpu.CPU cpu; // keep loose coupling (avoid interface for now)
 
-    public void attachCPU(com.nesemu.cpu.CPU cpu) {
+    // Optional CPU callback for NMI (set by Bus/emulator)
+    private CPU cpu;
+
+    public void attachCPU(CPU cpu) {
         this.cpu = cpu;
     }
 
@@ -57,12 +60,27 @@ public class Ppu2C02 implements PPU {
     // Frame buffer for background pixels (palette index 0..15 per pixel)
     private final int[] frameBuffer = new int[256 * 240];
 
+    // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
+    private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
+
+    // --- Background rendering simplified ---
+    // Pattern tables + nametables (2x1KB) temporary internal storage
+    private final byte[] patternTables = new byte[0x2000]; // CHR ROM/RAM placeholder
+    private final byte[] nameTables = new byte[0x0800]; // two nametables (no mirroring control yet)
+
+    // Shift registers (16-bit each like real PPU)
+    private int patternLowShift, patternHighShift;
+    private int attributeLowShift, attributeHighShift; // replicated attribute bits
+
+    // Latches
+    private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
+    private boolean justReloaded; // skip one shift after reload so first pixel uses new high bits
+    private boolean firstTileReady; // becomes true after first phase-0 reload on a visible scanline
+    private int scanlinePixelCounter; // counts rendered background pixels this scanline
+
     public void setNmiCallback(Runnable cb) {
         this.nmiCallback = cb;
     }
-
-    // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
-    private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
 
     @Override
     public void reset() {
@@ -305,21 +323,6 @@ public class Ppu2C02 implements PPU {
         vramAddress = (vramAddress & ~0x7BE0) | (tempAddress & 0x7BE0);
     }
 
-    // --- Background rendering simplified ---
-    // Pattern tables + nametables (2x1KB) temporary internal storage
-    private final byte[] patternTables = new byte[0x2000]; // CHR ROM/RAM placeholder
-    private final byte[] nameTables = new byte[0x0800]; // two nametables (no mirroring control yet)
-
-    // Shift registers (16-bit each like real PPU)
-    private int patternLowShift, patternHighShift;
-    private int attributeLowShift, attributeHighShift; // replicated attribute bits
-
-    // Latches
-    private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
-    private boolean justReloaded; // skip one shift after reload so first pixel uses new high bits
-    private boolean firstTileReady; // becomes true after first phase-0 reload on a visible scanline
-    private int scanlinePixelCounter; // counts rendered background pixels this scanline
-
     private void backgroundPipeline() {
         // Only execute during visible cycles 1-256 or prefetch cycles 321-336 on
         // visible/pre-render lines
@@ -390,36 +393,37 @@ public class Ppu2C02 implements PPU {
             scanlinePixelCounter++;
             return;
         }
-        int bit0 = (patternLowShift & 0x8000) >>> 15;
-        int bit1 = (patternHighShift & 0x8000) >>> 15;
-        int attrLow = (attributeLowShift & 0x8000) >>> 15;
-        int attrHigh = (attributeHighShift & 0x8000) >>> 15;
+        // Real fine X sampling: current pixel uses bit (15 - fineX) of each 16-bit
+        // shift register.
+        int bitIndex = 15 - (fineX & 0x7);
+        int mask = 1 << bitIndex;
+        int bit0 = (patternLowShift & mask) != 0 ? 1 : 0;
+        int bit1 = (patternHighShift & mask) != 0 ? 1 : 0;
+        int attrLow = (attributeLowShift & mask) != 0 ? 1 : 0;
+        int attrHigh = (attributeHighShift & mask) != 0 ? 1 : 0;
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
-        int paletteIndex = (attr << 2) | pattern; // 0..15
+        int paletteIndex = (attr << 2) | pattern;
         frameBuffer[scanline * 256 + x] = paletteIndex;
         scanlinePixelCounter++;
     }
 
     private void loadShiftRegisters() {
-        // Duplicate pattern bytes into both low and high halves so:
-        // - High half provides immediate pixel bits (bit15) for current tile
-        // - Low half matches test expectations (low 8 bits == pattern byte)
+        // Load pattern bytes ONLY into high 8 bits (authentic orientation for our
+        // simplified priming).
         int pl = patternLowLatch & 0xFF;
         int ph = patternHighLatch & 0xFF;
-        patternLowShift = (pl << 8) | pl;
-        patternHighShift = (ph << 8) | ph;
-        // Attribute quadrant extraction; replicate bit pair across both halves
+        patternLowShift = (pl << 8); // low 8 bits left as previous/zero; high bits contain new tile
+        patternHighShift = (ph << 8);
+        // Attribute quadrant extraction; replicate bit pair into high 8 bits only
         int coarseX = vramAddress & 0x1F;
         int coarseY = (vramAddress >> 5) & 0x1F;
         int quadrant = ((coarseY & 0x02) << 1) | (coarseX & 0x02);
         int attributeBits = (atLatch >> quadrant) & 0x03;
         int lowBit = attributeBits & 0x01;
         int highBit = (attributeBits >> 1) & 0x01;
-        int attrLowRep = (lowBit != 0 ? 0xFF : 0x00);
-        int attrHighRep = (highBit != 0 ? 0xFF : 0x00);
-        attributeLowShift = (attrLowRep << 8) | attrLowRep;
-        attributeHighShift = (attrHighRep << 8) | attrHighRep;
+        attributeLowShift = (lowBit != 0 ? 0xFF00 : 0x0000) | (attributeLowShift & 0x00FF);
+        attributeHighShift = (highBit != 0 ? 0xFF00 : 0x0000) | (attributeHighShift & 0x00FF);
     }
 
     // Prime first tile fetch sequence when enabling background at start of a

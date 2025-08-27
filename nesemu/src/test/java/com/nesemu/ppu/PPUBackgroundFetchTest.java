@@ -67,10 +67,11 @@ public class PPUBackgroundFetchTest {
                                                                                                       // progress
         // Cycle 8: reload (phase 0)
         p.clock();
-        assertEquals(0xAA & 0xFF, p.getPatternLowShift() & 0xFF, "Low shift lower byte loaded");
-        assertEquals(0x55 & 0xFF, p.getPatternHighShift() & 0xFF, "High shift lower byte loaded");
-        // Attribute shift registers replicated (all ones because bits=3)
-        assertEquals(0xFF, p.getAttributeLowShift() & 0xFF, "Attr low replicated");
-        assertEquals(0xFF, p.getAttributeHighShift() & 0xFF, "Attr high replicated");
+        // Now pattern bytes are loaded into HIGH 8 bits of shift registers
+        assertEquals(0xAA, (p.getPatternLowShift() >> 8) & 0xFF, "Low pattern high byte loaded");
+        assertEquals(0x55, (p.getPatternHighShift() >> 8) & 0xFF, "High pattern high byte loaded");
+        // Attribute replication also occupies high 8 bits
+        assertEquals(0xFF, (p.getAttributeLowShift() >> 8) & 0xFF, "Attr low high byte replicated");
+        assertEquals(0xFF, (p.getAttributeHighShift() >> 8) & 0xFF, "Attr high high byte replicated");
     }
 }
