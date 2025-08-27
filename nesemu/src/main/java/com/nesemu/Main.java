@@ -24,12 +24,14 @@ public class Main {
         String dumpPatternsList = null; // lista separada por vírgula (hex)
         boolean showHeader = false;
         boolean chrLog = false;
+        String tileMatrixMode = null; // first|center|nonzero
         long traceInstrCount = 0;
         boolean traceNmi = false;
         boolean logPpuReg = false;
         Integer breakAtPc = null;
         int breakReadAddr = -1;
         int breakReadCount = 1;
+        boolean untilVblank = false; // novo modo: roda até primeiro vblank
         for (String a : args) {
             if (a.equalsIgnoreCase("--gui"))
                 gui = true;
@@ -37,6 +39,8 @@ public class Main {
                 frames = Integer.parseInt(a.substring(9));
             else if (a.equalsIgnoreCase("--dump-nt"))
                 dumpNt = true;
+            else if (a.equalsIgnoreCase("--until-vblank"))
+                untilVblank = true;
             else if (a.startsWith("--dump-pattern=")) {
                 try {
                     dumpPattern = Integer.parseInt(a.substring(15), 16);
@@ -49,7 +53,9 @@ public class Main {
                 showHeader = true;
             else if (a.equalsIgnoreCase("--chr-log"))
                 chrLog = true;
-            else if (a.startsWith("--trace-cpu=")) {
+            else if (a.startsWith("--tile-matrix=")) {
+                tileMatrixMode = a.substring(14).trim();
+            } else if (a.startsWith("--trace-cpu=")) {
                 try {
                     traceInstrCount = Long.parseLong(a.substring(12));
                 } catch (NumberFormatException e) {
@@ -88,6 +94,10 @@ public class Main {
         System.out.println("Carregando ROM: " + p.toAbsolutePath());
         INesRom rom = RomLoader.load(p);
         NesEmulator emu = new NesEmulator(rom);
+        if (tileMatrixMode != null) {
+            emu.getPpu().setTileMatrixMode(tileMatrixMode);
+            System.out.println("Tile matrix mode: " + tileMatrixMode);
+        }
         if (showHeader) {
             var h = rom.getHeader();
             System.out.printf("Header: PRG=%d x16KB (%d bytes) CHR=%d x8KB (%d bytes) Mapper=%d Mirroring=%s%n",
@@ -123,7 +133,34 @@ public class Main {
             }, 60); // target 60 fps
         } else {
             long start = System.nanoTime();
-            if (traceInstrCount > 0) {
+            if (untilVblank) {
+                long executed = 0;
+                long maxInstr = (traceInstrCount > 0) ? traceInstrCount : 1_000_000; // guarda de segurança
+                long startCpuCycles = emu.getCpu().getTotalCycles();
+                while (!emu.getPpu().isInVBlank() && executed < maxInstr) {
+                    long before = emu.getCpu().getTotalCycles();
+                    emu.getCpu().stepInstruction();
+                    long after = emu.getCpu().getTotalCycles();
+                    long cpuSpent = after - before;
+                    for (long c = 0; c < cpuSpent * 3; c++) {
+                        emu.getPpu().clock();
+                    }
+                    executed++;
+                }
+                if (emu.getPpu().isInVBlank()) {
+                    System.out.printf(
+                            "[UNTIL-VBLANK] vblank atingido após %d instruções (CPU cycles ~%d) frame=%d scan=%d cyc=%d status=%02X%n",
+                            executed, (emu.getCpu().getTotalCycles() - startCpuCycles), emu.getPpu().getFrame(),
+                            emu.getPpu().getScanline(), emu.getPpu().getCycle(), emu.getPpu().getStatusRegister());
+                } else {
+                    System.out.printf(
+                            "[UNTIL-VBLANK] limite de instruções (%d) atingido sem vblank. scan=%d cyc=%d frame=%d%n",
+                            maxInstr, emu.getPpu().getScanline(), emu.getPpu().getCycle(), emu.getPpu().getFrame());
+                }
+                // Depois roda frames solicitados (se frames>0)
+                for (int i = 0; i < frames; i++)
+                    emu.stepFrame();
+            } else if (traceInstrCount > 0) {
                 // Trace N instruções ignorando frames, depois continua frames restantes se
                 // definido
                 long executed = 0;

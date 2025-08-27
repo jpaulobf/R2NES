@@ -717,15 +717,60 @@ public class Ppu2C02 implements PPU {
 
     /** Print a 32x30 tile map of first scanline of each tile row (indices) */
     public void printTileIndexMatrix() {
+        // Mode options: "first" (top-left pixel), "center" (pixel 4,4), "nonzero"
+        // (first non-zero pixel in tile)
+        String mode = tileMatrixMode;
         StringBuilder sb = new StringBuilder();
         for (int ty = 0; ty < 30; ty++) {
             for (int tx = 0; tx < 32; tx++) {
-                int v = frameIndexBuffer[(ty * 8) * 256 + tx * 8] & 0x0F;
+                int v = 0;
+                if ("first".equals(mode)) {
+                    v = frameIndexBuffer[(ty * 8) * 256 + tx * 8] & 0x0F;
+                } else if ("center".equals(mode)) {
+                    int x = tx * 8 + 4;
+                    int y = ty * 8 + 4;
+                    v = frameIndexBuffer[y * 256 + x] & 0x0F;
+                } else if ("nonzero".equals(mode)) {
+                    int baseY = ty * 8;
+                    int baseX = tx * 8;
+                    int found = 0;
+                    outer: for (int py = 0; py < 8; py++) {
+                        int rowOff = (baseY + py) * 256 + baseX;
+                        for (int px = 0; px < 8; px++) {
+                            int val = frameIndexBuffer[rowOff + px] & 0x0F;
+                            if (val != 0) {
+                                found = val;
+                                break outer;
+                            }
+                        }
+                    }
+                    v = found;
+                } else {
+                    // fallback to first
+                    v = frameIndexBuffer[(ty * 8) * 256 + tx * 8] & 0x0F;
+                }
                 sb.append(String.format("%X", v));
             }
             sb.append('\n');
         }
         System.out.print(sb.toString());
+    }
+
+    // Tile matrix sampling mode (default "first")
+    private String tileMatrixMode = "first";
+
+    public void setTileMatrixMode(String mode) {
+        if (mode == null)
+            return;
+        switch (mode.toLowerCase()) {
+            case "first":
+            case "center":
+            case "nonzero":
+                tileMatrixMode = mode.toLowerCase();
+                break;
+            default:
+                // ignore invalid, keep previous
+        }
     }
 
     /**
@@ -783,7 +828,9 @@ public class Ppu2C02 implements PPU {
      */
     public void dumpPatternTile(int tile) {
         tile &= 0xFF;
-        int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + tile * 16; // background table select
+        // Usa bit 3 (0x08) de PPUCTRL para seleção da pattern table de background (como
+        // no pipeline)
+        int base = ((regCTRL & 0x08) != 0 ? 0x1000 : 0x0000) + tile * 16; // background table select corrigido
         System.out.printf("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
         for (int row = 0; row < 8; row++) {
             int lo = ppuMemoryRead(base + row) & 0xFF;
