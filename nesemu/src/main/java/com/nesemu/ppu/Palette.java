@@ -62,29 +62,19 @@ public class Palette {
     public int getArgb(int paletteColorIndex, int mask /* PPUMASK */) {
         paletteColorIndex &= 0x3F;
         int rgb = NES_PALETTE[paletteColorIndex];
-        // Grayscale bit (bit0 of PPUMASK): if set, force to grayscale using luminance
-        if ((mask & 0x01) != 0) {
-            int r = (rgb >> 16) & 0xFF;
-            int g = (rgb >> 8) & 0xFF;
-            int b = rgb & 0xFF;
-            int y = (r * 30 + g * 59 + b * 11) / 100; // simple luma
-            rgb = 0xFF000000 | (y << 16) | (y << 8) | y;
-        }
-        // Emphasis bits (5,6,7): apply approximate multiplier set (not fully NTSC
-        // accurate but close).
+        // Apply emphasis first (hardware modifies DAC output before grayscale
+        // simplification)
         int emph = (mask >> 5) & 0x07; // bits R,G,B emphasis
         if (emph != 0) {
-            // Multipliers table for combinations R,G,B -> (rMul,gMul,bMul)
-            // Index = (R?1:0) | (G?2:0) | (B?4:0)
             final float[][] mul = new float[][] {
                     { 1.00f, 1.00f, 1.00f }, // 000
-                    { 1.10f, 0.85f, 0.85f }, // 001 R
-                    { 0.90f, 1.10f, 0.85f }, // 010 G
-                    { 1.05f, 1.05f, 0.80f }, // 011 R+G (yellow)
-                    { 0.90f, 0.85f, 1.10f }, // 100 B
-                    { 1.05f, 0.80f, 1.05f }, // 101 R+B (magenta)
-                    { 0.80f, 1.05f, 1.05f }, // 110 G+B (cyan)
-                    { 0.95f, 0.95f, 0.95f } // 111 RGB (overall dim)
+                    { 1.10f, 0.85f, 0.85f }, // R
+                    { 0.90f, 1.10f, 0.85f }, // G
+                    { 1.05f, 1.05f, 0.80f }, // R+G
+                    { 0.90f, 0.85f, 1.10f }, // B
+                    { 1.05f, 0.80f, 1.05f }, // R+B
+                    { 0.80f, 1.05f, 1.05f }, // G+B
+                    { 0.95f, 0.95f, 0.95f } // R+G+B
             };
             float[] m = mul[emph];
             int r = (rgb >> 16) & 0xFF;
@@ -94,6 +84,14 @@ public class Palette {
             g = Math.min(255, Math.round(g * m[1]));
             b = Math.min(255, Math.round(b * m[2]));
             rgb = 0xFF000000 | (r << 16) | (g << 8) | b;
+        }
+        // Grayscale after emphasis
+        if ((mask & 0x01) != 0) {
+            int r = (rgb >> 16) & 0xFF;
+            int g = (rgb >> 8) & 0xFF;
+            int b = rgb & 0xFF;
+            int y = (r * 30 + g * 59 + b * 11) / 100;
+            rgb = 0xFF000000 | (y << 16) | (y << 8) | y;
         }
         return rgb;
     }
