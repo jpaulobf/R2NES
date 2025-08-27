@@ -35,18 +35,20 @@ public class PPUPixelGenerationTest {
         p.pokePattern(base + 8, 0b01010101); // high pattern bits alternate inverse
         advanceTo(p, 0, 0);
         enableBg(p);
-        // Run through cycles until after first reload (cycle 8) then gather first 8
-        // pixels (cycles 9..16)
-        for (int i = 0; i < 8; i++)
-            p.clock(); // up to and including reload at phase 0
-        for (int x = 0; x < 8; x++) { // produce pixel x by advancing one cycle each time
+        // Natural pipeline: cycles 1..8 perform first tile fetches with reload at cycle
+        // 8.
+        // We map cycle 8 to pixel x0 (one-tile latency). Advance 7 cycles so next clock
+        // enters cycle 8.
+        for (int i = 0; i < 7; i++)
             p.clock();
+        // Now cycles 8..15 correspond to pixels x0..x7
+        for (int x = 0; x < 8; x++) {
+            p.clock(); // advance to cycle 8 + x
             int pix = p.getPixel(x, 0);
-            // Derive expected pattern bit sequence for first 8 pixels at fineY=0
             int bit0 = (0b10101010 >> (7 - x)) & 1;
             int bit1 = (0b01010101 >> (7 - x)) & 1;
-            int pattern = (bit1 << 1) | bit0; // 0..3
-            int attr = 0b10; // palette upper bits =2
+            int pattern = (bit1 << 1) | bit0;
+            int attr = 0b10;
             int expected = (attr << 2) | pattern;
             assertEquals(expected, pix, "Pixel " + x + " matches expected palette index");
         }

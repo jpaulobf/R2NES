@@ -57,11 +57,15 @@ public class Ppu2C02 implements PPU {
     // Optional test hook: a callback invoked whenever an NMI would be signalled
     private Runnable nmiCallback;
 
-    // Frame buffer for background pixels (palette index 0..15 per pixel)
-    private final int[] frameBuffer = new int[256 * 240];
+    // Frame buffer storing final 32-bit ARGB color and parallel index buffer
+    private final int[] frameBuffer = new int[256 * 240]; // ARGB color
+    private final int[] frameIndexBuffer = new int[256 * 240]; // raw palette index (0..15 background)
 
     // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
     private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
+
+    // Palette subsystem
+    private final Palette palette = new Palette();
 
     // --- Background rendering simplified ---
     // Pattern tables + nametables (2x1KB) temporary internal storage
@@ -75,8 +79,8 @@ public class Ppu2C02 implements PPU {
     // Latches
     private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
     private boolean justReloaded; // skip one shift after reload so first pixel uses new high bits
-    private boolean firstTileReady; // becomes true after first phase-0 reload on a visible scanline
-    private int scanlinePixelCounter; // counts rendered background pixels this scanline
+    // Removed hack fields (firstTileReady, scanlinePixelCounter) in favour of
+    // direct cycle-based x computation
 
     public void setNmiCallback(Runnable cb) {
         this.nmiCallback = cb;
@@ -99,10 +103,11 @@ public class Ppu2C02 implements PPU {
         patternLowShift = patternHighShift = 0;
         attributeLowShift = attributeHighShift = 0;
         ntLatch = atLatch = patternLowLatch = patternHighLatch = 0;
-        firstTileReady = false;
-        scanlinePixelCounter = 0;
-        for (int i = 0; i < frameBuffer.length; i++)
-            frameBuffer[i] = 0;
+        // firstTileReady / scanlinePixelCounter removed
+        for (int i = 0; i < frameBuffer.length; i++) {
+            frameBuffer[i] = 0xFF000000;
+            frameIndexBuffer[i] = 0;
+        }
     }
 
     @Override
@@ -117,10 +122,7 @@ public class Ppu2C02 implements PPU {
                 frame++;
             }
             // New visible scanline: reset pixel counters
-            if (isVisibleScanline()) {
-                firstTileReady = false;
-                scanlinePixelCounter = 0;
-            }
+            // no per-scanline pixel counter reset needed now
         }
 
         // Enter vblank at scanline 241, cycle 1 (NES spec; some docs cite cycle 0)
@@ -220,20 +222,8 @@ public class Ppu2C02 implements PPU {
                 tempAddress = (tempAddress & 0x73FF) | ((value & 0x03) << 10); // nametable bits into t
                 break;
             case 1: // $2001 PPUMASK
-                int prevMask = regMASK;
                 regMASK = value;
-                // If background just got enabled mid-frame right at cycle 0 of a visible
-                // scanline,
-                // we didn't perform the pre-render fetches for the first tile. Prime it now so
-                // pixel 0 appears without an 8-pixel delay (test convenience; later we'll rely
-                // on
-                // real pre-render line fetches).
-                boolean bgWasDisabled = (prevMask & 0x08) == 0;
-                boolean bgNowEnabled = (regMASK & 0x08) != 0;
-                if (bgWasDisabled && bgNowEnabled && cycle == 0 && isVisibleScanline()) {
-                    primeFirstTile();
-                }
-                break;
+                break; // removed mid-scanline priming hack
             case 2: // STATUS is read-only
                 break;
             case 3: // OAMADDR
@@ -358,10 +348,7 @@ public class Ppu2C02 implements PPU {
             }
             case 0: // Reload shift registers with latched tile data
                 loadShiftRegisters();
-                justReloaded = true; // defer shift this cycle and next shift occurs starting following pixel
-                if (!firstTileReady && isVisibleScanline()) {
-                    firstTileReady = true; // allow pixel production logic to advance scanlinePixelCounter
-                }
+                justReloaded = true; // defer shift this cycle so first pixel after reload samples new data
                 break;
         }
 
@@ -383,18 +370,16 @@ public class Ppu2C02 implements PPU {
     private void produceBackgroundPixel() {
         if ((regMASK & 0x08) == 0)
             return; // background disabled
-        if (!firstTileReady)
-            return; // wait until first tile reload
-        int x = scanlinePixelCounter;
-        if (x >= 256)
+        // Map first rendered background pixel (tile 0, bit7) to cycle 8 so we account
+        // for
+        // the initial 8-cycle fetch latency (cycles 1-8 fetch first tile data).
+        int x = cycle - 8; // cycle 8 -> x0
+        if (x < 0 || x >= 256)
             return;
         if ((regMASK & 0x02) == 0 && x < 8) { // left clip
             frameBuffer[scanline * 256 + x] = 0;
-            scanlinePixelCounter++;
             return;
         }
-        // Real fine X sampling: current pixel uses bit (15 - fineX) of each 16-bit
-        // shift register.
         int bitIndex = 15 - (fineX & 0x7);
         int mask = 1 << bitIndex;
         int bit0 = (patternLowShift & mask) != 0 ? 1 : 0;
@@ -403,9 +388,15 @@ public class Ppu2C02 implements PPU {
         int attrHigh = (attributeHighShift & mask) != 0 ? 1 : 0;
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
-        int paletteIndex = (attr << 2) | pattern;
-        frameBuffer[scanline * 256 + x] = paletteIndex;
-        scanlinePixelCounter++;
+        int paletteIndex = (attr << 2) | pattern; // 0..15 background palette index
+        frameIndexBuffer[scanline * 256 + x] = paletteIndex;
+        // Background palette selects at $3F00 + ( (pattern==0?0: ( (attr<<2)|pattern ))
+        // ) with universal color for pattern==0
+        int paletteBaseEntry = (pattern == 0) ? 0 : paletteIndex;
+        // Background uses entries 0x00-0x0F in palette RAM
+        int colorIndex = palette.read(0x3F00 + paletteBaseEntry);
+        int argb = palette.getArgb(colorIndex, regMASK);
+        frameBuffer[scanline * 256 + x] = argb;
     }
 
     private void loadShiftRegisters() {
@@ -426,22 +417,8 @@ public class Ppu2C02 implements PPU {
         attributeHighShift = (highBit != 0 ? 0xFF00 : 0x0000) | (attributeHighShift & 0x00FF);
     }
 
-    // Prime first tile fetch sequence when enabling background at start of a
-    // visible scanline
-    private void primeFirstTile() {
-        // Emulate phases 1,3,5,7 quickly to fill latches then reload
-        ntLatch = ppuMemoryRead(0x2000 | (vramAddress & 0x0FFF));
-        int v = vramAddress;
-        int coarseX = v & 0x1F;
-        int coarseY = (v >> 5) & 0x1F;
-        int attributeAddr = 0x23C0 | (v & 0x0C00) | ((coarseY >> 2) << 3) | (coarseX >> 2);
-        atLatch = ppuMemoryRead(attributeAddr);
-        int fineY = (vramAddress >> 12) & 0x07;
-        int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
-        patternLowLatch = ppuMemoryRead(base);
-        patternHighLatch = ppuMemoryRead(base + 8);
-        loadShiftRegisters();
-    }
+    // priming hack removed – rely on pre-render line (if enabled early) or natural
+    // 8-cycle pipeline delay
 
     // Placeholder memory space for pattern/nametables/palette until Bus integration
     // fleshed out.
@@ -457,8 +434,8 @@ public class Ppu2C02 implements PPU {
                 table -= 2;
             return nameTables[(table * 0x0400) + index] & 0xFF;
         } else if (addr < 0x4000) {
-            // Palette area stub: return fixed
-            return 0; // future palette logic
+            // Palette RAM $3F00-$3F1F mirrored every 32 bytes up to 0x3FFF
+            return palette.read(addr);
         }
         return 0;
     }
@@ -476,7 +453,7 @@ public class Ppu2C02 implements PPU {
                 table -= 2;
             nameTables[(table * 0x0400) + index] = (byte) value;
         } else if (addr < 0x4000) {
-            // palette write stub ignored
+            palette.write(addr, value);
         }
     }
 
@@ -569,11 +546,20 @@ public class Ppu2C02 implements PPU {
     int getPixel(int x, int y) {
         if (x < 0 || x >= 256 || y < 0 || y >= 240)
             return 0;
-        return frameBuffer[y * 256 + x];
+        return frameIndexBuffer[y * 256 + x];
     }
 
-    int[] getFrameBufferRef() {
+    int[] getFrameBufferRef() { // returns ARGB buffer
         return frameBuffer;
+    }
+
+    // TEST HELPERS for palette
+    void pokePalette(int addr, int value) {
+        palette.write(addr, value);
+    }
+
+    int readPalette(int addr) {
+        return palette.read(addr);
     }
 
     // Raw status for deeper debug if needed
