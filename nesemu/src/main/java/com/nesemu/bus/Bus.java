@@ -2,6 +2,7 @@ package com.nesemu.bus;
 
 import com.nesemu.apu.APU;
 import com.nesemu.bus.interfaces.NesBus;
+import com.nesemu.cpu.CPU;
 import com.nesemu.io.Controller;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.memory.Memory;
@@ -12,24 +13,27 @@ import com.nesemu.rom.INesRom;
  * NES system bus (CPU address space routing).
  *
  * Responsibilities:
- * - Map CPU reads/writes (0x0000-0xFFFF) to internal RAM, PPU registers, APU, controllers, cartridge/mapper.
+ * - Map CPU reads/writes (0x0000-0xFFFF) to internal RAM, PPU registers, APU,
+ * controllers, cartridge/mapper.
  * - Provide simple connect() methods to inject concrete
  * PPU/APU/Mapper/Controllers.
- * - Handle mirroring of internal RAM (2KB @ 0x0000 mirrored to 0x1FFF) and PPU regs (0x2000-0x2007 mirrored to 0x3FFF).
+ * - Handle mirroring of internal RAM (2KB @ 0x0000 mirrored to 0x1FFF) and PPU
+ * regs (0x2000-0x2007 mirrored to 0x3FFF).
  * - Stub behaviour for yet-unimplemented areas: returns 0 on unmapped reads.
  *
  * Future extensions:
- * - OAM DMA ($4014) timing (currently just performs immediate copy if a DMA handler registered).
+ * - OAM DMA ($4014) timing (currently just performs immediate copy if a DMA
+ * handler registered).
  * - Expansion ROM, cartridge RAM via mapper hooks.
  * - APU frame counter / IRQ lines wiring.
  */
 public class Bus implements NesBus {
 
     // --- Backing unified Memory (internal RAM, PRG ROM, SRAM) ---
-    // All CPU-visible base memories now reside inside Memory.
     private final Memory memory = new Memory();
 
     // --- Connected devices ---
+    private CPU cpuRef;
     private PPU ppu; // PPU (register interface via $2000-$2007)
     private APU apu; // APU ($4000-$4017 subset) placeholder until APU implemented
     private Controller pad1; // Controller 1 ($4016)
@@ -80,9 +84,7 @@ public class Bus implements NesBus {
         }
     }
 
-    private com.nesemu.cpu.CPU cpuRef; // optional reference for PPU NMI wiring
-
-    public void attachCPU(com.nesemu.cpu.CPU cpu) {
+    public void attachCPU(CPU cpu) {
         this.cpuRef = cpu;
         tryLinkCpuToPpu();
     }
@@ -91,7 +93,7 @@ public class Bus implements NesBus {
         if (ppu != null && cpuRef != null) {
             try {
                 // Call Ppu2C02.attachCPU if exists
-                ppu.getClass().getMethod("attachCPU", com.nesemu.cpu.CPU.class).invoke(ppu, cpuRef);
+                ppu.getClass().getMethod("attachCPU", CPU.class).invoke(ppu, cpuRef);
             } catch (Exception ignored) {
             }
         }
