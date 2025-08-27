@@ -6,8 +6,6 @@ import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.rom.INesRom;
-import com.nesemu.memory.Memory;
-import com.nesemu.memory.interfaces.NesMemory; // legacy support
 
 /**
  * NES emulator façade. Now builds a proper Bus + Mapper0 + PPU stack.
@@ -18,7 +16,6 @@ public class NesEmulator {
     private final CPU cpu;
     private final Bus bus; // system bus (CPU visible view via iBus)
     private final Ppu2C02 ppu; // minimal PPU skeleton
-    @SuppressWarnings("unused")
     private final Mapper0 mapper; // current mapper (NROM only)
 
     // Legacy path (kept for existing tests using Memory directly)

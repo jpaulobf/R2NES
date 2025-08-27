@@ -46,6 +46,18 @@ public class Ppu2C02 implements PPU {
     // Timing counters
     private int cycle; // 0..340
     private int scanline; // -1 pre-render, 0..239 visible, 240 post, 241..260 vblank
+    private long frame; // frame counter
+
+    // Single-shot NMI latch (prevent multiple nmi() calls inside same vblank entry)
+    private boolean nmiFiredThisVblank = false;
+
+    // Optional test hook: a callback invoked whenever an NMI would be signalled
+    private Runnable nmiCallback;
+
+    public void setNmiCallback(Runnable cb) {
+        this.nmiCallback = cb;
+    }
+
     // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
     private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
 
@@ -60,35 +72,80 @@ public class Ppu2C02 implements PPU {
         readBuffer = 0;
         cycle = 0;
         scanline = -1; // pre-render
+        frame = 0;
+        nmiFiredThisVblank = false;
     }
 
     @Override
     public void clock() {
-        // Very minimal timing: just advance counters and toggle vblank.
+        // Advance one PPU cycle (3x CPU speed in real hardware, handled externally).
         cycle++;
         if (cycle > 340) {
             cycle = 0;
             scanline++;
-            if (scanline > 260)
-                scanline = -1; // wrap
-            if (scanline == 241 && cycle == 0) {
-                // Enter vblank
-                regSTATUS |= 0x80; // set VBlank flag
-                if (DEBUG)
-                    System.out.printf("[PPU] VBLANK SET frame? scan=%d cyc=%d\n", scanline, cycle);
-                // Generate NMI if enabled (PPUCTRL bit 7)
-                if ((regCTRL & 0x80) != 0 && cpu != null) {
-                    cpu.nmi();
-                }
-            } else if (scanline == -1 && cycle == 0) {
-                // Clear vblank & sprite flags at pre-render
-                regSTATUS &= ~0x80; // clear VBlank
-                // sprite 0 hit & overflow would also be cleared here (bits 6 & 5)
-                regSTATUS &= 0x1F; // keep lower 5 bits only for now
-                if (DEBUG)
-                    System.out.printf("[PPU] VBLANK CLEAR (pre-render) scan=%d cyc=%d\n", scanline, cycle);
+            if (scanline > 260) {
+                scanline = -1; // wrap to pre-render
+                frame++;
             }
         }
+
+        // Enter vblank at scanline 241, cycle 1 (NES spec; some docs cite cycle 0)
+        if (scanline == 241 && cycle == 1) {
+            regSTATUS |= 0x80; // set VBlank flag
+            nmiFiredThisVblank = false; // allow a new NMI if enabled
+            if (DEBUG)
+                System.out.printf("[PPU] VBLANK SET frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
+            if ((regCTRL & 0x80) != 0) {
+                fireNmi();
+            }
+        }
+        // Pre-render line: clear vblank at cycle 1
+        else if (scanline == -1 && cycle == 1) {
+            regSTATUS &= ~0x80; // clear VBlank
+            // Clear sprite 0 hit (bit 6) & overflow (bit 5) placeholder
+            regSTATUS &= 0x1F;
+            nmiFiredThisVblank = true; // block until next vblank start
+            if (DEBUG)
+                System.out.printf("[PPU] VBLANK CLEAR frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
+        }
+        // Mid-vblank: If NMI enable toggled on after start, spec allows late NMI
+        // (edge). Simplify: fire once if enabled.
+        else if (isInVBlank() && (regCTRL & 0x80) != 0 && !nmiFiredThisVblank) {
+            fireNmi();
+        }
+
+        // --- Rendering address logic (loopy v/t/x) ---
+        // Only active when background or sprite rendering enabled (MASK bits 3 or 4)
+        if (renderingEnabled()) {
+            // Visible or pre-render scanlines only
+            if (isVisibleScanline() || isPreRender()) {
+                // Increment coarse X at cycles 8,16,...,256 and 328,336 (simplified: every 8
+                // cycles in the fetch regions)
+                if (((cycle >= 1 && cycle <= 256) || (cycle >= 321 && cycle <= 336)) && (cycle & 0x7) == 0) {
+                    incrementCoarseX();
+                }
+                // At cycle 256 increment Y (vertical position)
+                if (cycle == 256) {
+                    incrementY();
+                }
+                // At cycle 257 copy horizontal bits from t to v
+                if (cycle == 257) {
+                    copyHorizontalBits();
+                }
+                // During pre-render line cycles 280-304 copy vertical bits from t to v
+                if (isPreRender() && cycle >= 280 && cycle <= 304) {
+                    copyVerticalBits();
+                }
+            }
+        }
+    }
+
+    private void fireNmi() {
+        nmiFiredThisVblank = true;
+        if (cpu != null)
+            cpu.nmi();
+        if (nmiCallback != null)
+            nmiCallback.run();
     }
 
     // --- Register access (to be wired by Bus) ---
@@ -170,6 +227,51 @@ public class Ppu2C02 implements PPU {
         vramAddress = (vramAddress + increment) & 0x7FFF; // 15-bit
     }
 
+    private boolean renderingEnabled() {
+        return (regMASK & 0x18) != 0; // background or sprites
+    }
+
+    // --- Loopy address helpers ---
+    private void incrementCoarseX() {
+        if ((vramAddress & 0x001F) == 31) { // coarse X == 31
+            vramAddress &= ~0x001F; // coarse X = 0
+            vramAddress ^= 0x0400; // switch horizontal nametable
+        } else {
+            vramAddress++;
+        }
+    }
+
+    private void incrementY() {
+        int fineY = (vramAddress >> 12) & 0x7;
+        if (fineY < 7) {
+            fineY++;
+            vramAddress = (vramAddress & 0x8FFF) | (fineY << 12);
+        } else {
+            fineY = 0;
+            vramAddress &= 0x8FFF; // clear fine Y
+            int coarseY = (vramAddress >> 5) & 0x1F;
+            if (coarseY == 29) {
+                coarseY = 0;
+                vramAddress ^= 0x0800; // switch vertical nametable
+            } else if (coarseY == 31) {
+                coarseY = 0; // 30 & 31 wrap without toggling
+            } else {
+                coarseY++;
+            }
+            vramAddress = (vramAddress & ~0x03E0) | (coarseY << 5);
+        }
+    }
+
+    private void copyHorizontalBits() {
+        // Copy coarse X (bits 0-4) and horizontal nametable (bit 10) from t to v
+        vramAddress = (vramAddress & ~0x041F) | (tempAddress & 0x041F);
+    }
+
+    private void copyVerticalBits() {
+        // Copy fine Y (12-14), coarse Y (5-9) and vertical nametable (bit 11)
+        vramAddress = (vramAddress & ~0x7BE0) | (tempAddress & 0x7BE0);
+    }
+
     // Placeholder memory space for pattern/nametables/palette until Bus integration
     // fleshed out.
     private int ppuMemoryRead(int addr) {
@@ -190,6 +292,44 @@ public class Ppu2C02 implements PPU {
 
     public boolean isInVBlank() {
         return (regSTATUS & 0x80) != 0;
+    }
+
+    public boolean isVisibleScanline() {
+        return scanline >= 0 && scanline <= 239;
+    }
+
+    public boolean isPreRender() {
+        return scanline == -1;
+    }
+
+    public boolean isPostRender() {
+        return scanline == 240;
+    }
+
+    public long getFrame() {
+        return frame;
+    }
+
+    // Testing accessors (safe read-only)
+    public int getVramAddress() {
+        return vramAddress & 0x7FFF;
+    }
+
+    public int getTempAddress() {
+        return tempAddress & 0x7FFF;
+    }
+
+    public int getFineX() {
+        return fineX & 0x7;
+    }
+
+    // TEST HELPERS (package-private)
+    void setVramAddressForTest(int v) {
+        this.vramAddress = v & 0x7FFF;
+    }
+
+    void setTempAddressForTest(int t) {
+        this.tempAddress = t & 0x7FFF;
     }
 
     // Raw status for deeper debug if needed
