@@ -61,6 +61,10 @@ public class Ppu2C02 implements PPU {
 
     // Single-shot NMI latch (prevent multiple nmi() calls inside same vblank entry)
     private boolean nmiFiredThisVblank = false;
+    // Debug instrumentation for NMI vs VBlank timing
+    private boolean debugNmiLog = false;
+    private int debugNmiLogLimit = 200;
+    private int debugNmiLogCount = 0;
 
     // Optional test hook: a callback invoked whenever an NMI would be signalled
     private Runnable nmiCallback;
@@ -170,6 +174,11 @@ public class Ppu2C02 implements PPU {
         if (scanline == 241 && cycle == 1) {
             regSTATUS |= 0x80; // set VBlank flag
             nmiFiredThisVblank = false; // allow a new NMI if enabled
+            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
+                System.out.printf("[PPU VBLANK-SET] frame=%d scan=%d cyc=%d nmiEnable=%d\n", frame, scanline, cycle,
+                        (regCTRL >> 7) & 1);
+                debugNmiLogCount++;
+            }
             if (DEBUG)
                 System.out.printf("[PPU] VBLANK SET frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
             if ((regCTRL & 0x80) != 0) {
@@ -182,12 +191,20 @@ public class Ppu2C02 implements PPU {
             // Clear sprite 0 hit (bit 6) & overflow (bit 5) placeholder
             regSTATUS &= 0x1F;
             nmiFiredThisVblank = true; // block until next vblank start
+            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
+                System.out.printf("[PPU VBLANK-CLEAR] frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
+                debugNmiLogCount++;
+            }
             if (DEBUG)
                 System.out.printf("[PPU] VBLANK CLEAR frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
         }
         // Mid-vblank: If NMI enable toggled on after start, spec allows late NMI
         // (edge). Simplify: fire once if enabled.
         else if (isInVBlank() && (regCTRL & 0x80) != 0 && !nmiFiredThisVblank) {
+            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
+                System.out.printf("[PPU LATE-NMI-EDGE] frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
+                debugNmiLogCount++;
+            }
             fireNmi();
         }
 
@@ -229,8 +246,13 @@ public class Ppu2C02 implements PPU {
 
     private void fireNmi() {
         nmiFiredThisVblank = true;
-        if (cpu != null)
+        if (cpu != null) {
+            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
+                System.out.printf("[PPU NMI->CPU] frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
+                debugNmiLogCount++;
+            }
             cpu.nmi();
+        }
         if (nmiCallback != null)
             nmiCallback.run();
     }
@@ -1092,5 +1114,13 @@ public class Ppu2C02 implements PPU {
     public void setForceBackgroundEnable(boolean enable) {
         this.forceBgEnable = enable;
         System.out.println("[PPU] forceBgEnable=" + enable);
+    }
+
+    public void enableNmiDebugLog(int limit) {
+        this.debugNmiLog = true;
+        if (limit > 0)
+            this.debugNmiLogLimit = limit;
+        this.debugNmiLogCount = 0;
+        System.out.printf("[PPU] NMI debug log enabled (limit=%d)\n", debugNmiLogLimit);
     }
 }

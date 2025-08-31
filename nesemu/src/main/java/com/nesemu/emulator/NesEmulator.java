@@ -40,6 +40,8 @@ public class NesEmulator {
         bus.attachMapper(mapper, rom);
         NesBus cpuBus = bus;
         this.cpu = new CPU(cpuBus);
+        // Wire PPU -> CPU callback path for NMI generation
+        this.ppu.attachCPU(this.cpu);
         // After CPU reset, PC set from reset vector.
     }
 
