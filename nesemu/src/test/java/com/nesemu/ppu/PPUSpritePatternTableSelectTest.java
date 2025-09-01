@@ -5,8 +5,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies correct sprite pattern table selection via PPUCTRL bit4 in 8x8 mode
- * and basic 8x16 addressing logic independence from bit4.
+ * Verifica seleção da pattern table de SPRITES via PPUCTRL bit3 (0x08) em modo
+ * 8x8
+ * e que em modo 8x16 o bit3 não interfere (seleção depende do bit0 do tile
+ * index).
+ * (Antes os testes assumiam bit4 incorretamente.)
  */
 public class PPUSpritePatternTableSelectTest {
 
@@ -19,11 +22,11 @@ public class PPUSpritePatternTableSelectTest {
      * accordingly.
      */
     @Test
-    public void testSpritePatternTableBit4AffectsPixelsIn8x8Mode() {
+    public void testSpritePatternTableBit3AffectsPixelsIn8x8Mode() {
         Ppu2C02 ppu = new Ppu2C02();
         ppu.reset();
         // Enable rendering: background off, sprites on (MASK bit4)
-        ppu.writeRegister(1, 0x10); // PPUMASK sprites enable
+        ppu.writeRegister(1, 0x10); // PPUMASK enable sprites (bit4)
         // Prepare palette entries for sprite palettes: use unique low nybbles so we can
         // detect
         // We'll set palette 0 (indices 0x3F10-0x3F13) so pattern value 1 becomes
@@ -50,8 +53,8 @@ public class PPUSpritePatternTableSelectTest {
             ppu.pokePattern(0x1000 + row, 0x00); // low plane
             ppu.pokePattern(0x1000 + row + 8, 0xFF); // high plane
         }
-        // Set 8x8 mode (bit5=0) and bit4=0 (sprites from $0000)
-        ppu.writeRegister(0, 0x00);
+        // 8x8 mode (bit5=0) e bit3=0 -> sprites de $0000
+        ppu.writeRegister(0, 0x00); // bit3=0
         // Advance enough cycles to cover the sprite scanline (scanline 10) and a few
         // pixels
         // Each scanline is 341 PPU cycles; we'll run until after first visible pixels
@@ -61,8 +64,8 @@ public class PPUSpritePatternTableSelectTest {
             ppu.clock();
         }
         // Sample pixel where sprite should appear: (8,10)
-        int pixelBit4Zero = ppu.getPixel(8, 10) & 0x0F;
-        assertEquals(1, pixelBit4Zero, "Expected pattern value 1 from table $0000 when bit4=0");
+        int pixelBit3Zero = ppu.getPixel(8, 10) & 0x0F;
+        assertEquals(1, pixelBit3Zero, "Esperado valor 1 da tabela $0000 quando bit3=0");
 
         // Reset and repeat with bit4=1 (pattern table $1000)
         ppu.reset();
@@ -80,15 +83,15 @@ public class PPUSpritePatternTableSelectTest {
             ppu.pokePattern(0x1000 + row, 0x00);
             ppu.pokePattern(0x1000 + row + 8, 0xFF);
         }
-        ppu.writeRegister(0, 0x10); // set bit4
+        ppu.writeRegister(0, 0x08); // set bit3 -> sprites $1000
         while (ppu.getScanline() < targetScanline || (ppu.getScanline() == targetScanline && ppu.getCycle() < 260)) {
             ppu.clock();
         }
-        int pixelBit4One = ppu.getPixel(8, 10) & 0x0F;
-        assertEquals(2, pixelBit4One, "Expected pattern value 2 from table $1000 when bit4=1");
+        int pixelBit3One = ppu.getPixel(8, 10) & 0x0F;
+        assertEquals(2, pixelBit3One, "Esperado valor 2 da tabela $1000 quando bit3=1");
 
         // Sanity: the two readings must differ
-        assertNotEquals(pixelBit4Zero, pixelBit4One, "Sprite pixel must change when toggling bit4");
+        assertNotEquals(pixelBit3Zero, pixelBit3One, "Pixel de sprite deve mudar ao alternar bit3");
     }
 
     /**
@@ -96,7 +99,7 @@ public class PPUSpritePatternTableSelectTest {
      * height=16.
      */
     @Test
-    public void testSprite8x16IgnoresBit4() {
+    public void testSprite8x16IgnoresBit3() {
         Ppu2C02 ppu = new Ppu2C02();
         ppu.reset();
         ppu.writeRegister(1, 0x10); // enable sprites
@@ -121,7 +124,7 @@ public class PPUSpritePatternTableSelectTest {
             ppu.pokePattern(0x1000 + (3 * 16) + row + 8, 0xFF);
         }
         // Set 8x16 mode & bit4=0
-        ppu.writeRegister(0, 0x20); // bit5=1 height=16, bit4=0
+        ppu.writeRegister(0, 0x20); // bit5=1 height=16, bit3=0
         int targetScanline = 20;
         while (ppu.getScanline() < targetScanline || (ppu.getScanline() == targetScanline && ppu.getCycle() < 260))
             ppu.clock();
@@ -144,10 +147,10 @@ public class PPUSpritePatternTableSelectTest {
             ppu.pokePattern(0x1000 + (3 * 16) + row, 0x00);
             ppu.pokePattern(0x1000 + (3 * 16) + row + 8, 0xFF);
         }
-        ppu.writeRegister(0, 0x30); // bit5=1 height=16, bit4=1 (should not affect selection)
+        ppu.writeRegister(0, 0x28); // bit5=1 height=16, bit3=1 (não deve afetar seleção 8x16)
         while (ppu.getScanline() < targetScanline || (ppu.getScanline() == targetScanline && ppu.getCycle() < 260))
             ppu.clock();
         int topPixel2 = ppu.getPixel(40, 20) & 0x0F;
-        assertEquals(1, topPixel2, "Bit4 should not affect 8x16 sprite table selection");
+        assertEquals(1, topPixel2, "Bit3 não deve afetar seleção de tabela em sprites 8x16");
     }
 }

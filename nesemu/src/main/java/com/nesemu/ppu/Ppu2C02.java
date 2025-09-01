@@ -123,7 +123,8 @@ public class Ppu2C02 implements PPU, Clockable {
 
     // Latches
     private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
-    // Shift-right mode: marcamos se já aplicamos o fineX no primeiro tile do scanline
+    // Shift-right mode: marcamos se já aplicamos o fineX no primeiro tile do
+    // scanline
     private boolean firstTileReloadDone = false;
     // Raw background palette index per pixel (0..15) stored for tests (pattern 0 ->
     // 0)
@@ -152,7 +153,7 @@ public class Ppu2C02 implements PPU, Clockable {
         patternLowShift = patternHighShift = 0;
         attributeLowShift = attributeHighShift = 0;
         ntLatch = atLatch = patternLowLatch = patternHighLatch = 0;
-    firstTileReloadDone = false;
+        firstTileReloadDone = false;
         // firstTileReady / scanlinePixelCounter removed
         for (int i = 0; i < frameBuffer.length; i++) {
             frameBuffer[i] = 0xFF000000;
@@ -514,12 +515,14 @@ public class Ppu2C02 implements PPU, Clockable {
             }
             case 5: { // Pattern low
                 int fineY = (vramAddress >> 12) & 0x07;
-                // Correct: PPUCTRL bit 4 (0x10) selects BACKGROUND pattern table (0: $0000, 1: $1000)
+                // Correct: PPUCTRL bit 4 (0x10) selects BACKGROUND pattern table (0: $0000, 1:
+                // $1000)
                 // (Previously we incorrectly used bit 3 here.)
                 int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
                 patternLowLatch = ppuMemoryRead(base);
                 if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
-                    pipelineLog.append(String.format("  PL lo=%02X base=%04X fineY=%d\n", patternLowLatch & 0xFF, base, fineY));
+                    pipelineLog.append(
+                            String.format("  PL lo=%02X base=%04X fineY=%d\n", patternLowLatch & 0xFF, base, fineY));
                     pipelineLogCount++;
                 }
                 break;
@@ -530,7 +533,8 @@ public class Ppu2C02 implements PPU, Clockable {
                 int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
                 patternHighLatch = ppuMemoryRead(base);
                 if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
-                    pipelineLog.append(String.format("  PH hi=%02X base=%04X fineY=%d\n", patternHighLatch & 0xFF, base, fineY));
+                    pipelineLog.append(
+                            String.format("  PH hi=%02X base=%04X fineY=%d\n", patternHighLatch & 0xFF, base, fineY));
                     pipelineLogCount++;
                 }
                 break;
@@ -616,11 +620,11 @@ public class Ppu2C02 implements PPU, Clockable {
             frameIndexBuffer[scanline * 256 + x] = 0;
             return;
         }
-    // Alternative B (shift-right): current pixel always lives at bit0
-    int bit0 = patternLowShift & 0x1;
-    int bit1 = patternHighShift & 0x1;
-    int attrLow = attributeLowShift & 0x1;   // static (not shifted)
-    int attrHigh = attributeHighShift & 0x1; // static (not shifted)
+        // Alternative B (shift-right): current pixel always lives at bit0
+        int bit0 = patternLowShift & 0x1;
+        int bit1 = patternHighShift & 0x1;
+        int attrLow = attributeLowShift & 0x1; // static (not shifted)
+        int attrHigh = attributeHighShift & 0x1; // static (not shifted)
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
         int paletteIndex = (attr << 2) | pattern; // 0..15
@@ -646,10 +650,10 @@ public class Ppu2C02 implements PPU, Clockable {
     private void loadShiftRegisters() {
         int pl = patternLowLatch & 0xFF;
         int ph = patternHighLatch & 0xFF;
-    // Alternative B: shift-right model.
-    // Reverse bits so leftmost pixel (original bit7) becomes bit0 consumed first.
-    patternLowShift = reverseByte(pl) & 0x00FF;
-    patternHighShift = reverseByte(ph) & 0x00FF;
+        // Alternative B: shift-right model.
+        // Reverse bits so leftmost pixel (original bit7) becomes bit0 consumed first.
+        patternLowShift = reverseByte(pl) & 0x00FF;
+        patternHighShift = reverseByte(ph) & 0x00FF;
         int coarseX = vramAddress & 0x1F;
         int coarseY = (vramAddress >> 5) & 0x1F;
         int quadSelector = ((coarseY & 0x02) << 1) | (coarseX & 0x02); // 0,2,4,6
@@ -674,7 +678,8 @@ public class Ppu2C02 implements PPU, Clockable {
         int attributeBits = (atLatch >> shift) & 0x03;
         int lowBit = attributeBits & 0x01;
         int highBit = (attributeBits >> 1) & 0x01;
-        // Static attribute bits at bit0 (no shift). Pattern shift-right consumption keeps them stable.
+        // Static attribute bits at bit0 (no shift). Pattern shift-right consumption
+        // keeps them stable.
         attributeLowShift = (lowBit != 0 ? 0x0001 : 0x0000);
         attributeHighShift = (highBit != 0 ? 0x0001 : 0x0000);
         // Aplicar fineX apenas uma vez no primeiro tile visível do scanline.
@@ -703,7 +708,8 @@ public class Ppu2C02 implements PPU, Clockable {
 
     public void enablePipelineLog(int limit) {
         this.pipelineLogEnabled = true;
-        if (limit > 0) this.pipelineLogLimit = limit;
+        if (limit > 0)
+            this.pipelineLogLimit = limit;
         this.pipelineLogCount = 0;
         pipelineLog.setLength(0);
         System.out.println("[PPU] Pipeline log enabled limit=" + pipelineLogLimit);
@@ -1084,9 +1090,9 @@ public class Ppu2C02 implements PPU, Clockable {
      */
     public void dumpPatternTile(int tile) {
         tile &= 0xFF;
-        // Usa bit 3 (0x08) de PPUCTRL para seleção da pattern table de background (como
-        // no pipeline)
-        int base = ((regCTRL & 0x08) != 0 ? 0x1000 : 0x0000) + tile * 16; // background table select corrigido
+        // Usa bit 4 (0x10) de PPUCTRL para seleção da pattern table de BACKGROUND
+        // (igual ao pipeline)
+        int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + tile * 16;
         System.out.printf("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
         for (int row = 0; row < 8; row++) {
             int lo = ppuMemoryRead(base + row) & 0xFF;
