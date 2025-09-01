@@ -21,18 +21,17 @@ public class CPU implements NesCPU {
     private boolean unused;
     private boolean overflow;
     private boolean negative;
-    // Bus reference (temporary: legacy memory wrapper being removed)
+
+    //reference to the bus (memory interface)
     private final NesBus busRef;
 
     // Page crossing flag for instructions that may apply an extra cycle
-    // (e.g., TOP abs,X in faithful mode)
     private boolean lastPageCrossed = false;
 
     // Cycle counter for instruction timing
     private int cycles;
 
-    // Dynamic extra cycles (branch taken, page crossing in branches, etc.) applied
-    // after execution
+    // Dynamic extra cycles (branch taken, page crossing in branches, etc.) applied after execution
     private int extraCycles;
 
     // Total executed CPU cycles (for tracing / nestest log)
@@ -45,8 +44,7 @@ public class CPU implements NesCPU {
     private boolean lastBranchTaken; // whether a branch was taken
     private boolean lastBranchPageCross; // whether a taken branch crossed a page (added +1)
     private int lastInstrPC; // PC at start (fetch) of last instruction - Aux for micro bus simulation
-    private int lastZpOperand; // last zero-page operand byte (for (zp),Y store microsequence) - For optimized
-                               // store (zp),Y microsequencing without duplicate zp pointer reads
+    private int lastZpOperand; // last zero-page operand byte (for (zp),Y store microsequence)
     private int lastIndirectBaseLo = -1;
     private int lastIndirectBaseHi = -1;
 
@@ -58,19 +56,48 @@ public class CPU implements NesCPU {
     private RmwKind rmwKind; // operation type for commit
     private int rmwCarryIn; // input carry (prior to modification)
 
-    private enum RmwKind {
-        ASL, ROL, LSR, ROR, INC, DEC,
-        RLA, RRA, SLO, SRE, DCP, ISC
-    }
+    // Interrupt pending flags
+    private boolean nmiPending = false;
+    private boolean irqPending = false;
+
+    // NES 6502 cycle table (official opcodes only, 256 entries)
+    private static final int[] CYCLE_TABLE = new int[] {
+            7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, // 0x00-0x0F
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x10-0x1F (adjustments: 0x14 DOP zpg,X=4, 0x18 CLC=2)
+            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, // 0x20-0x2F
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x30-0x3F (corrected: AND abs,Y 0x39=4)
+            6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, // 0x40-0x4F
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x50-0x5F (adjustments: 0x54 DOP zpg,X=4, 0x55 EOR zpg,X=4, 0x58 CLI=2, 0x5C TOP abs,X=4)
+            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, // 0x60-0x6F (corrected: JMP (ind) 0x6C=5)
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x70-0x7F (0x78 SEI=2)
+            2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0x80-0x8F
+            2, 6, 2, 6, 4, 4, 4, 4, 2, 5, 2, 5, 5, 5, 5, 5, // 0x90-0x9F
+            2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0xA0-0xAF (corrected: AE=4; A6/A7 zpg=3; AF LAX abs=4)
+            2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, // 0xB0-0xBF (corrected: LAS 0xBB=4, LDX/LAX abs,Y=4)
+            2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xC0-0xCF
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xD0-0xDF (corrected: CMP abs,Y 0xD9=4)
+            2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xE0-0xEF
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xF0-0xFF (corrected: SBC abs,Y 0xF9=4, INC/ISC adjustments 0xF6=6,0xF7=6,0xFE=7,0xFF=7)
+    };
+
+    // Debug logging flag (JSR/RTS tracing). Disable to silence verbose output.
+    private static final boolean TRACE_JSR_RTS = false;
 
     /**
-     * Alternate constructor for new bus interface (iBus)
+     * Constructor for the CPU class.
+     * @param bus
      */
     public CPU(NesBus bus) {
         this.busRef = bus;
-        // Legacy code still references 'memory'; for now we provide an adapter until
-        // full replacement.
         reset();
+    }
+
+    /**
+     * Kinds of RMW operations (affects how final value is computed and flags set).
+     */
+    private enum RmwKind {
+        ASL, ROL, LSR, ROR, INC, DEC,
+        RLA, RRA, SLO, SRE, DCP, ISC
     }
 
     /**
@@ -203,43 +230,6 @@ public class CPU implements NesCPU {
         this.rmwModified = newVal & 0xFF; // store for future debugging
     }
 
-    // Expose final RMW value for possible external debug avoiding unused warning
-    public int getLastRmwModified() {
-        return rmwModified;
-    }
-
-    // Interrupt pending flags
-    private boolean nmiPending = false;
-    private boolean irqPending = false;
-
-    // NES 6502 cycle table (official opcodes only, 256 entries)
-    private static final int[] CYCLE_TABLE = new int[] {
-            7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, // 0x00-0x0F
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x10-0x1F (adjustments: 0x14 DOP zpg,X=4, 0x18 CLC=2)
-            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, // 0x20-0x2F
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x30-0x3F (corrected: AND abs,Y 0x39=4)
-            6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, // 0x40-0x4F
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x50-0x5F (adjustments: 0x54 DOP zpg,X=4, 0x55 EOR
-                                                            // zpg,X=4,
-                                                            // 0x58 CLI=2, 0x5C TOP abs,X=4)
-            6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, // 0x60-0x6F (corrected: JMP (ind) 0x6C=5)
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x70-0x7F (0x78 SEI=2)
-            2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0x80-0x8F
-            2, 6, 2, 6, 4, 4, 4, 4, 2, 5, 2, 5, 5, 5, 5, 5, // 0x90-0x9F
-            2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0xA0-0xAF (corrected: AE=4; A6/A7 zpg=3; AF LAX abs=4)
-            2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, // 0xB0-0xBF (corrected: LAS 0xBB=4, LDX/LAX abs,Y=4;
-                                                            // removed inflated values)
-            2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xC0-0xCF
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xD0-0xDF (corrected: CMP abs,Y 0xD9=4)
-            2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xE0-0xEF
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xF0-0xFF (corrected: SBC abs,Y 0xF9=4, INC/ISC
-                                                            // adjustments
-                                                            // 0xF6=6,0xF7=6,0xFE=7,0xFF=7)
-    };
-
-    // Debug logging flag (JSR/RTS tracing). Disable to silence verbose output.
-    private static final boolean TRACE_JSR_RTS = false;
-
     /**
      * Resets the CPU to its initial state.
      * Initializes the registers and the Program Counter (PC) from the reset vector.
@@ -247,8 +237,7 @@ public class CPU implements NesCPU {
     public void reset() {
         registers.A = registers.X = registers.Y = 0;
         registers.SP = 0xFD;
-        // PC is initialized from the reset vector (0xFFFC/0xFFFD) - low byte first,
-        // then high byte
+        // PC is initialized from the reset vector (0xFFFC/0xFFFD) - low byte first, then high byte
         registers.PC = (busRef.read(0xFFFC) | (busRef.read(0xFFFD) << 8));
         carry = zero = interruptDisable = decimal = breakFlag = overflow = negative = false;
         unused = true; // Bit 5 of the status register is always set
@@ -263,21 +252,18 @@ public class CPU implements NesCPU {
      */
     public void clock() {
         totalCycles++; // count every cycle
+
         // If cycles remain, process possible RMW phases and consume one cycle
         if (cycles > 0) {
             if (rmwActive) {
-                // 6502 pattern for memory RMW instructions: ... read -> dummy write -> final
-                // write
-                // Our 'cycles' counter already includes all remaining cycles for this
-                // instruction.
-                // We'll trigger a dummy write when 2 cycles remain, and final commit when 1
-                // remains.
+                // 6502 pattern for memory RMW instructions: ... read -> dummy write -> final write
+                // Our 'cycles' counter already includes all remaining cycles for this instruction.
+                // We'll trigger a dummy write when 2 cycles remain, and final commit when 1 remains.
                 if (cycles == 2) {
                     // Dummy write of the original value (no logical side effects)
                     busRef.write(rmwAddress, rmwOriginal & 0xFF);
                 } else if (cycles == 1) {
-                    // Final commit (writes modified value and applies effects on A/flags according
-                    // to type)
+                    // Final commit (writes modified value and applies effects on A/flags according to type)
                     performRmwCommit();
                     rmwActive = false;
                 }
@@ -285,6 +271,7 @@ public class CPU implements NesCPU {
             cycles--;
             return;
         }
+
         // Instruction boundary: check interrupts first
         if (nmiPending) {
             handleNMI();
@@ -297,15 +284,19 @@ public class CPU implements NesCPU {
             cycles = 7 - 1;
             return;
         }
+
         int opcodeByte = busRef.read(registers.PC);
         registers.PC++;
         lastInstrPC = (registers.PC - 1) & 0xFFFF; // store starting PC
+
         Opcode opcode = Opcode.fromByte(opcodeByte);
         if (opcode == null)
             return;
+
         AddressingMode mode = getAddressingMode(opcodeByte);
         boolean skipFinalRead = isStoreOpcode(opcodeByte);
         OperandResult opRes = fetchOperand(mode, skipFinalRead);
+
         // Page crossing detection (only relevant for indexed modes)
         boolean pageCrossed = false;
         if (mode == AddressingMode.ABSOLUTE_X || mode == AddressingMode.ABSOLUTE_Y) {
@@ -319,6 +310,7 @@ public class CPU implements NesCPU {
             int base = (busRef.read((zp + 1) & 0xFF) << 8) | busRef.read(zp); // two extra reads (expected for load)
             pageCrossed = ((base & 0xFF00) != (opRes.address & 0xFF00));
         }
+
         int baseCycles = CYCLE_TABLE[opcodeByte & 0xFF];
         int remaining = baseCycles;
         // reset instrumentation per instruction
@@ -339,11 +331,14 @@ public class CPU implements NesCPU {
                 opcode == Opcode.LAX)) {
             remaining += 1;
         }
+
         // Execute instruction work on this first cycle
-        extraCycles = 0; // reset dynamic
+        extraCycles = 0;
         execute(opcode, mode, opRes.value, opRes.address);
+
         // capture dynamic extra cycles applied inside execute()
         lastExtraCycles = extraCycles;
+
         // Set remaining cycles minus the one we just spent
         cycles = Math.max(0, remaining - 1 + extraCycles);
     }
@@ -1564,6 +1559,40 @@ public class CPU implements NesCPU {
         return negative;
     }
 
+    public int getLastOpcodeByte() {
+        return lastOpcodeByte;
+    }
+
+    public int getLastBaseCycles() {
+        return lastBaseCycles;
+    }
+
+    public int getLastExtraCycles() {
+        return lastExtraCycles;
+    }
+
+    public int getLastRmwModified() {
+        return rmwModified;
+    }
+
+    public boolean wasLastBranchTaken() {
+        return lastBranchTaken;
+    }
+
+    public boolean wasLastBranchPageCross() {
+        return lastBranchPageCross;
+    }
+
+    // Tracing / external inspection helpers
+    public long getTotalCycles() {
+        return totalCycles;
+    }
+
+    // Set total cycle counter baseline (used for nestest formatting).
+    public void setTotalCycles(long cycles) {
+        this.totalCycles = cycles;
+    }
+
     public void setA(int a) {
         this.registers.A = a & 0xFF;
         setZeroAndNegative(this.registers.A);
@@ -1618,35 +1647,5 @@ public class CPU implements NesCPU {
 
     public void setNegative(boolean negative) {
         this.negative = negative;
-    }
-
-    public int getLastOpcodeByte() {
-        return lastOpcodeByte;
-    }
-
-    public int getLastBaseCycles() {
-        return lastBaseCycles;
-    }
-
-    public int getLastExtraCycles() {
-        return lastExtraCycles;
-    }
-
-    public boolean wasLastBranchTaken() {
-        return lastBranchTaken;
-    }
-
-    public boolean wasLastBranchPageCross() {
-        return lastBranchPageCross;
-    }
-
-    // Tracing / external inspection helpers
-    public long getTotalCycles() {
-        return totalCycles;
-    }
-
-    // Set total cycle counter baseline (used for nestest formatting).
-    public void setTotalCycles(long cycles) {
-        this.totalCycles = cycles;
     }
 }
