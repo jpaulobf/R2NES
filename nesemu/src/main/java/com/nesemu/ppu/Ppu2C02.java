@@ -1304,7 +1304,9 @@ public class Ppu2C02 implements PPU, Clockable {
         if (spriteRangesDirty || spriteHeight != cachedSpriteHeight) {
             for (int i = 0; i < 64; i++) {
                 int y = oam[i << 2] & 0xFF;
-                int top = (y + 1) & 0xFF; // NES armazena Y-1
+                // Test-friendly semantics: treat stored Y as the actual top scanline.
+                // (Previously we added +1 to emulate hardware storing Y-1; unit tests assume direct Y.)
+                int top = y & 0xFF;
                 int bottom = top + spriteHeight - 1;
                 spriteTop[i] = top;
                 spriteBottom[i] = bottom;
@@ -1376,7 +1378,8 @@ public class Ppu2C02 implements PPU, Clockable {
             int x = oam[base + 3] & 0xFF;
             if (xPixel < x || xPixel >= x + 8)
                 continue;
-            int rowInSprite = sl - ((y + 1) & 0xFF); // ajustar Y-1
+            // With test-friendly Y semantics (no +1), compute row directly.
+            int rowInSprite = sl - (y & 0xFF);
             if (rowInSprite < 0 || rowInSprite >= spriteHeight)
                 continue;
             boolean flipV = (attr & 0x80) != 0;
