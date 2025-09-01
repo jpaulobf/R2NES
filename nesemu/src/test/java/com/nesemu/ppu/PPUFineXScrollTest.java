@@ -9,9 +9,11 @@ import com.nesemu.rom.INesHeader;
 import com.nesemu.rom.INesRom;
 
 /**
- * Tests fine X scrolling effect: boundary between two tiles (opaque then
- * transparent)
- * should appear earlier when fineX > 0 (at 8 - fineX pixels instead of 8).
+ * Verifica efeito de fine X: a transição entre tile opaco (tile0) e
+ * transparente (tile1)
+ * deve ocorrer em X = 8 - fineX (tolerância +/-1 por latência de pipeline
+ * inicial) quando
+ * a coluna esquerda NÃO está clipada (bit MASK_BG_LEFT ligado).
  */
 public class PPUFineXScrollTest {
 
@@ -39,52 +41,55 @@ public class PPUFineXScrollTest {
         emu.getBus().cpuWrite(0x2007, value & 0xFF);
     }
 
-    private int firstTransitionIndex(int[] idx) {
+    // Retorna primeiro x onde muda de opaco (!=0) para transparente (0) após ter
+    // visto opaco
+    private int opaqueToTransparentBoundary(int[] idx) {
         int y = 0;
-        int prev = idx[y * 256 + 0];
-        for (int x = 1; x < 32; x++) {
-            int v = idx[y * 256 + x];
-            if (v != prev)
-                return x; // first change
+        boolean seenOpaque = false;
+        for (int x = 0; x < 64; x++) { // suficiente para dois tiles
+            int v = idx[y * 256 + x] & 0x0F;
+            if (!seenOpaque) {
+                if (v != 0)
+                    seenOpaque = true;
+            } else {
+                if (v == 0)
+                    return x; // primeira transparência após trecho opaco
+            }
         }
         return -1;
     }
 
     @Test
-    public void fineXScrollBoundaryCurrentlyUnchanged() {
+    public void fineXScrollBoundaryShifts() {
         INesRom rom = buildRom();
 
-        // Baseline fineX = 0
-        NesEmulator emu0 = new NesEmulator(rom);
-        emu0.getBus().cpuWrite(0x2001, 0x08); // enable bg
-        // Nametable: tile0 then tile1 then tile0 etc.
-        write(emu0, 0x2000, 0x00);
-        write(emu0, 0x2001, 0x01);
-        write(emu0, 0x2002, 0x00);
-        write(emu0, 0x2003, 0x01);
-        emu0.stepFrame();
-        int[] baseIdx = emu0.getPpu().getBackgroundIndexBufferCopy();
-        int baseTransition = firstTransitionIndex(baseIdx);
-        assertTrue(baseTransition >= 7 && baseTransition <= 9,
-                "Transição baseline esperada ~8, obtida=" + baseTransition);
-
-        // fineX = 3
-        NesEmulator emuFx = new NesEmulator(rom);
-        emuFx.getBus().cpuWrite(0x2001, 0x08);
-        // Write scroll: first write sets fineX=3 (coarseX=0), second vertical scroll 0
-        emuFx.getBus().cpuWrite(0x2005, 3); // fineX=3 coarseX=0
-        emuFx.getBus().cpuWrite(0x2005, 0); // vertical
-        write(emuFx, 0x2000, 0x00);
-        write(emuFx, 0x2001, 0x01);
-        write(emuFx, 0x2002, 0x00);
-        write(emuFx, 0x2003, 0x01);
-        emuFx.stepFrame();
-        int[] fxIdx = emuFx.getPpu().getBackgroundIndexBufferCopy();
-        int fxTransition = firstTransitionIndex(fxIdx);
-        // Current implementation still yields same transition (fine X not fully applied
-        // to tile pipeline yet).
-        // Keep test documenting present behavior; upgrade later when fine X horizontal
-        // scroll logic completed.
-        assertEquals(baseTransition, fxTransition, "Transição ainda não alterada por fineX (comportamento atual)");
+        // Construir sequência de tiles: tile0 (opaco) depois tile1 (transparente)
+        // repetindo.
+        // Testar fineX 0..7.
+        for (int fineX = 0; fineX < 8; fineX++) {
+            NesEmulator emu = new NesEmulator(rom);
+            // Habilita BG e mostra coluna esquerda (bits: BG enable + BG left)
+            emu.getBus().cpuWrite(0x2001, 0x0A); // 00001010
+            // Scroll: primeira escrita define coarseX=0 + fineX; segunda vertical =0
+            // Sempre escreve PPUSCROLL para garantir coarseX=0 e fineX pré-definido
+            emu.getBus().cpuWrite(0x2005, fineX & 0x07);
+            emu.getBus().cpuWrite(0x2005, 0x00);
+            // Nametable primeira linha: tile0, tile1, tile0, tile1
+            write(emu, 0x2000, 0x00);
+            write(emu, 0x2001, 0x01);
+            write(emu, 0x2002, 0x00);
+            write(emu, 0x2003, 0x01);
+            // Após usar PPUADDR para escrever tiles, tempAddress foi alterado (coarseX=3).
+            // Reescreve PPUSCROLL para restaurar coarseX=0 e fineX desejado antes do início
+            // da linha visível.
+            emu.getBus().cpuWrite(0x2005, fineX & 0x07);
+            emu.getBus().cpuWrite(0x2005, 0x00);
+            emu.stepFrame();
+            int[] idx = emu.getPpu().getBackgroundIndexBufferCopy();
+            int boundary = opaqueToTransparentBoundary(idx);
+            int expected = 8 - fineX; // desloca para esquerda conforme fineX
+            assertTrue(boundary >= expected - 1 && boundary <= expected + 1,
+                    "fineX=" + fineX + " boundary=" + boundary + " esperado~=" + expected);
+        }
     }
 }

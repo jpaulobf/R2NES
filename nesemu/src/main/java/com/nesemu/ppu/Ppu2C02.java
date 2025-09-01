@@ -153,6 +153,9 @@ public class Ppu2C02 implements PPU, Clockable {
         patternLowShift = patternHighShift = 0;
         attributeLowShift = attributeHighShift = 0;
         ntLatch = atLatch = patternLowLatch = patternHighLatch = 0;
+        prefetchHadFirstTile = false;
+        prefetchPatternLowA = prefetchPatternHighA = 0;
+        prefetchAttrLowA = prefetchAttrHighA = 0;
         // no per-scanline pre-shift flag to reset
         // firstTileReady / scanlinePixelCounter removed
         for (int i = 0; i < frameBuffer.length; i++) {
@@ -164,6 +167,7 @@ public class Ppu2C02 implements PPU, Clockable {
 
     @Override
     public void clock() {
+        int prevScanline = scanline;
         // Advance one PPU cycle (3x CPU speed in real hardware, handled externally).
         cycle++;
         if (cycle > 340) {
@@ -177,6 +181,8 @@ public class Ppu2C02 implements PPU, Clockable {
             }
             if (scanline > 260) {
                 scanline = -1; // wrap to pre-render
+                // entering pre-render of next frame: reset prefetch state
+                prefetchHadFirstTile = false;
                 frame++;
                 if (DEBUG) {
                     StringBuilder sb = new StringBuilder();
@@ -261,6 +267,13 @@ public class Ppu2C02 implements PPU, Clockable {
             }
         }
     }
+
+    // Pre-render prefetch promotion state
+    private boolean prefetchHadFirstTile = false;
+    private int prefetchPatternLowA = 0;
+    private int prefetchPatternHighA = 0;
+    private int prefetchAttrLowA = 0;
+    private int prefetchAttrHighA = 0;
 
     private void fireNmi() {
         nmiFiredThisVblank = true;
@@ -504,6 +517,31 @@ public class Ppu2C02 implements PPU, Clockable {
             }
             case 0: // Reload immediately (canonical pipeline: insert into low 8 bits)
                 loadShiftRegisters();
+                // Pre-render prefetch promotion: during scanline -1 cycles 321-336 we load two
+                // tiles.
+                // First reload (tile A): capture its bytes after load.
+                // Second reload (tile B): promote A into high byte so that at pixel 0
+                // high=tileA, low=tileB.
+                if (isPreRender() && cycle >= 321 && cycle <= 336) {
+                    if (!prefetchHadFirstTile) {
+                        prefetchPatternLowA = patternLowShift & 0x00FF;
+                        prefetchPatternHighA = patternHighShift & 0x00FF;
+                        prefetchAttrLowA = attributeLowShift & 0x00FF;
+                        prefetchAttrHighA = attributeHighShift & 0x00FF;
+                        prefetchHadFirstTile = true;
+                    } else {
+                        patternLowShift = ((prefetchPatternLowA & 0xFF) << 8) | (patternLowShift & 0x00FF);
+                        patternHighShift = ((prefetchPatternHighA & 0xFF) << 8) | (patternHighShift & 0x00FF);
+                        attributeLowShift = ((prefetchAttrLowA & 0xFF) << 8) | (attributeLowShift & 0x00FF);
+                        attributeHighShift = ((prefetchAttrHighA & 0xFF) << 8) | (attributeHighShift & 0x00FF);
+                    }
+                }
+                // Reset flag when leaving pre-render: at start of visible scanline 0 cycle 0 we
+                // will
+                // naturally begin consuming; ensure next frame re-initializes.
+                if (!isPreRender() && prefetchHadFirstTile && scanline == 0 && cycle == 0) {
+                    prefetchHadFirstTile = false; // safety reset (should already be clear next frame)
+                }
                 // Coarse X increment occurs immediately after reload except on cycle 256
                 if (cycle != 256) {
                     incrementCoarseX();
