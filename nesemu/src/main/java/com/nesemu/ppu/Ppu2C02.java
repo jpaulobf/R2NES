@@ -4,6 +4,7 @@ import com.nesemu.cpu.CPU;
 import com.nesemu.emulator.Clockable;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper.MirrorType;
+import com.nesemu.ppu.PpuRegs;
 
 /**
  * Minimal 2C02 PPU skeleton: implements core registers and a basic
@@ -21,6 +22,7 @@ import com.nesemu.mapper.Mapper.MirrorType;
  * Missing (future): pattern fetch pipeline, nametable/palette storage,
  * mirroring, sprite system.
  */
+@SuppressWarnings("unused") // Allow defining full bit mask set even if some not yet referenced
 public class Ppu2C02 implements PPU, Clockable {
 
     // Optional CPU callback for NMI (set by Bus/emulator)
@@ -212,39 +214,16 @@ public class Ppu2C02 implements PPU, Clockable {
 
         // Enter vblank at scanline 241, cycle 1 (NES spec; some docs cite cycle 0)
         if (scanline == 241 && cycle == 1) {
-            regSTATUS |= 0x80; // set VBlank flag
-            nmiFiredThisVblank = false; // allow a new NMI if enabled
-            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
-                System.out.printf("[PPU VBLANK-SET] frame=%d scan=%d cyc=%d nmiEnable=%d\n", frame, scanline, cycle,
-                        (regCTRL >> 7) & 1);
-                debugNmiLogCount++;
-            }
-            if (DEBUG)
-                System.out.printf("[PPU] VBLANK SET frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
-            if ((regCTRL & 0x80) != 0) {
+            regSTATUS |= PpuRegs.STATUS_VBLANK; // set VBlank
+            nmiFiredThisVblank = false;
+            if ((regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0) {
                 fireNmi();
             }
-        }
-        // Pre-render line: clear vblank at cycle 1
-        else if (scanline == -1 && cycle == 1) {
-            regSTATUS &= ~0x80; // clear VBlank
-            // Clear sprite 0 hit (bit 6) & overflow (bit 5) placeholder
-            regSTATUS &= 0x1F;
-            nmiFiredThisVblank = true; // block until next vblank start
-            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
-                System.out.printf("[PPU VBLANK-CLEAR] frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
-                debugNmiLogCount++;
-            }
-            if (DEBUG)
-                System.out.printf("[PPU] VBLANK CLEAR frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
-        }
-        // Mid-vblank: If NMI enable toggled on after start, spec allows late NMI
-        // (edge). Simplify: fire once if enabled.
-        else if (isInVBlank() && (regCTRL & 0x80) != 0 && !nmiFiredThisVblank) {
-            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
-                System.out.printf("[PPU LATE-NMI-EDGE] frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
-                debugNmiLogCount++;
-            }
+        } else if (scanline == -1 && cycle == 1) {
+            regSTATUS &= ~PpuRegs.STATUS_VBLANK; // clear VBlank
+            regSTATUS &= 0x1F; // keep lower status bits (clears sprite hit/overflow)
+            nmiFiredThisVblank = true;
+        } else if (isInVBlank() && (regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0 && !nmiFiredThisVblank) {
             fireNmi();
         }
 
@@ -424,12 +403,12 @@ public class Ppu2C02 implements PPU, Clockable {
     }
 
     private void incrementVram() {
-        int increment = ((regCTRL & 0x04) != 0) ? 32 : 1;
+        int increment = ((regCTRL & PpuRegs.CTRL_VRAM_INC_32) != 0) ? 32 : 1;
         vramAddress = (vramAddress + increment) & 0x7FFF; // 15-bit
     }
 
     private boolean renderingEnabled() {
-        return (regMASK & 0x18) != 0; // background or sprites
+        return (regMASK & (PpuRegs.MASK_BG_ENABLE | PpuRegs.MASK_SPR_ENABLE)) != 0;
     }
 
     // --- Loopy address helpers ---
@@ -511,30 +490,16 @@ public class Ppu2C02 implements PPU, Clockable {
                 }
                 break;
             }
-            case 5: { // Pattern low
+            case 5: {
                 int fineY = (vramAddress >> 12) & 0x07;
-                // Correct: PPUCTRL bit 4 (0x10) selects BACKGROUND pattern table (0: $0000, 1:
-                // $1000)
-                // (Previously we incorrectly used bit 3 here.)
-                int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
+                int base = ((regCTRL & PpuRegs.CTRL_BG_TABLE) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
                 patternLowLatch = ppuMemoryRead(base);
-                if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
-                    pipelineLog.append(
-                            String.format("  PL lo=%02X base=%04X fineY=%d\n", patternLowLatch & 0xFF, base, fineY));
-                    pipelineLogCount++;
-                }
                 break;
             }
-            case 7: { // Pattern high
+            case 7: {
                 int fineY = (vramAddress >> 12) & 0x07;
-                // Use same corrected BACKGROUND pattern table selection (bit 4)
-                int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
+                int base = ((regCTRL & PpuRegs.CTRL_BG_TABLE) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
                 patternHighLatch = ppuMemoryRead(base);
-                if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
-                    pipelineLog.append(
-                            String.format("  PH hi=%02X base=%04X fineY=%d\n", patternHighLatch & 0xFF, base, fineY));
-                    pipelineLogCount++;
-                }
                 break;
             }
             case 0: // Reload immediately (canonical pipeline: insert into low 8 bits)
@@ -554,18 +519,9 @@ public class Ppu2C02 implements PPU, Clockable {
     }
 
     private void produceBackgroundPixel() {
-        boolean bgEnabled = (regMASK & 0x08) != 0;
-        // Ajuste de timing: mapeamos diretamente cycle 1..256 -> x 0..255.
-        // (Anteriormente simulávamos latência deslocando por 8; agora os registradores
-        // já incorporam a defasagem real via carregamento a cada 8 ciclos.)
+        boolean bgEnabled = (regMASK & PpuRegs.MASK_BG_ENABLE) != 0;
         int x = cycle - 1;
-        // Em hardware, primeiros 8 ciclos ainda carregam primeira tile; opcionalmente
-        // podemos considerar esses pixels como fundo 0 (transparent) se pattern
-        // ainda não foi carregado. Simplificação: não desenhar nada (retornar).
-        // Primeiros 8 pixels: em pipeline canônico o primeiro tile só fica completo
-        // após o primeiro reload; simplificação: permitimos já desenhar se clip não
-        // está ativo, senão retornamos 0 transparente.
-        if (x < 8 && (regMASK & 0x02) == 0) {
+        if (x < 8 && (regMASK & PpuRegs.MASK_BG_LEFT) == 0) {
             return;
         }
         if (x < 0 || x >= 256 || !isVisibleScanline())
@@ -605,15 +561,9 @@ public class Ppu2C02 implements PPU, Clockable {
             return;
         }
         if (!bgEnabled) {
-            if (debugBgSampleAll && debugBgSampleCount < debugBgSampleLimit) {
-                System.out.printf("[BG-DISABLED] frame=%d scan=%d cyc=%d x=%d regMASK=%02X\n", frame, scanline, cycle,
-                        x,
-                        regMASK & 0xFF);
-                debugBgSampleCount++;
-            }
             return;
         }
-        if ((regMASK & 0x02) == 0 && x < 8) { // left column clip
+        if ((regMASK & PpuRegs.MASK_BG_LEFT) == 0 && x < 8) {
             frameBuffer[scanline * 256 + x] = 0;
             frameIndexBuffer[scanline * 256 + x] = 0;
             return;
@@ -1269,7 +1219,7 @@ public class Ppu2C02 implements PPU, Clockable {
     // Remove old immediate evaluation, replace with new pipeline methods
     // --- Sprite system: secondary OAM style preparation (simplified) ---
     private void evaluateSpritesForLine(int targetLine) {
-        int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8;
+        int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
         if (spriteRangesDirty || spriteHeight != cachedSpriteHeight) {
             for (int i = 0; i < 64; i++) {
                 int y = oam[i << 2] & 0xFF;
@@ -1309,7 +1259,7 @@ public class Ppu2C02 implements PPU, Clockable {
             }
         }
         if (overflow) {
-            regSTATUS |= 0x20; // sprite overflow flag
+            regSTATUS |= PpuRegs.STATUS_SPR_OVERFLOW;
         }
         preparedSpriteCount = Math.min(found, capacity);
         preparedLine = targetLine;
@@ -1326,18 +1276,10 @@ public class Ppu2C02 implements PPU, Clockable {
     }
 
     private void overlaySpritePixel() {
-        if (isVisibleScanline() && preparedLine != scanline) {
-            publishPreparedSpritesForCurrentLine();
-        }
-        if (spriteCountThisLine == 0)
-            return;
-        // Sincroniza com novo mapeamento de background: cycle 1..256 => x 0..255
         int xPixel = cycle - 1;
-        if (xPixel < 0 || xPixel >= 256)
-            return;
         int sl = scanline;
-        int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8;
-        if (xPixel < 8 && (regMASK & 0x04) == 0)
+        int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
+        if (xPixel < 8 && (regMASK & PpuRegs.MASK_SPR_LEFT) == 0)
             return;
         int bgOriginal = bgBaseIndexBuffer[sl * 256 + xPixel] & 0x0F;
         int maxDraw = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
@@ -1368,8 +1310,7 @@ public class Ppu2C02 implements PPU, Clockable {
                 addrLo = patternTableBase + actualTile * 16 + tileRow;
                 addrHi = addrLo + 8;
             } else {
-                // Correct sprite pattern table selection: PPUCTRL bit 3 (0x08)
-                int patternTableBase = ((regCTRL & 0x08) != 0 ? 0x1000 : 0x0000);
+                int patternTableBase = ((regCTRL & PpuRegs.CTRL_SPR_TABLE) != 0 ? 0x1000 : 0x0000);
                 int tileRow = row & 0x7;
                 addrLo = patternTableBase + tile * 16 + tileRow;
                 addrHi = addrLo + 8;
@@ -1390,11 +1331,11 @@ public class Ppu2C02 implements PPU, Clockable {
             if (spriteIndex == 0 && pattern != 0 && bgOriginal != 0) {
                 boolean allow = true;
                 if (xPixel < 8) {
-                    if ((regMASK & 0x02) == 0 || (regMASK & 0x04) == 0)
+                    if ((regMASK & PpuRegs.MASK_BG_LEFT) == 0 || (regMASK & PpuRegs.MASK_SPR_LEFT) == 0)
                         allow = false;
                 }
                 if (allow)
-                    regSTATUS |= 0x40;
+                    regSTATUS |= PpuRegs.STATUS_SPR0_HIT;
             }
             if (spritePriorityFront || bgTransparent) {
                 frameIndexBuffer[sl * 256 + xPixel] = paletteIndex & 0x0F;
