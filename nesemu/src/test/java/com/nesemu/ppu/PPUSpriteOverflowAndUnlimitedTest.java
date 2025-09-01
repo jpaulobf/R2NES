@@ -49,6 +49,41 @@ public class PPUSpriteOverflowAndUnlimitedTest {
     }
 
     @Test
+    public void testNoOverflowWithExactly8Sprites() {
+        Bus bus = new Bus();
+        Ppu2C02 ppu = newPpu(bus);
+        CPU cpu = new CPU(bus);
+        bus.attachCPU(cpu);
+        ppu.reset();
+        ppu.writeRegister(1, 0x18); // enable BG+sprites
+        // Clear OAM so no stale sprites overlap target line
+        ppu.writeRegister(3, 0);
+        for (int i = 0; i < 64; i++) {
+            ppu.writeRegister(4, 0xFF); // Y offscreen
+            ppu.writeRegister(4, 0); // tile
+            ppu.writeRegister(4, 0); // attr
+            ppu.writeRegister(4, 0); // X
+        }
+        // Now write exactly 8 sprites for scanline 40
+        ppu.writeRegister(3, 0); // reset OAMADDR
+        for (int i = 0; i < 8; i++) {
+            ppu.writeRegister(4, 40); // Y => scanline 40
+            ppu.writeRegister(4, 0); // tile
+            ppu.writeRegister(4, 0); // attr
+            ppu.writeRegister(4, i * 8); // X
+        }
+        while (ppu.getScanline() < 40) {
+            ppu.clock();
+        }
+        while (ppu.getCycle() != 0) {
+            ppu.clock();
+        }
+        // Exactly 8 should not trigger overflow flag
+        assertEquals(8, ppu.getLastSpriteCountThisLine());
+        assertEquals(0, ppu.getStatusRegister() & 0x20, "Overflow flag incorrectly set with exactly 8 sprites");
+    }
+
+    @Test
     public void testUnlimitedSpritesModeDoesNotCapCount() {
         Bus bus = new Bus();
         Ppu2C02 ppu = newPpu(bus);

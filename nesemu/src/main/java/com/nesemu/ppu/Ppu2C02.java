@@ -1343,4 +1343,20 @@ public class Ppu2C02 implements PPU, Clockable {
     public int getLastSpriteCountThisLine() {
         return spriteCountThisLine;
     }
+
+    // --- Debug / test accessors ---
+    /** Returns a copy of the 32-byte secondary OAM buffer after last evaluation. */
+    public byte[] getSecondaryOamSnapshot() {
+        byte[] copy = new byte[secondaryOam.length];
+        System.arraycopy(secondaryOam, 0, copy, 0, secondaryOam.length);
+        return copy;
+    }
+
+    /**
+     * Returns which scanline secondary OAM currently corresponds to (prepared
+     * line).
+     */
+    public int getSecondaryOamPreparedLine() {
+        return preparedLine;
+    }
 }
