@@ -254,10 +254,34 @@ public class Bus implements NesBus {
 
     /** Perform OAM DMA immediately (blocking copy of 256 bytes). */
     private void performOamDma() {
-        if (pendingDmaPage < 0 || ppu == null)
+        if (pendingDmaPage < 0 || ppu == null || cpuRef == null) {
+            pendingDmaPage = -1;
             return;
-        // We don't yet have a PPU OAM interface; placeholder for future DMA logic.
-        // In a full implementation, the CPU would be stalled for 513 or 514 cycles.
+        }
+        int base = (pendingDmaPage & 0xFF) << 8;
+        // Copy 256 bytes from CPU memory space (using cpuRead for mapper/RAM
+        // visibility)
+        for (int i = 0; i < 256; i++) {
+            int val = cpuRead(base + i);
+            try {
+                ppu.getClass().getMethod("dmaOamWrite", int.class, int.class).invoke(ppu, i, val & 0xFF);
+            } catch (Exception e) {
+                // fallback: if method missing abort silently
+                break;
+            }
+        }
+        // Stall CPU: 513 cycles normally, +1 if current CPU total cycles is odd (i.e.,
+        // if DMA
+        // started on an odd CPU cycle). We approximate by inspecting
+        // cpuRef.getTotalCycles().
+        long cpuCycles = cpuRef.getTotalCycles();
+        int stall = 513 + ((cpuCycles & 1) != 0 ? 1 : 0);
+        // Via public API addDmaStall
+        try {
+            cpuRef.getClass().getMethod("addDmaStall", int.class).invoke(cpuRef, stall);
+        } catch (Exception e) {
+            // ignore
+        }
         pendingDmaPage = -1;
     }
 

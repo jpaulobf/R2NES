@@ -365,6 +365,20 @@ public class Ppu2C02 implements PPU {
         }
     }
 
+    // --- DMA support (Bus copies 256 bytes here) ---
+    /**
+     * Write a single OAM byte at the given index (0-255) used by DMA copy.
+     * Does not affect OAMADDR auto-increment (DMA writes are independent of $2003).
+     */
+    public void dmaOamWrite(int index, int value) {
+        oam[index & 0xFF] = (byte) (value & 0xFF);
+    }
+
+    /** Direct OAM byte read (test/debug). */
+    public int dmaOamRead(int index) {
+        return oam[index & 0xFF] & 0xFF;
+    }
+
     // --- Early register write logging (first few only to avoid spam) ---
     private static final int EARLY_WRITE_LOG_LIMIT = 40; // cap (unless LOG_EXTENDED)
     private int earlyWriteLogCount = 0;

@@ -37,6 +37,13 @@ public class CPU implements NesCPU {
     // Total executed CPU cycles (for tracing / nestest log)
     private long totalCycles;
 
+    // --- DMA (OAM $4014) stall handling ---
+    // When an OAM DMA is triggered, the CPU is suspended for 513 or 514 cycles
+    // depending on the current cycle parity. We model this with a simple stall
+    // counter that pauses micro-timing (instruction 'cycles' counter) until the
+    // stall drains, then resume where the instruction left off.
+    private int dmaStallCycles = 0;
+
     // --- Instrumentation for debugging timing mismatches ---
     private int lastOpcodeByte; // opcode of last fully executed instruction
     private int lastBaseCycles; // base cycles (from table) for that opcode
@@ -252,6 +259,14 @@ public class CPU implements NesCPU {
      */
     public void clock() {
         totalCycles++; // count every cycle
+
+        // Handle DMA stall first (RDY low). During stall we neither advance the
+        // current instruction cycle counter nor perform any bus side effects
+        // besides incrementing total cycle count.
+        if (dmaStallCycles > 0) {
+            dmaStallCycles--;
+            return;
+        }
 
         // If cycles remain, process possible RMW phases and consume one cycle
         if (cycles > 0) {
@@ -1591,6 +1606,20 @@ public class CPU implements NesCPU {
     // Set total cycle counter baseline (used for nestest formatting).
     public void setTotalCycles(long cycles) {
         this.totalCycles = cycles;
+    }
+
+    // --- DMA stall API (used by Bus when $4014 written) ---
+    public void addDmaStall(int cycles) {
+        if (cycles <= 0) return;
+        dmaStallCycles += cycles;
+    }
+
+    public int getDmaStallCycles() {
+        return dmaStallCycles;
+    }
+
+    public boolean isDmaStalling() {
+        return dmaStallCycles > 0;
     }
 
     public void setA(int a) {
