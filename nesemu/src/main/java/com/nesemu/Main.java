@@ -41,8 +41,9 @@ public class Main {
         Integer ntBaseline = null; // filtrar valor repetitivo
         boolean forceBg = false; // força bit 3 do PPUMASK
         boolean bgColStats = false; // imprime estatísticas de colunas
-        boolean hud = false; // exibe HUD na GUI
+    boolean hud = false; // exibe HUD na GUI
     String testPattern = null; // modos: h, v, checker
+    int pipeLogLimit = 0; // ativa log do pipeline de fetch de background
         for (String a : args) {
             if (a.equalsIgnoreCase("--gui"))
                 gui = true;
@@ -149,6 +150,17 @@ public class Main {
                 } catch (NumberFormatException e) {
                     System.err.println("Valor inválido em --nt-baseline= (usar hex)");
                 }
+            } else if (a.startsWith("--pipe-log")) {
+                int eq = a.indexOf('=');
+                if (eq >= 0 && eq + 1 < a.length()) {
+                    try {
+                        pipeLogLimit = Integer.parseInt(a.substring(eq + 1));
+                    } catch (NumberFormatException e) {
+                        System.err.println("Valor inválido em --pipe-log= (usar número)");
+                    }
+                } else {
+                    pipeLogLimit = 400; // default se não informado
+                }
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
@@ -165,6 +177,15 @@ public class Main {
         if (tileMatrixMode != null) {
             emu.getPpu().setTileMatrixMode(tileMatrixMode);
             System.out.println("Tile matrix mode: " + tileMatrixMode);
+        }
+        // Se solicitou pipe-log e nenhum modo de tile matrix foi especificado, usar 'center'
+        if (pipeLogLimit > 0 && tileMatrixMode == null) {
+            emu.getPpu().setTileMatrixMode("center");
+            System.out.println("[PIPE-LOG] Ajustando tileMatrixMode=center para mostrar pixels centrais.");
+        }
+        if (pipeLogLimit > 0) {
+            emu.getPpu().enablePipelineLog(pipeLogLimit);
+            System.out.println("[PIPE-LOG] Habilitado limite=" + pipeLogLimit);
         }
         if (dbgBgSample > 0) {
             if (dbgBgAll)
@@ -321,6 +342,10 @@ public class Main {
             long elapsedNs = System.nanoTime() - start;
             double fpsSim = frames / (elapsedNs / 1_000_000_000.0);
             System.out.printf("Frames simulados: %d (%.2f fps simulado)\n", frames, fpsSim);
+            if (pipeLogLimit > 0) {
+                System.out.println("--- PIPELINE LOG ---");
+                System.out.print(emu.getPpu().consumePipelineLog());
+            }
             if (dbgBgSample > 0) {
                 emu.getPpu().dumpFirstBackgroundSamples(Math.min(dbgBgSample, 50));
             }

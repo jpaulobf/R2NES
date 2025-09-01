@@ -123,6 +123,8 @@ public class Ppu2C02 implements PPU, Clockable {
 
     // Latches
     private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
+    // Shift-right mode: marcamos se já aplicamos o fineX no primeiro tile do scanline
+    private boolean firstTileReloadDone = false;
     // Raw background palette index per pixel (0..15) stored for tests (pattern 0 ->
     // 0)
     // Already used internally in produceBackgroundPixel; accessor added below.
@@ -150,6 +152,7 @@ public class Ppu2C02 implements PPU, Clockable {
         patternLowShift = patternHighShift = 0;
         attributeLowShift = attributeHighShift = 0;
         ntLatch = atLatch = patternLowLatch = patternHighLatch = 0;
+    firstTileReloadDone = false;
         // firstTileReady / scanlinePixelCounter removed
         for (int i = 0; i < frameBuffer.length; i++) {
             frameBuffer[i] = 0xFF000000;
@@ -165,6 +168,7 @@ public class Ppu2C02 implements PPU, Clockable {
         if (cycle > 340) {
             cycle = 0;
             scanline++;
+            firstTileReloadDone = false; // reinicia para novo scanline
             if (isVisibleScanline()) {
                 publishPreparedSpritesForCurrentLine();
             } else if (scanline == 240) { // post-render
@@ -263,11 +267,6 @@ public class Ppu2C02 implements PPU, Clockable {
                     }
                     // Shift after sampling (hardware shifts once per pixel after use)
                     shiftBackgroundRegisters();
-                }
-                // Increment coarse X at cycles 8,16,...,256 and 328,336 (simplified: every 8
-                // cycles in the fetch regions)
-                if (((cycle >= 1 && cycle <= 256) || (cycle >= 321 && cycle <= 336)) && (cycle & 0x7) == 0) {
-                    incrementCoarseX();
                 }
                 // At cycle 256 increment Y (vertical position)
                 if (cycle == 256) {
@@ -484,9 +483,22 @@ public class Ppu2C02 implements PPU, Clockable {
         if (!fetchRegion)
             return;
         int phase = cycle & 0x7; // 8-cycle tile fetch phase (1,3,5,7 fetch; 0 reload)
+        if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
+            // Log skeleton before action (phase + v + coarseX/Y)
+            int v = vramAddress;
+            int coarseX = v & 0x1F;
+            int coarseY = (v >> 5) & 0x1F;
+            pipelineLog.append(String.format("F frame=%d sl=%d cyc=%d ph=%d coarseX=%02d coarseY=%02d v=%04X\n",
+                    frame, scanline, cycle, phase, coarseX, coarseY, v & 0x7FFF));
+            pipelineLogCount++;
+        }
         switch (phase) {
             case 1: // Fetch nametable byte
                 ntLatch = ppuMemoryRead(0x2000 | (vramAddress & 0x0FFF));
+                if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
+                    pipelineLog.append(String.format("  NT nt=%02X v=%04X\n", ntLatch & 0xFF, vramAddress & 0x7FFF));
+                    pipelineLogCount++;
+                }
                 break;
             case 3: { // Fetch attribute byte
                 int v = vramAddress;
@@ -494,24 +506,47 @@ public class Ppu2C02 implements PPU, Clockable {
                 int coarseY = (v >> 5) & 0x1F;
                 int attributeAddr = 0x23C0 | (v & 0x0C00) | ((coarseY >> 2) << 3) | (coarseX >> 2);
                 atLatch = ppuMemoryRead(attributeAddr);
+                if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
+                    pipelineLog.append(String.format("  AT at=%02X addr=%04X\n", atLatch & 0xFF, attributeAddr));
+                    pipelineLogCount++;
+                }
                 break;
             }
             case 5: { // Pattern low
                 int fineY = (vramAddress >> 12) & 0x07;
-                // PPUCTRL bit 3 (0x08) selects background pattern table (0: $0000, 1: $1000)
-                int base = ((regCTRL & 0x08) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
+                // Correct: PPUCTRL bit 4 (0x10) selects BACKGROUND pattern table (0: $0000, 1: $1000)
+                // (Previously we incorrectly used bit 3 here.)
+                int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
                 patternLowLatch = ppuMemoryRead(base);
+                if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
+                    pipelineLog.append(String.format("  PL lo=%02X base=%04X fineY=%d\n", patternLowLatch & 0xFF, base, fineY));
+                    pipelineLogCount++;
+                }
                 break;
             }
             case 7: { // Pattern high
                 int fineY = (vramAddress >> 12) & 0x07;
-                // Use same (corrected) background pattern table selection (bit 3)
-                int base = ((regCTRL & 0x08) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
+                // Use same corrected BACKGROUND pattern table selection (bit 4)
+                int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
                 patternHighLatch = ppuMemoryRead(base);
+                if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
+                    pipelineLog.append(String.format("  PH hi=%02X base=%04X fineY=%d\n", patternHighLatch & 0xFF, base, fineY));
+                    pipelineLogCount++;
+                }
                 break;
             }
-            case 0: // Reload: insert new tile bytes into low 8 bits (faithful orientation)
+            case 0: // Reload immediately (canonical pipeline: insert into low 8 bits)
                 loadShiftRegisters();
+                // Coarse X increment occurs immediately after reload except on cycle 256
+                if (cycle != 256) {
+                    incrementCoarseX();
+                }
+                if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
+                    pipelineLog.append(String.format("  RL patLo=%04X patHi=%04X attrLo=%04X attrHi=%04X\n",
+                            patternLowShift & 0xFFFF, patternHighShift & 0xFFFF,
+                            attributeLowShift & 0xFFFF, attributeHighShift & 0xFFFF));
+                    pipelineLogCount++;
+                }
                 break;
         }
     }
@@ -525,13 +560,11 @@ public class Ppu2C02 implements PPU, Clockable {
         // Em hardware, primeiros 8 ciclos ainda carregam primeira tile; opcionalmente
         // podemos considerar esses pixels como fundo 0 (transparent) se pattern
         // ainda não foi carregado. Simplificação: não desenhar nada (retornar).
-        if (x < 8) {
-            // Se bit de background enable (3) está ativo e left 8 (bit1) também, já
-            // podemos produzir pixel; caso contrário mantemos transparente.
-            boolean bgLeftEnabled = (regMASK & 0x02) != 0;
-            if (!bgLeftEnabled) {
-                return; // clipping ativo => pula
-            }
+        // Primeiros 8 pixels: em pipeline canônico o primeiro tile só fica completo
+        // após o primeiro reload; simplificação: permitimos já desenhar se clip não
+        // está ativo, senão retornamos 0 transparente.
+        if (x < 8 && (regMASK & 0x02) == 0) {
+            return;
         }
         if (x < 0 || x >= 256 || !isVisibleScanline())
             return;
@@ -583,11 +616,11 @@ public class Ppu2C02 implements PPU, Clockable {
             frameIndexBuffer[scanline * 256 + x] = 0;
             return;
         }
-        int tap = 15 - (fineX & 0x7);
-        int bit0 = (patternLowShift >> tap) & 0x1;
-        int bit1 = (patternHighShift >> tap) & 0x1;
-        int attrLow = (attributeLowShift >> tap) & 0x1;
-        int attrHigh = (attributeHighShift >> tap) & 0x1;
+    // Alternative B (shift-right): current pixel always lives at bit0
+    int bit0 = patternLowShift & 0x1;
+    int bit1 = patternHighShift & 0x1;
+    int attrLow = attributeLowShift & 0x1;   // static (not shifted)
+    int attrHigh = attributeHighShift & 0x1; // static (not shifted)
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
         int paletteIndex = (attr << 2) | pattern; // 0..15
@@ -613,10 +646,10 @@ public class Ppu2C02 implements PPU, Clockable {
     private void loadShiftRegisters() {
         int pl = patternLowLatch & 0xFF;
         int ph = patternHighLatch & 0xFF;
-        // Insert new tile bytes into LOW 8 bits; existing bits keep shifting toward
-        // bit15
-        patternLowShift = (patternLowShift & 0xFF00) | pl;
-        patternHighShift = (patternHighShift & 0xFF00) | ph;
+    // Alternative B: shift-right model.
+    // Reverse bits so leftmost pixel (original bit7) becomes bit0 consumed first.
+    patternLowShift = reverseByte(pl) & 0x00FF;
+    patternHighShift = reverseByte(ph) & 0x00FF;
         int coarseX = vramAddress & 0x1F;
         int coarseY = (vramAddress >> 5) & 0x1F;
         int quadSelector = ((coarseY & 0x02) << 1) | (coarseX & 0x02); // 0,2,4,6
@@ -641,18 +674,55 @@ public class Ppu2C02 implements PPU, Clockable {
         int attributeBits = (atLatch >> shift) & 0x03;
         int lowBit = attributeBits & 0x01;
         int highBit = (attributeBits >> 1) & 0x01;
-        // Replicate attribute bits into low byte only (8-bit pattern) like hardware;
-        // previous high byte continues shifting out while new tile occupies low bits.
-        attributeLowShift = (attributeLowShift & 0xFF00) | (lowBit != 0 ? 0x00FF : 0x0000);
-        attributeHighShift = (attributeHighShift & 0xFF00) | (highBit != 0 ? 0x00FF : 0x0000);
-        // No pre-shift; fineX handled at sampling time.
+        // Static attribute bits at bit0 (no shift). Pattern shift-right consumption keeps them stable.
+        attributeLowShift = (lowBit != 0 ? 0x0001 : 0x0000);
+        attributeHighShift = (highBit != 0 ? 0x0001 : 0x0000);
+        // Aplicar fineX apenas uma vez no primeiro tile visível do scanline.
+        if (!firstTileReloadDone && isVisibleScanline() && cycle <= 8) {
+            int fx = fineX & 0x7;
+            if (fx != 0) {
+                patternLowShift >>>= fx;
+                patternHighShift >>>= fx;
+            }
+            firstTileReloadDone = true;
+        }
     }
 
     private void shiftBackgroundRegisters() {
-        patternLowShift = (patternLowShift << 1) & 0xFFFF;
-        patternHighShift = (patternHighShift << 1) & 0xFFFF;
-        attributeLowShift = (attributeLowShift << 1) & 0xFFFF;
-        attributeHighShift = (attributeHighShift << 1) & 0xFFFF;
+        // Shift-right consumption (one pixel per cycle)
+        patternLowShift = (patternLowShift >>> 1) & 0x00FF;
+        patternHighShift = (patternHighShift >>> 1) & 0x00FF;
+        // Attributes static (bit0 sampled every pixel)
+    }
+
+    // --- Pipeline diagnostics ---
+    private boolean pipelineLogEnabled = false;
+    private int pipelineLogLimit = 600; // enough for first few tiles
+    private int pipelineLogCount = 0;
+    private final StringBuilder pipelineLog = new StringBuilder();
+
+    public void enablePipelineLog(int limit) {
+        this.pipelineLogEnabled = true;
+        if (limit > 0) this.pipelineLogLimit = limit;
+        this.pipelineLogCount = 0;
+        pipelineLog.setLength(0);
+        System.out.println("[PPU] Pipeline log enabled limit=" + pipelineLogLimit);
+    }
+
+    public String consumePipelineLog() {
+        String s = pipelineLog.toString();
+        pipelineLog.setLength(0);
+        pipelineLogCount = 0;
+        return s;
+    }
+
+    // --- Utility: reverse 8-bit value (bit7<->bit0) ---
+    private static int reverseByte(int b) {
+        b &= 0xFF;
+        b = ((b & 0xF0) >>> 4) | ((b & 0x0F) << 4);
+        b = ((b & 0xCC) >>> 2) | ((b & 0x33) << 2);
+        b = ((b & 0xAA) >>> 1) | ((b & 0x55) << 1);
+        return b & 0xFF;
     }
 
     // (No priming helper in accurate pipeline mode)
@@ -1311,7 +1381,8 @@ public class Ppu2C02 implements PPU, Clockable {
                 addrLo = patternTableBase + actualTile * 16 + tileRow;
                 addrHi = addrLo + 8;
             } else {
-                int patternTableBase = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000);
+                // Correct sprite pattern table selection: PPUCTRL bit 3 (0x08)
+                int patternTableBase = ((regCTRL & 0x08) != 0 ? 0x1000 : 0x0000);
                 int tileRow = row & 0x7;
                 addrLo = patternTableBase + tile * 16 + tileRow;
                 addrHi = addrLo + 8;
