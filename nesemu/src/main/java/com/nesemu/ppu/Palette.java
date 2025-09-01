@@ -51,9 +51,15 @@ public class Palette {
         addr &= 0x3FFF;
         addr = 0x3F00 | (addr & 0x1F); // fold into 32-byte window
         int index = addr & 0x1F;
-        // Addresses 3F10/14/18/1C mirror 3F00/04/08/0C
-        if ((index & 0x13) == 0x10) { // bits: xxxx1x0000 with mask picking 0x10 and 0x00/0x04/0x08/0x0C pattern
-            index &= ~0x10; // clear bit4 -> mirror to lower half
+        // Addresses $3F10/$14/$18/$1C mirror $3F00/$04/$08/$0C (bit4 cleared)
+        if ((index & 0x13) == 0x10) {
+            index &= ~0x10;
+        }
+        // Optional strengthening: treat $3F04/$08/$0C as additional mirrors of
+        // universal background color ($3F00). This matches many emulators and avoids
+        // stray divergent writes. If fidelity requires distinct storage later, remove.
+        if ((index & 0x03) == 0 && index < 0x10) {
+            index = 0; // collapse 0,4,8,12 -> 0
         }
         return index;
     }

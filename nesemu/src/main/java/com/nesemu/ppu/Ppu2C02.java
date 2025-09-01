@@ -518,9 +518,21 @@ public class Ppu2C02 implements PPU, Clockable {
 
     private void produceBackgroundPixel() {
         boolean bgEnabled = (regMASK & 0x08) != 0;
-        // Cycle->pixel mapping with 8-cycle fetch latency: first visible pixel (x=0) at
-        // cycle 9 no modo pipeline completo; em modo simples usamos cycle 1
-        int x = simpleTiming ? (cycle - 1) : (cycle - 9);
+        // Ajuste de timing: mapeamos diretamente cycle 1..256 -> x 0..255.
+        // (Anteriormente simulávamos latência deslocando por 8; agora os registradores
+        // já incorporam a defasagem real via carregamento a cada 8 ciclos.)
+        int x = cycle - 1;
+        // Em hardware, primeiros 8 ciclos ainda carregam primeira tile; opcionalmente
+        // podemos considerar esses pixels como fundo 0 (transparent) se pattern
+        // ainda não foi carregado. Simplificação: não desenhar nada (retornar).
+        if (x < 8) {
+            // Se bit de background enable (3) está ativo e left 8 (bit1) também, já
+            // podemos produzir pixel; caso contrário mantemos transparente.
+            boolean bgLeftEnabled = (regMASK & 0x02) != 0;
+            if (!bgLeftEnabled) {
+                return; // clipping ativo => pula
+            }
+        }
         if (x < 0 || x >= 256 || !isVisibleScanline())
             return;
         // Test mode: render 5 horizontal color bands ignoring normal pipeline/mask.
@@ -1025,7 +1037,7 @@ public class Ppu2C02 implements PPU, Clockable {
     private boolean debugBgSampleAll = false; // log mesmo se for muitos pixels (até limite)
     private int debugBgSampleLimit = 0;
     private int debugBgSampleCount = 0;
-    private boolean simpleTiming = false; // modo experimental de timing simplificado
+    // simpleTiming removido: pipeline agora sempre usa mapeamento ciclo 1->x0.
     // Runtime attribute logging
     private boolean attrRuntimeLog = false;
     private int attrLogLimit = 200;
@@ -1052,8 +1064,10 @@ public class Ppu2C02 implements PPU, Clockable {
     }
 
     public void setSimpleTiming(boolean simple) {
-        this.simpleTiming = simple;
-        System.out.println("[PPU] simpleTiming=" + simple);
+        // Deprecated: manter assinatura para compatibilidade de CLI, sem efeito.
+        if (simple) {
+            System.out.println("[PPU] simpleTiming ignorado (deprecated, pipeline unificado)");
+        }
     }
 
     public void setTestPatternMode(String mode) {
@@ -1260,7 +1274,8 @@ public class Ppu2C02 implements PPU, Clockable {
         }
         if (spriteCountThisLine == 0)
             return;
-        int xPixel = simpleTiming ? (cycle - 1) : (cycle - 9);
+        // Sincroniza com novo mapeamento de background: cycle 1..256 => x 0..255
+        int xPixel = cycle - 1;
         if (xPixel < 0 || xPixel >= 256)
             return;
         int sl = scanline;
