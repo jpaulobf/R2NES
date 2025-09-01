@@ -48,6 +48,13 @@ Observações:
 * O bit de grayscale (PPUMASK bit0) é ignorado nos padrões para evitar tons cinza.
 * Use `--hud` para acompanhar frame / scanline / ciclo / fineX.
 
+## Teste de uma ROM real
+
+Exemplos:
+```powershell
+java -jar target\nesemu-1.0-SNAPSHOT.jar --gui --hud roms\donkeykong.nes
+```
+
 ## Flags de diagnóstico de background
 
 | Flag | Função |
