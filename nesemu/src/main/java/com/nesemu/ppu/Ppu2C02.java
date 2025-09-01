@@ -47,6 +47,8 @@ public class Ppu2C02 implements PPU, Clockable {
     // Sprite evaluation buffer (indices of up to 8 sprites on current scanline)
     private final int[] spriteIndices = new int[8];
     private int spriteCountThisLine = 0;
+    // Debug/feature flag: allow disabling the hardware 8-sprite-per-scanline limit
+    private boolean unlimitedSprites = false;
     // $2005 PPUSCROLL (x,y latch)
     // $2006 PPUADDR (VRAM address latch)
     // $2007 PPUDATA
@@ -1158,14 +1160,26 @@ public class Ppu2C02 implements PPU, Clockable {
         spriteCountThisLine = 0;
         int sl = scanline;
         int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8; // CTRL bit5 selects 8x16
-        for (int i = 0; i < 64 && spriteCountThisLine < 8; i++) {
+        boolean overflow = false;
+        for (int i = 0; i < 64; i++) {
             int base = i * 4;
-            int y = oam[base] & 0xFF; // On real NES this is Y position minus 1; simplify: treat as direct
+            int y = oam[base] & 0xFF; // simplified Y interpretation
             int top = y;
             int bottom = y + spriteHeight - 1;
             if (sl >= top && sl <= bottom) {
-                spriteIndices[spriteCountThisLine++] = i;
+                if (spriteCountThisLine < 8) {
+                    spriteIndices[spriteCountThisLine] = i;
+                } else {
+                    overflow = true; // 9th sprite encountered
+                }
+                spriteCountThisLine++;
             }
+        }
+        if (!unlimitedSprites && spriteCountThisLine > 8) {
+            spriteCountThisLine = 8; // enforce draw limit
+        }
+        if (overflow) {
+            regSTATUS |= 0x20; // set sprite overflow flag (bit5)
         }
     }
 
@@ -1185,7 +1199,12 @@ public class Ppu2C02 implements PPU, Clockable {
         // Capture original background index BEFORE any sprite overlays for sprite 0 hit
         // logic
         int bgOriginal = frameIndexBuffer[sl * 256 + xPixel] & 0x0F;
-        for (int si = 0; si < spriteCountThisLine; si++) {
+        // In unlimited sprites mode, spriteCountThisLine may exceed the fixed
+        // spriteIndices buffer (size 8). Only the first 8 collected indices are
+        // drawable; the logical count (spriteCountThisLine) is still exposed for
+        // tests/inspection. Cap iteration to buffer length to avoid OOB.
+        int drawCount = Math.min(spriteCountThisLine, spriteIndices.length);
+        for (int si = 0; si < drawCount; si++) {
             int spriteIndex = spriteIndices[si];
             int base = spriteIndex * 4;
             int y = oam[base] & 0xFF;
@@ -1261,5 +1280,18 @@ public class Ppu2C02 implements PPU, Clockable {
             // Stop after first opaque sprite pixel (no back-to-front compositing yet)
             break;
         }
+    }
+
+    // --- Sprite limit control & inspection ---
+    public void setUnlimitedSprites(boolean enable) {
+        this.unlimitedSprites = enable;
+    }
+
+    public boolean isUnlimitedSprites() {
+        return unlimitedSprites;
+    }
+
+    public int getLastSpriteCountThisLine() {
+        return spriteCountThisLine;
     }
 }
