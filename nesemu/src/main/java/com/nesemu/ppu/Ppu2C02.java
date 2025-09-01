@@ -1,6 +1,7 @@
 package com.nesemu.ppu;
 
 import com.nesemu.cpu.CPU;
+import com.nesemu.emulator.Clockable;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper.MirrorType;
 
@@ -20,7 +21,7 @@ import com.nesemu.mapper.Mapper.MirrorType;
  * Missing (future): pattern fetch pipeline, nametable/palette storage,
  * mirroring, sprite system.
  */
-public class Ppu2C02 implements PPU {
+public class Ppu2C02 implements PPU, Clockable {
 
     // Optional CPU callback for NMI (set by Bus/emulator)
     private CPU cpu;

@@ -1,13 +1,14 @@
 package com.nesemu.cpu;
 
 import com.nesemu.cpu.interfaces.NesCPU;
+import com.nesemu.emulator.Clockable;
 import com.nesemu.bus.interfaces.NesBus;
 
 /**
  * Class representing the NES CPU.
  * Implements the main functionalities and instructions of the processor.
  */
-public class CPU implements NesCPU {
+public class CPU implements NesCPU, Clockable {
 
     // Registers
     private Registers registers = new Registers();
