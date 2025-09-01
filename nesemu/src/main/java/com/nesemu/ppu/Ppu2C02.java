@@ -41,6 +41,11 @@ public class Ppu2C02 implements PPU {
     private int regSTATUS; // $2002
     private int oamAddr; // $2003
     // $2004 OAMDATA (not implemented yet)
+    // Object Attribute Memory (64 sprites * 4 bytes)
+    private final byte[] oam = new byte[256];
+    // Sprite evaluation buffer (indices of up to 8 sprites on current scanline)
+    private final int[] spriteIndices = new int[8];
+    private int spriteCountThisLine = 0;
     // $2005 PPUSCROLL (x,y latch)
     // $2006 PPUADDR (VRAM address latch)
     // $2007 PPUDATA
@@ -168,6 +173,11 @@ public class Ppu2C02 implements PPU {
             return;
         }
 
+        // Sprite evaluation at start of each visible scanline (very simplified)
+        if (isVisibleScanline() && cycle == 0) {
+            evaluateSpritesForScanline();
+        }
+
         // (No priming hack) – rely on 8‑cycle pipeline latency.
 
         // Enter vblank at scanline 241, cycle 1 (NES spec; some docs cite cycle 0)
@@ -220,6 +230,10 @@ public class Ppu2C02 implements PPU {
                 // Produce pixel using current shift register state (before shifting)
                 if (isVisibleScanline() && cycle >= 1 && cycle <= 256) {
                     produceBackgroundPixel();
+                    // After background pixel, overlay sprite pixel (simple priority rules)
+                    if ((regMASK & 0x10) != 0) { // sprites enabled
+                        overlaySpritePixel();
+                    }
                     // Shift after sampling (hardware shifts once per pixel after use)
                     shiftBackgroundRegisters();
                 }
@@ -268,7 +282,7 @@ public class Ppu2C02 implements PPU {
                 return value;
             }
             case 4: { // OAMDATA (stub)
-                return 0; // future: read OAM[oamAddr]
+                return oam[oamAddr & 0xFF] & 0xFF;
             }
             case 7: { // PPUDATA
                 int addr = vramAddress & 0x3FFF;
@@ -314,7 +328,7 @@ public class Ppu2C02 implements PPU {
                 logEarlyWrite(reg, value);
                 break;
             case 4: // OAMDATA (stub)
-                // future: write to OAM[oamAddr++]
+                oam[oamAddr & 0xFF] = (byte) value;
                 oamAddr = (oamAddr + 1) & 0xFF;
                 logEarlyWrite(reg, value);
                 break;
@@ -1122,5 +1136,75 @@ public class Ppu2C02 implements PPU {
             this.debugNmiLogLimit = limit;
         this.debugNmiLogCount = 0;
         System.out.printf("[PPU] NMI debug log enabled (limit=%d)\n", debugNmiLogLimit);
+    }
+
+    // --- Minimal sprite system (evaluation + per-pixel overlay) ---
+    private void evaluateSpritesForScanline() {
+        spriteCountThisLine = 0;
+        int sl = scanline;
+        int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8; // CTRL bit5 selects 8x16
+        for (int i = 0; i < 64 && spriteCountThisLine < 8; i++) {
+            int base = i * 4;
+            int y = oam[base] & 0xFF; // On real NES this is Y position minus 1; simplify: treat as direct
+            int top = y;
+            int bottom = y + spriteHeight - 1;
+            if (sl >= top && sl <= bottom) {
+                spriteIndices[spriteCountThisLine++] = i;
+            }
+        }
+    }
+
+    private void overlaySpritePixel() {
+        if (spriteCountThisLine == 0)
+            return;
+        int xPixel = simpleTiming ? (cycle - 1) : (cycle - 9);
+        if (xPixel < 0 || xPixel >= 256)
+            return;
+        int sl = scanline;
+        int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8;
+        for (int si = 0; si < spriteCountThisLine; si++) {
+            int spriteIndex = spriteIndices[si];
+            int base = spriteIndex * 4;
+            int y = oam[base] & 0xFF;
+            int tile = oam[base + 1] & 0xFF;
+            int attr = oam[base + 2] & 0xFF; // bits: 76543210 (7 VFlip,6 HFlip,5 Priority,2-0 Palette)
+            int x = oam[base + 3] & 0xFF;
+            if (xPixel < x || xPixel >= x + 8)
+                continue;
+            int rowInSprite = sl - y;
+            if (rowInSprite < 0 || rowInSprite >= spriteHeight)
+                continue;
+            boolean flipV = (attr & 0x80) != 0;
+            boolean flipH = (attr & 0x40) != 0;
+            int row = flipV ? (spriteHeight - 1 - rowInSprite) : rowInSprite;
+            // Pattern table selection for sprites: PPUCTRL bit3 for background, bit4 for
+            // sprites
+            int patternTable = ((regCTRL & 0x08) != 0) ? 0x1000 : 0x0000; // placeholder; refine using bit4 soon
+            if ((regCTRL & 0x10) != 0)
+                patternTable = 0x1000; // if bit4 set use upper table
+            int tileRow = row & 0x7;
+            int addrLo = patternTable + tile * 16 + tileRow;
+            int addrHi = addrLo + 8;
+            int lo = ppuMemoryRead(addrLo) & 0xFF;
+            int hi = ppuMemoryRead(addrHi) & 0xFF;
+            int colInSprite = xPixel - x;
+            int bit = flipH ? colInSprite : (7 - colInSprite);
+            int p0 = (lo >> bit) & 1;
+            int p1 = (hi >> bit) & 1;
+            int pattern = (p1 << 1) | p0;
+            if (pattern == 0)
+                continue; // transparent
+            int paletteGroup = attr & 0x03; // lower 2 bits select sprite palette group
+            int paletteIndex = palette.read(0x3F10 + paletteGroup * 4 + pattern);
+            int existingIndex = frameIndexBuffer[sl * 256 + xPixel] & 0x0F;
+            boolean bgTransparent = existingIndex == 0;
+            boolean spritePriorityFront = (attr & 0x20) == 0; // 0 = in front of background
+            if (bgTransparent || spritePriorityFront) {
+                frameIndexBuffer[sl * 256 + xPixel] = paletteIndex & 0x0F;
+                frameBuffer[sl * 256 + xPixel] = palette.getArgb(paletteIndex, regMASK);
+            }
+            // Stop after first opaque sprite pixel (no back-to-front compositing yet)
+            break;
+        }
     }
 }
