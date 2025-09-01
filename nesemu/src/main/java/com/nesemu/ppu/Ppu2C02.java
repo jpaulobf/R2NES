@@ -1162,6 +1162,14 @@ public class Ppu2C02 implements PPU {
             return;
         int sl = scanline;
         int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8;
+        // Respect left 8-pixel sprite clipping (PPUMASK bit2). If disabled and within
+        // left region, skip sprite processing entirely for this pixel.
+        if (xPixel < 8 && (regMASK & 0x04) == 0) {
+            return;
+        }
+        // Capture original background index BEFORE any sprite overlays for sprite 0 hit
+        // logic
+        int bgOriginal = frameIndexBuffer[sl * 256 + xPixel] & 0x0F;
         for (int si = 0; si < spriteCountThisLine; si++) {
             int spriteIndex = spriteIndices[si];
             int base = spriteIndex * 4;
@@ -1211,9 +1219,26 @@ public class Ppu2C02 implements PPU {
                 continue; // transparent
             int paletteGroup = attr & 0x03; // lower 2 bits select sprite palette group
             int paletteIndex = palette.read(0x3F10 + paletteGroup * 4 + pattern);
-            int existingIndex = frameIndexBuffer[sl * 256 + xPixel] & 0x0F;
+            int existingIndex = frameIndexBuffer[sl * 256 + xPixel] & 0x0F; // may have been modified by earlier sprites
             boolean bgTransparent = existingIndex == 0;
             boolean spritePriorityFront = (attr & 0x20) == 0; // 0 = in front of background
+            // Sprite 0 hit detection (STATUS bit6): occurs when sprite 0 opaque pixel
+            // overlaps
+            // a non-transparent background pixel. Must also honor left clipping bits when
+            // x<8.
+            if (spriteIndex == 0 && pattern != 0 && bgOriginal != 0) {
+                boolean allow = true;
+                if (xPixel < 8) {
+                    // Need both background left (bit1) and sprite left (bit2) enabled to register
+                    // hit
+                    if ((regMASK & 0x02) == 0 || (regMASK & 0x04) == 0) {
+                        allow = false;
+                    }
+                }
+                if (allow) {
+                    regSTATUS |= 0x40; // set sprite 0 hit
+                }
+            }
             if (bgTransparent || spritePriorityFront) {
                 frameIndexBuffer[sl * 256 + xPixel] = paletteIndex & 0x0F;
                 frameBuffer[sl * 256 + xPixel] = palette.getArgb(paletteIndex, regMASK);
