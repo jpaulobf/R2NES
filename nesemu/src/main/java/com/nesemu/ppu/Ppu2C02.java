@@ -45,7 +45,8 @@ public class Ppu2C02 implements PPU, Clockable {
     // Object Attribute Memory (64 sprites * 4 bytes)
     private final byte[] oam = new byte[256];
     // Sprite evaluation buffer: hardware draws max 8, but in extended (unlimited)
-    // mode we allow drawing up to 40 for debugging/visualization. Buffer sized for 40.
+    // mode we allow drawing up to 40 for debugging/visualization. Buffer sized for
+    // 40.
     private static final int HW_SPRITE_LIMIT = 8;
     private static final int EXTENDED_SPRITE_DRAW_LIMIT = 64; // extended debug: allow drawing all sprites on a scanline
     private final int[] spriteIndices = new int[EXTENDED_SPRITE_DRAW_LIMIT];
@@ -82,7 +83,8 @@ public class Ppu2C02 implements PPU, Clockable {
 
     // Frame buffer storing final 32-bit ARGB color and parallel index buffer
     private final int[] frameBuffer = new int[256 * 240]; // ARGB color
-    private final int[] frameIndexBuffer = new int[256 * 240]; // raw palette index (0..15 background)
+    private final int[] frameIndexBuffer = new int[256 * 240]; // composite (background then sprites)
+    private final int[] bgBaseIndexBuffer = new int[256 * 240]; // original background only (pre-sprite)
 
     // Synthetic test patterns
     private static final int TEST_NONE = 0;
@@ -142,6 +144,7 @@ public class Ppu2C02 implements PPU, Clockable {
         for (int i = 0; i < frameBuffer.length; i++) {
             frameBuffer[i] = 0xFF000000;
             frameIndexBuffer[i] = 0;
+            bgBaseIndexBuffer[i] = 0;
         }
     }
 
@@ -552,8 +555,10 @@ public class Ppu2C02 implements PPU, Clockable {
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
         int paletteIndex = (attr << 2) | pattern; // 0..15
-        int store = (pattern == 0) ? 0 : paletteIndex; // universal bg for transparent pattern
-        frameIndexBuffer[scanline * 256 + x] = store;
+        int store = (pattern == 0) ? 0 : paletteIndex; // 0 => transparent
+        int pos = scanline * 256 + x;
+        frameIndexBuffer[pos] = store; // initial background value (may be replaced by sprite)
+        bgBaseIndexBuffer[pos] = store; // immutable background reference
         int colorIndex = palette.read(0x3F00 + ((pattern == 0) ? 0 : paletteIndex));
         frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK);
         if ((debugBgSample || debugBgSampleAll) && debugBgSampleCount < debugBgSampleLimit) {
@@ -730,6 +735,13 @@ public class Ppu2C02 implements PPU, Clockable {
         if (x < 0 || x >= 256 || y < 0 || y >= 240)
             return 0;
         return frameIndexBuffer[y * 256 + x] & 0xFF;
+    }
+
+    // Background index before any sprite compositing
+    public int getRawBackgroundIndex(int x, int y) {
+        if (x < 0 || x >= 256 || y < 0 || y >= 240)
+            return 0;
+        return bgBaseIndexBuffer[y * 256 + x] & 0xFF;
     }
 
     public int[] getBackgroundIndexBufferCopy() {
@@ -1181,7 +1193,8 @@ public class Ppu2C02 implements PPU, Clockable {
                 spriteCountThisLine++;
             }
         }
-        // When not in extended mode, clamp exposed count back to hardware limit (tests rely on this)
+        // When not in extended mode, clamp exposed count back to hardware limit (tests
+        // rely on this)
         if (!unlimitedSprites && spriteCountThisLine > HW_SPRITE_LIMIT) {
             spriteCountThisLine = HW_SPRITE_LIMIT;
         }
@@ -1205,11 +1218,11 @@ public class Ppu2C02 implements PPU, Clockable {
         }
         // Capture original background index BEFORE any sprite overlays for sprite 0 hit
         // logic
-        int bgOriginal = frameIndexBuffer[sl * 256 + xPixel] & 0x0F;
-    // Determine how many sprites to actually draw this pixel. In extended mode we
-    // draw up to EXTENDED_SPRITE_DRAW_LIMIT (40). In hardware mode, only first 8.
-    int maxDraw = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
-    int drawCount = Math.min(spriteCountThisLine, Math.min(maxDraw, spriteIndices.length));
+        int bgOriginal = bgBaseIndexBuffer[sl * 256 + xPixel] & 0x0F; // original bg only
+        // Determine how many sprites to actually draw this pixel. In extended mode we
+        // draw up to EXTENDED_SPRITE_DRAW_LIMIT (40). In hardware mode, only first 8.
+        int maxDraw = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
+        int drawCount = Math.min(spriteCountThisLine, Math.min(maxDraw, spriteIndices.length));
         for (int si = 0; si < drawCount; si++) {
             int spriteIndex = spriteIndices[si];
             int base = spriteIndex * 4;
@@ -1259,9 +1272,8 @@ public class Ppu2C02 implements PPU, Clockable {
                 continue; // transparent
             int paletteGroup = attr & 0x03; // lower 2 bits select sprite palette group
             int paletteIndex = palette.read(0x3F10 + paletteGroup * 4 + pattern);
-            int existingIndex = frameIndexBuffer[sl * 256 + xPixel] & 0x0F; // may have been modified by earlier sprites
-            boolean bgTransparent = existingIndex == 0;
-            boolean spritePriorityFront = (attr & 0x20) == 0; // 0 = in front of background
+            boolean bgTransparent = bgOriginal == 0;
+            boolean spritePriorityFront = (attr & 0x20) == 0; // 0 front, 1 behind
             // Sprite 0 hit detection (STATUS bit6): occurs when sprite 0 opaque pixel
             // overlaps
             // a non-transparent background pixel. Must also honor left clipping bits when
@@ -1279,7 +1291,8 @@ public class Ppu2C02 implements PPU, Clockable {
                     regSTATUS |= 0x40; // set sprite 0 hit
                 }
             }
-            if (bgTransparent || spritePriorityFront) {
+            // Draw if sprite is front OR (sprite is behind AND background transparent)
+            if (spritePriorityFront || bgTransparent) {
                 frameIndexBuffer[sl * 256 + xPixel] = paletteIndex & 0x0F;
                 frameBuffer[sl * 256 + xPixel] = palette.getArgb(paletteIndex, regMASK);
             }
