@@ -44,8 +44,11 @@ public class Ppu2C02 implements PPU, Clockable {
     // $2004 OAMDATA (not implemented yet)
     // Object Attribute Memory (64 sprites * 4 bytes)
     private final byte[] oam = new byte[256];
-    // Sprite evaluation buffer (indices of up to 8 sprites on current scanline)
-    private final int[] spriteIndices = new int[8];
+    // Sprite evaluation buffer: hardware draws max 8, but in extended (unlimited)
+    // mode we allow drawing up to 40 for debugging/visualization. Buffer sized for 40.
+    private static final int HW_SPRITE_LIMIT = 8;
+    private static final int EXTENDED_SPRITE_DRAW_LIMIT = 64; // extended debug: allow drawing all sprites on a scanline
+    private final int[] spriteIndices = new int[EXTENDED_SPRITE_DRAW_LIMIT];
     private int spriteCountThisLine = 0;
     // Debug/feature flag: allow disabling the hardware 8-sprite-per-scanline limit
     private boolean unlimitedSprites = false;
@@ -1161,22 +1164,26 @@ public class Ppu2C02 implements PPU, Clockable {
         int sl = scanline;
         int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8; // CTRL bit5 selects 8x16
         boolean overflow = false;
+        int drawCapacity = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
         for (int i = 0; i < 64; i++) {
             int base = i * 4;
             int y = oam[base] & 0xFF; // simplified Y interpretation
             int top = y;
             int bottom = y + spriteHeight - 1;
             if (sl >= top && sl <= bottom) {
-                if (spriteCountThisLine < 8) {
+                // Hardware overflow flag triggers when 9th sprite (index >7) is found
+                if (spriteCountThisLine == HW_SPRITE_LIMIT) {
+                    overflow = true;
+                }
+                if (spriteCountThisLine < drawCapacity) {
                     spriteIndices[spriteCountThisLine] = i;
-                } else {
-                    overflow = true; // 9th sprite encountered
                 }
                 spriteCountThisLine++;
             }
         }
-        if (!unlimitedSprites && spriteCountThisLine > 8) {
-            spriteCountThisLine = 8; // enforce draw limit
+        // When not in extended mode, clamp exposed count back to hardware limit (tests rely on this)
+        if (!unlimitedSprites && spriteCountThisLine > HW_SPRITE_LIMIT) {
+            spriteCountThisLine = HW_SPRITE_LIMIT;
         }
         if (overflow) {
             regSTATUS |= 0x20; // set sprite overflow flag (bit5)
@@ -1199,11 +1206,10 @@ public class Ppu2C02 implements PPU, Clockable {
         // Capture original background index BEFORE any sprite overlays for sprite 0 hit
         // logic
         int bgOriginal = frameIndexBuffer[sl * 256 + xPixel] & 0x0F;
-        // In unlimited sprites mode, spriteCountThisLine may exceed the fixed
-        // spriteIndices buffer (size 8). Only the first 8 collected indices are
-        // drawable; the logical count (spriteCountThisLine) is still exposed for
-        // tests/inspection. Cap iteration to buffer length to avoid OOB.
-        int drawCount = Math.min(spriteCountThisLine, spriteIndices.length);
+    // Determine how many sprites to actually draw this pixel. In extended mode we
+    // draw up to EXTENDED_SPRITE_DRAW_LIMIT (40). In hardware mode, only first 8.
+    int maxDraw = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
+    int drawCount = Math.min(spriteCountThisLine, Math.min(maxDraw, spriteIndices.length));
         for (int si = 0; si < drawCount; si++) {
             int spriteIndex = spriteIndices[si];
             int base = spriteIndex * 4;
