@@ -1177,14 +1177,29 @@ public class Ppu2C02 implements PPU {
             boolean flipV = (attr & 0x80) != 0;
             boolean flipH = (attr & 0x40) != 0;
             int row = flipV ? (spriteHeight - 1 - rowInSprite) : rowInSprite;
-            // Pattern table selection for sprites: PPUCTRL bit3 for background, bit4 for
-            // sprites
-            int patternTable = ((regCTRL & 0x08) != 0) ? 0x1000 : 0x0000; // placeholder; refine using bit4 soon
-            if ((regCTRL & 0x10) != 0)
-                patternTable = 0x1000; // if bit4 set use upper table
-            int tileRow = row & 0x7;
-            int addrLo = patternTable + tile * 16 + tileRow;
-            int addrHi = addrLo + 8;
+
+            // --- Sprite pattern table selection ---
+            // 8x8 mode: PPUCTRL bit4 selects base table (0: $0000, 1: $1000) and tile is
+            // index
+            // 8x16 mode: bit4 ignored; bit0 of tile selects table (0:$0000,1:$1000),
+            // remaining 7 bits (tile & 0xFE) form base index for top half.
+            int addrLo;
+            int addrHi;
+            if (spriteHeight == 16) { // 8x16
+                int tableSelect = tile & 0x01; // pattern table chosen by bit0
+                int baseTileIndex = tile & 0xFE; // even index for top half
+                int half = row / 8; // 0 top, 1 bottom
+                int tileRow = row & 0x7; // row inside the selected 8x8 tile
+                int actualTile = baseTileIndex + half;
+                int patternTableBase = tableSelect * 0x1000;
+                addrLo = patternTableBase + actualTile * 16 + tileRow;
+                addrHi = addrLo + 8;
+            } else { // 8x8
+                int patternTableBase = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000);
+                int tileRow = row & 0x7;
+                addrLo = patternTableBase + tile * 16 + tileRow;
+                addrHi = addrLo + 8;
+            }
             int lo = ppuMemoryRead(addrLo) & 0xFF;
             int hi = ppuMemoryRead(addrHi) & 0xFF;
             int colInSprite = xPixel - x;
