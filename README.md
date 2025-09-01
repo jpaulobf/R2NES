@@ -75,6 +75,8 @@ java -jar target\nesemu-1.0-SNAPSHOT.jar --gui --hud roms\donkeykong.nes
 | `--frames=N` | Número de frames a simular em modo headless |
 | `--until-vblank` | Executa instruções até primeiro vblank (para testes iniciais) |
 | `--hud` | Exibe overlay (FPS, frame, scanline, ciclo, VRAM, MASK, STATUS, fineX) na GUI |
+| `--quiet` / `--no-debug` | Desliga logs verbosos (PPU writes, DMA, mudanças de MASK/CTRL, dumps de OAM) |
+| `--verbose` | Força reativação de logs verbosos (override caso futuro default seja silencioso) |
 
 Exemplos combinando diagnóstico:
 ```powershell
@@ -94,6 +96,28 @@ java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main --log-attr=300 --log-nt=
 |---------|----------|
 | `background.ppm` | PPM (nível de cinza por índice de palette ou padrão sintético) |
 | Console | Logs de pipeline, estatísticas, matriz de tiles, dumps de tiles |
+
+### Controle de verbosidade
+
+Por padrão o emulador inicia em modo verboso (mostrando vários `System.out` de debug: mudanças de registros PPU, DMA de OAM, dumps iniciais de sprites, etc). Para reduzir ruído durante execução de jogos:
+
+```powershell
+# Executar silencioso (desabilita grande parte dos prints de diagnóstico)
+java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --gui --quiet
+
+# Alias equivalente
+java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --no-debug
+
+# Reativar explicitamente (caso no futuro o default mude para silencioso)
+java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --verbose
+```
+
+Internamente:
+* `--quiet` / `--no-debug` chama `Ppu2C02.setVerboseLogging(false)` e `Bus.setGlobalVerbose(false)`.
+* Logs controlados incluem: `[PPU WR]`, alterações de MASK/CTRL, eventos de NMI forçado, dumps de DMA (`[CPU WR 4014]`, `[DMA OAM RAW]`, `[DMA OAM]`).
+* Logs explícitos solicitados por outras flags (ex: `--log-attr`, `--log-nt`, pipeline, samples) ainda aparecerão se você habilitar essas flags; use `--quiet` para suprimir somente o ruído padrão.
+
+Observação de precisão: o pipeline de sprites atualmente usa semântica de Y "direta" (valor de OAM é a linha superior do sprite) para alinhar com a suíte de testes. O hardware real armazena Y-1. Uma flag de compatibilidade poderá ser adicionada futuramente para alternar entre os modos.
 
 ## Notas de implementação
 

@@ -24,6 +24,21 @@ import com.nesemu.ppu.PpuRegs;
  */
 @SuppressWarnings("unused") // Allow defining full bit mask set even if some not yet referenced
 public class Ppu2C02 implements PPU, Clockable {
+    // Global verbose logging toggle (covers internal debug/instrumentation prints)
+    private static volatile boolean verboseLogging = true;
+
+    public static void setVerboseLogging(boolean enable) {
+        verboseLogging = enable;
+    }
+
+    public static boolean isVerboseLogging() {
+        return verboseLogging;
+    }
+
+    private static void vprintf(String fmt, Object... args) {
+        if (verboseLogging)
+            System.out.printf(fmt, args);
+    }
 
     // Optional CPU callback for NMI (set by Bus/emulator)
     private CPU cpu;
@@ -225,7 +240,7 @@ public class Ppu2C02 implements PPU, Clockable {
             if ((regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0) {
                 fireNmi();
             } else {
-                System.out.printf("[PPU VBL NO-NMI] frame=%d scan=%d cyc=%d ctrl=%02X\n", frame, scanline, cycle,
+                vprintf("[PPU VBL NO-NMI] frame=%d scan=%d cyc=%d ctrl=%02X\n", frame, scanline, cycle,
                         regCTRL & 0xFF);
             }
         } else if (scanline == -1 && cycle == 1) {
@@ -332,11 +347,11 @@ public class Ppu2C02 implements PPU, Clockable {
                 if (forceNmiEnable && (regCTRL & PpuRegs.CTRL_NMI_ENABLE) == 0) {
                     int before = regCTRL;
                     regCTRL |= PpuRegs.CTRL_NMI_ENABLE;
-                    System.out.printf("[PPU FORCE NMI] frame=%d scan=%d cyc=%d ctrl antes=%02X depois=%02X%n", frame,
+                    vprintf("[PPU FORCE NMI] frame=%d scan=%d cyc=%d ctrl antes=%02X depois=%02X%n", frame,
                             scanline, cycle, before & 0xFF, regCTRL & 0xFF);
                 }
                 if (((prevCTRL ^ regCTRL) & PpuRegs.CTRL_NMI_ENABLE) != 0) {
-                    System.out.printf("[PPU CTRL NMI CHG] frame=%d scan=%d cyc=%d nmi=%d prev=%02X new=%02X%n", frame,
+                    vprintf("[PPU CTRL NMI CHG] frame=%d scan=%d cyc=%d nmi=%d prev=%02X new=%02X%n", frame,
                             scanline, cycle,
                             (regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0 ? 1 : 0, prevCTRL & 0xFF, regCTRL & 0xFF);
                 }
@@ -353,17 +368,17 @@ public class Ppu2C02 implements PPU, Clockable {
                 if (forceBgEnable && (regMASK & 0x08) == 0) {
                     int before = regMASK;
                     regMASK |= 0x08;
-                    System.out.printf("[PPU FORCE BG] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
+                    vprintf("[PPU FORCE BG] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
                             scanline, cycle, before & 0xFF, regMASK & 0xFF);
                 }
                 if (forceSpriteEnable && (regMASK & 0x10) == 0) {
                     int before = regMASK;
                     regMASK |= 0x10;
-                    System.out.printf("[PPU FORCE SPR] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
+                    vprintf("[PPU FORCE SPR] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
                             scanline, cycle, before & 0xFF, regMASK & 0xFF);
                 }
                 if (changedBg || changedSpr) {
-                    System.out.printf("[PPU MASK CHG] frame=%d scan=%d cyc=%d -> BG=%d SPR=%d raw=%02X\n", frame,
+                    vprintf("[PPU MASK CHG] frame=%d scan=%d cyc=%d -> BG=%d SPR=%d raw=%02X\n", frame,
                             scanline, cycle,
                             (regMASK & 0x08) != 0 ? 1 : 0, (regMASK & 0x10) != 0 ? 1 : 0, regMASK & 0xFF);
                 }
@@ -437,7 +452,7 @@ public class Ppu2C02 implements PPU, Clockable {
 
     private void logEarlyWrite(int reg, int val) {
         if (LOG_EXTENDED || earlyWriteLogCount < EARLY_WRITE_LOG_LIMIT) {
-            System.out.printf("[PPU WR %02X] val=%02X frame=%d scan=%d cyc=%d v=%04X t=%04X fineX=%d%n",
+            vprintf("[PPU WR %02X] val=%02X frame=%d scan=%d cyc=%d v=%04X t=%04X fineX=%d%n",
                     0x2000 + (reg & 0x7), val & 0xFF, frame, scanline, cycle, vramAddress & 0x7FFF,
                     tempAddress & 0x7FFF, fineX);
             earlyWriteLogCount++;
@@ -652,7 +667,7 @@ public class Ppu2C02 implements PPU, Clockable {
         frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK);
         if ((debugBgSample || debugBgSampleAll) && debugBgSampleCount < debugBgSampleLimit) {
             // Log sample with enough context to reason about shift orientation
-            System.out.printf(
+            vprintf(
                     "[BG-SAMPLE] frame=%d scan=%d cyc=%d x=%d fineX=%d tap=%d patLoSh=%04X patHiSh=%04X attrLoSh=%04X attrHiSh=%04X nt=%02X at=%02X bits={%d%d attr=%d} palIdx=%X store=%X\n",
                     frame, scanline, cycle, x, fineX, 15 - (fineX & 7),
                     patternLowShift & 0xFFFF, patternHighShift & 0xFFFF,
@@ -793,7 +808,7 @@ public class Ppu2C02 implements PPU, Clockable {
                 if (nametableBaselineFilter >= 0 && value == nametableBaselineFilter)
                     pass = false;
                 if (pass && nametableLogCount < nametableLogLimit) {
-                    System.out.printf(
+                    vprintf(
                             "[PPU NT WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d index=%03X%n",
                             logicalBase, value & 0xFF, frame, scanline, cycle, table, physical, index);
                     nametableLogCount++;
@@ -801,7 +816,7 @@ public class Ppu2C02 implements PPU, Clockable {
             }
             if (isAttr && (LOG_ATTR || attrRuntimeLog)) {
                 if (!attrRuntimeLog || attrLogCount < attrLogLimit) {
-                    System.out.printf("[PPU ATTR WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d%n",
+                    vprintf("[PPU ATTR WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d%n",
                             logicalBase, value & 0xFF, frame, scanline, cycle, table, physical);
                     attrLogCount++;
                 }
@@ -1045,7 +1060,7 @@ public class Ppu2C02 implements PPU, Clockable {
         for (int i = 0; i < 16; i++) {
             int c = counts[i];
             if (c > 0) {
-                System.out.printf("%X: %d%n", i, c);
+                vprintf("%X: %d%n", i, c);
             }
         }
     }
@@ -1058,7 +1073,7 @@ public class Ppu2C02 implements PPU, Clockable {
     public void printNameTableTileIds(int logicalIndex) {
         if (logicalIndex < 0 || logicalIndex > 3)
             logicalIndex = 0;
-        System.out.printf("--- NameTable %d tile IDs ---\n", logicalIndex);
+        vprintf("--- NameTable %d tile IDs ---\n", logicalIndex);
         MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
         for (int row = 0; row < 30; row++) {
             StringBuilder sb = new StringBuilder();
@@ -1091,7 +1106,7 @@ public class Ppu2C02 implements PPU, Clockable {
         // Usa bit 4 (0x10) de PPUCTRL para seleção da pattern table de BACKGROUND
         // (igual ao pipeline)
         int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + tile * 16;
-        System.out.printf("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
+        vprintf("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
         for (int row = 0; row < 8; row++) {
             int lo = ppuMemoryRead(base + row) & 0xFF;
             int hi = ppuMemoryRead(base + row + 8) & 0xFF;
@@ -1126,7 +1141,7 @@ public class Ppu2C02 implements PPU, Clockable {
         this.debugBgSample = true;
         this.debugBgSampleLimit = (limit <= 0 ? 50 : limit);
         this.debugBgSampleCount = 0;
-        System.out.printf("[PPU] Background sample debug enabled (limit=%d)\n", this.debugBgSampleLimit);
+        vprintf("[PPU] Background sample debug enabled (limit=%d)\n", this.debugBgSampleLimit);
     }
 
     public void enableBackgroundSampleDebugAll(int limit) {
@@ -1134,7 +1149,7 @@ public class Ppu2C02 implements PPU, Clockable {
         this.debugBgSample = false; // prevalece modo ALL
         this.debugBgSampleLimit = (limit <= 0 ? 200 : limit);
         this.debugBgSampleCount = 0;
-        System.out.printf("[PPU] Background sample ALL debug enabled (limit=%d)\n", this.debugBgSampleLimit);
+        vprintf("[PPU] Background sample ALL debug enabled (limit=%d)\n", this.debugBgSampleLimit);
     }
 
     public void setSimpleTiming(boolean simple) {
@@ -1184,7 +1199,7 @@ public class Ppu2C02 implements PPU, Clockable {
         if (limit > 0)
             this.attrLogLimit = limit;
         this.attrLogCount = 0;
-        System.out.printf("[PPU] Attribute runtime logging enabled (limit=%d)\n", attrLogLimit);
+        vprintf("[PPU] Attribute runtime logging enabled (limit=%d)\n", attrLogLimit);
     }
 
     public void enableNametableRuntimeLog(int limit, int baselineFilter) {
@@ -1193,7 +1208,7 @@ public class Ppu2C02 implements PPU, Clockable {
             this.nametableLogLimit = limit;
         this.nametableLogCount = 0;
         this.nametableBaselineFilter = baselineFilter;
-        System.out.printf("[PPU] Nametable runtime logging enabled (limit=%d, baselineFilter=%s)\n", nametableLogLimit,
+        vprintf("[PPU] Nametable runtime logging enabled (limit=%d, baselineFilter=%s)\n", nametableLogLimit,
                 baselineFilter >= 0 ? String.format("%02X", baselineFilter) : "NONE");
     }
 
@@ -1211,7 +1226,7 @@ public class Ppu2C02 implements PPU, Clockable {
             for (int x = 0; x < 256 && printed < n; x++) {
                 int idx = frameIndexBuffer[y * 256 + x] & 0x0F;
                 if (idx != 0) {
-                    System.out.printf("[BG-SAMPLE-FALLBACK] frame=%d x=%d y=%d idx=%X\n", frame, x, y, idx);
+                    vprintf("[BG-SAMPLE-FALLBACK] frame=%d x=%d y=%d idx=%X\n", frame, x, y, idx);
                     printed++;
                 }
             }
@@ -1262,7 +1277,7 @@ public class Ppu2C02 implements PPU, Clockable {
         for (int t = 0; t < 32; t++) {
             int cnt = tileCounts[t];
             double pct = (cnt / 1920.0) * 100.0;
-            System.out.printf("T%02d=%4d (%.1f%%)  %s%n", t, cnt, pct, (t < 4 ? "<- esquerda 32px" : ""));
+            vprintf("T%02d=%4d (%.1f%%)  %s%n", t, cnt, pct, (t < 4 ? "<- esquerda 32px" : ""));
         }
     }
 
@@ -1293,7 +1308,7 @@ public class Ppu2C02 implements PPU, Clockable {
         if (limit > 0)
             this.debugNmiLogLimit = limit;
         this.debugNmiLogCount = 0;
-        System.out.printf("[PPU] NMI debug log enabled (limit=%d)\n", debugNmiLogLimit);
+        vprintf("[PPU] NMI debug log enabled (limit=%d)\n", debugNmiLogLimit);
     }
 
     // --- Minimal sprite system (evaluation + per-pixel overlay) ---
@@ -1305,7 +1320,8 @@ public class Ppu2C02 implements PPU, Clockable {
             for (int i = 0; i < 64; i++) {
                 int y = oam[i << 2] & 0xFF;
                 // Test-friendly semantics: treat stored Y as the actual top scanline.
-                // (Previously we added +1 to emulate hardware storing Y-1; unit tests assume direct Y.)
+                // (Previously we added +1 to emulate hardware storing Y-1; unit tests assume
+                // direct Y.)
                 int top = y & 0xFF;
                 int bottom = top + spriteHeight - 1;
                 spriteTop[i] = top;

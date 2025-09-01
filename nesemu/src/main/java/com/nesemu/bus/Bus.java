@@ -35,10 +35,12 @@ public class Bus implements NesBus {
     // --- Connected devices ---
     private CPU cpuRef;
     private PPU ppu; // PPU (register interface via $2000-$2007)
+    @SuppressWarnings("unused")
     private APU apu; // APU ($4000-$4017 subset) placeholder until APU implemented
     private Controller pad1; // Controller 1 ($4016)
     private Controller pad2; // Controller 2 ($4017, read side when not APU)
     private Mapper mapper; // Cartridge mapper for PRG / CHR
+    @SuppressWarnings("unused")
     private INesRom rom; // Raw iNES ROM (for potential direct CHR access later)
 
     // --- Test shadow for unmapped regions (0x2000-0x5FFF) ---
@@ -68,6 +70,23 @@ public class Bus implements NesBus {
     private boolean watchTriggered = false;
     private int watchTriggerCount = 0;
     private int watchReadLimit = 1;
+
+    // Global verbose logging toggle (shared concept with PPU) to silence bus
+    // diagnostics
+    private static volatile boolean globalVerbose = true;
+
+    public static void setGlobalVerbose(boolean enable) {
+        globalVerbose = enable;
+    }
+
+    public static boolean isGlobalVerbose() {
+        return globalVerbose;
+    }
+
+    private static void vprintf(String fmt, Object... args) {
+        if (globalVerbose)
+            System.out.printf(fmt, args);
+    }
 
     public void enablePpuRegLogging(int limit) {
         this.logPpuRegs = true;
@@ -143,8 +162,8 @@ public class Bus implements NesBus {
             }
             int reg = 0x2000 + (address & 0x7);
             int value = readPpuRegister(reg) & 0xFF;
-            if (logPpuRegs && ppuRegLogCount < ppuRegLogLimit) {
-                System.out.printf("[PPU REG RD] %04X = %02X frame=%d scan=%d cyc=%d\n", reg, value, getPpuFrame(),
+            if (logPpuRegs && ppuRegLogCount < ppuRegLogLimit && globalVerbose) {
+                vprintf("[PPU REG RD] %04X = %02X frame=%d scan=%d cyc=%d\n", reg, value, getPpuFrame(),
                         getPpuScanline(), getPpuCycle());
                 ppuRegLogCount++;
             }
@@ -152,7 +171,7 @@ public class Bus implements NesBus {
                 watchTriggerCount++;
                 watchTriggered = true;
                 if (watchTriggerCount <= watchReadLimit) {
-                    System.out.printf("[WATCH READ HIT] addr=%04X count=%d frame=%d scan=%d cyc=%d val=%02X\n", reg,
+                    vprintf("[WATCH READ HIT] addr=%04X count=%d frame=%d scan=%d cyc=%d val=%02X\n", reg,
                             watchTriggerCount, getPpuFrame(), getPpuScanline(), getPpuCycle(), value);
                 }
             }
@@ -181,8 +200,8 @@ public class Bus implements NesBus {
         } else if (address < 0x4000) {
             if (ppu != null) {
                 int regFull = 0x2000 + (address & 0x7);
-                if (logPpuRegs && ppuRegLogCount < ppuRegLogLimit) {
-                    System.out.printf("[PPU REG WR] %04X = %02X frame=%d scan=%d cyc=%d\n", regFull, value & 0xFF,
+                if (logPpuRegs && ppuRegLogCount < ppuRegLogLimit && globalVerbose) {
+                    vprintf("[PPU REG WR] %04X = %02X frame=%d scan=%d cyc=%d\n", regFull, value & 0xFF,
                             getPpuFrame(), getPpuScanline(), getPpuCycle());
                     ppuRegLogCount++;
                 }
@@ -213,8 +232,10 @@ public class Bus implements NesBus {
         } else if (address == 0x4014) {
             // OAM DMA trigger: value is high page of source address (value * 0x100)
             pendingDmaPage = value;
-            System.out.printf("[CPU WR 4014] page=%02X frame=%d scan=%d cyc=%d\n", value & 0xFF, getPpuFrame(),
-                    getPpuScanline(), getPpuCycle());
+            if (globalVerbose) {
+                vprintf("[CPU WR 4014] page=%02X frame=%d scan=%d cyc=%d\n", value & 0xFF, getPpuFrame(),
+                        getPpuScanline(), getPpuCycle());
+            }
             performOamDma();
             return;
         } else if (address < 0x4020) {
@@ -260,13 +281,14 @@ public class Bus implements NesBus {
             return; // nothing queued
         }
         if (ppu == null) {
-            System.out.printf("[DMA OAM SKIP] page=%02X motivo=PPU-null\n", pendingDmaPage & 0xFF);
+            if (globalVerbose)
+                vprintf("[DMA OAM SKIP] page=%02X motivo=PPU-null\n", pendingDmaPage & 0xFF);
             pendingDmaPage = -1;
             return;
         }
         boolean haveCpu = (cpuRef != null);
-        if (!haveCpu) {
-            System.out.printf("[DMA OAM WARN] page=%02X CPU-ref ausente (sem stall)\n", pendingDmaPage & 0xFF);
+        if (!haveCpu && globalVerbose) {
+            vprintf("[DMA OAM WARN] page=%02X CPU-ref ausente (sem stall)\n", pendingDmaPage & 0xFF);
         }
         int base = (pendingDmaPage & 0xFF) << 8;
         int[] firstBytes = new int[32];
@@ -284,25 +306,29 @@ public class Bus implements NesBus {
             }
         }
         // Raw dump (8 sprites * 4 bytes) independent of reflection helper success
-        System.out.printf("[DMA OAM RAW] page=%02X bytes0-31:", pendingDmaPage & 0xFF);
-        for (int i = 0; i < firstBytes.length; i++) {
-            if (i % 16 == 0)
-                System.out.print("\n  ");
-            System.out.printf("%02X ", firstBytes[i]);
+        if (globalVerbose) {
+            vprintf("[DMA OAM RAW] page=%02X bytes0-31:", pendingDmaPage & 0xFF);
+            for (int i = 0; i < firstBytes.length; i++) {
+                if (i % 16 == 0)
+                    System.out.print("\n  ");
+                vprintf("%02X ", firstBytes[i]);
+            }
+            System.out.println();
         }
-        System.out.println();
         // Após cópia, logar primeiros sprites para diagnóstico (máx 8)
         try {
             byte[] oamDump = (byte[]) ppu.getClass().getMethod("getOamCopy").invoke(ppu);
             int spritesToShow = 8;
-            System.out.printf("[DMA OAM] page=%02X primeiros %d sprites:\n", pendingDmaPage & 0xFF, spritesToShow);
-            for (int i = 0; i < spritesToShow; i++) {
-                int off = i * 4;
-                int y = oamDump[off] & 0xFF;
-                int tile = oamDump[off + 1] & 0xFF;
-                int attr = oamDump[off + 2] & 0xFF;
-                int x = oamDump[off + 3] & 0xFF;
-                System.out.printf("  #%02d Y=%02X tile=%02X attr=%02X X=%02X\n", i, y, tile, attr, x);
+            if (globalVerbose) {
+                vprintf("[DMA OAM] page=%02X primeiros %d sprites:\n", pendingDmaPage & 0xFF, spritesToShow);
+                for (int i = 0; i < spritesToShow; i++) {
+                    int off = i * 4;
+                    int y = oamDump[off] & 0xFF;
+                    int tile = oamDump[off + 1] & 0xFF;
+                    int attr = oamDump[off + 2] & 0xFF;
+                    int x = oamDump[off + 3] & 0xFF;
+                    vprintf("  #%02d Y=%02X tile=%02X attr=%02X X=%02X\n", i, y, tile, attr, x);
+                }
             }
         } catch (Exception e) {
             // ignore if accessor missing

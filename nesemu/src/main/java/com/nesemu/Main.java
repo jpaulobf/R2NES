@@ -41,9 +41,11 @@ public class Main {
         Integer ntBaseline = null; // filtrar valor repetitivo
         boolean forceBg = false; // força bit 3 do PPUMASK
         boolean bgColStats = false; // imprime estatísticas de colunas
-    boolean hud = false; // exibe HUD na GUI
-    String testPattern = null; // modos: h, v, checker
-    int pipeLogLimit = 0; // ativa log do pipeline de fetch de background
+        boolean hud = false; // exibe HUD na GUI
+        String testPattern = null; // modos: h, v, checker
+        int pipeLogLimit = 0; // ativa log do pipeline de fetch de background
+        boolean quiet = false; // desabilita logs verbosos
+        Boolean verboseFlag = null; // se usuário força verbose
         for (String a : args) {
             if (a.equalsIgnoreCase("--gui"))
                 gui = true;
@@ -161,6 +163,12 @@ public class Main {
                 } else {
                     pipeLogLimit = 400; // default se não informado
                 }
+            } else if (a.equalsIgnoreCase("--quiet")) {
+                quiet = true;
+            } else if (a.equalsIgnoreCase("--no-debug")) {
+                quiet = true;
+            } else if (a.equalsIgnoreCase("--verbose")) {
+                verboseFlag = Boolean.TRUE;
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
@@ -174,11 +182,20 @@ public class Main {
         System.out.println("Carregando ROM: " + p.toAbsolutePath());
         INesRom rom = RomLoader.load(p);
         NesEmulator emu = new NesEmulator(rom);
+        // Aplicar política de verbosidade
+        if (quiet) {
+            com.nesemu.ppu.Ppu2C02.setVerboseLogging(false);
+            com.nesemu.bus.Bus.setGlobalVerbose(false);
+        } else if (verboseFlag != null && verboseFlag) {
+            com.nesemu.ppu.Ppu2C02.setVerboseLogging(true);
+            com.nesemu.bus.Bus.setGlobalVerbose(true);
+        }
         if (tileMatrixMode != null) {
             emu.getPpu().setTileMatrixMode(tileMatrixMode);
             System.out.println("Tile matrix mode: " + tileMatrixMode);
         }
-        // Se solicitou pipe-log e nenhum modo de tile matrix foi especificado, usar 'center'
+        // Se solicitou pipe-log e nenhum modo de tile matrix foi especificado, usar
+        // 'center'
         if (pipeLogLimit > 0 && tileMatrixMode == null) {
             emu.getPpu().setTileMatrixMode("center");
             System.out.println("[PIPE-LOG] Ajustando tileMatrixMode=center para mostrar pixels centrais.");
