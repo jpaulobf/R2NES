@@ -32,7 +32,8 @@ public class PPUSpritePriorityTest {
         // We will sample pixel x=8 (not x=0) because pipeline needs 8 shifts for
         // freshly
         // loaded pattern bits (in low byte) to reach the tap position.
-    // Pattern table base for BG depende agora do bit4 (0x10); valor inicial 0 => BG usa $0000.
+        // Pattern table base for BG depende agora do bit4 (0x10); valor inicial 0 => BG
+        // usa $0000.
         // Set one bit in low and high plane so pattern !=0.
         // Make tile 0 and tile 1 row0 fully opaque (pattern=1 for all 8 pixels) so
         // pixel x=8 is guaranteed non-zero
@@ -72,8 +73,9 @@ public class PPUSpritePriorityTest {
         bus.attachCPU(cpu);
         p.reset();
         p.writeRegister(1, 0x18);
-    // Usar pattern table separada para sprites (bit3=1 -> sprites em $1000) sem mudar BG (bit4=0 -> BG em $0000)
-    p.writeRegister(0, 0x08); // bit3=1, bit4=0
+        // Usar pattern table separada para sprites (bit3=1 -> sprites em $1000) sem
+        // mudar BG (bit4=0 -> BG em $0000)
+        p.writeRegister(0, 0x08); // bit3=1, bit4=0
         // Background tile 0 pattern bytes remain all zero -> background transparent at
         // (0,0).
         // Configure sprite 0 at (8,0) with behind priority; it should appear because BG

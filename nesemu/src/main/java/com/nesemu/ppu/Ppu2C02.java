@@ -123,9 +123,7 @@ public class Ppu2C02 implements PPU, Clockable {
 
     // Latches
     private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
-    // Shift-right mode: marcamos se já aplicamos o fineX no primeiro tile do
-    // scanline
-    private boolean firstTileReloadDone = false;
+    // Left-shift mode: fineX used as tap offset (no pre-shift flag needed)
     // Raw background palette index per pixel (0..15) stored for tests (pattern 0 ->
     // 0)
     // Already used internally in produceBackgroundPixel; accessor added below.
@@ -153,7 +151,7 @@ public class Ppu2C02 implements PPU, Clockable {
         patternLowShift = patternHighShift = 0;
         attributeLowShift = attributeHighShift = 0;
         ntLatch = atLatch = patternLowLatch = patternHighLatch = 0;
-        firstTileReloadDone = false;
+        // no per-scanline pre-shift flag to reset
         // firstTileReady / scanlinePixelCounter removed
         for (int i = 0; i < frameBuffer.length; i++) {
             frameBuffer[i] = 0xFF000000;
@@ -169,7 +167,7 @@ public class Ppu2C02 implements PPU, Clockable {
         if (cycle > 340) {
             cycle = 0;
             scanline++;
-            firstTileReloadDone = false; // reinicia para novo scanline
+            // new scanline (nothing to reset for left-shift pipeline)
             if (isVisibleScanline()) {
                 publishPreparedSpritesForCurrentLine();
             } else if (scanline == 240) { // post-render
@@ -620,11 +618,12 @@ public class Ppu2C02 implements PPU, Clockable {
             frameIndexBuffer[scanline * 256 + x] = 0;
             return;
         }
-        // Alternative B (shift-right): current pixel always lives at bit0
-        int bit0 = patternLowShift & 0x1;
-        int bit1 = patternHighShift & 0x1;
-        int attrLow = attributeLowShift & 0x1; // static (not shifted)
-        int attrHigh = attributeHighShift & 0x1; // static (not shifted)
+        // Left-shift model: pixel bits reside at (15 - fineX)
+        int tap = 15 - (fineX & 7);
+        int bit0 = (patternLowShift >> tap) & 0x1;
+        int bit1 = (patternHighShift >> tap) & 0x1;
+        int attrLow = (attributeLowShift >> tap) & 0x1;
+        int attrHigh = (attributeHighShift >> tap) & 0x1;
         int pattern = (bit1 << 1) | bit0;
         int attr = (attrHigh << 1) | attrLow;
         int paletteIndex = (attr << 2) | pattern; // 0..15
@@ -648,12 +647,11 @@ public class Ppu2C02 implements PPU, Clockable {
     }
 
     private void loadShiftRegisters() {
-        int pl = patternLowLatch & 0xFF;
-        int ph = patternHighLatch & 0xFF;
-        // Alternative B: shift-right model.
-        // Reverse bits so leftmost pixel (original bit7) becomes bit0 consumed first.
-        patternLowShift = reverseByte(pl) & 0x00FF;
-        patternHighShift = reverseByte(ph) & 0x00FF;
+        // Load freshly fetched pattern bytes into low 8 bits; keep existing high 8
+        // (already shifting toward bit15)
+        patternLowShift = (patternLowShift & 0xFF00) | (patternLowLatch & 0xFF);
+        patternHighShift = (patternHighShift & 0xFF00) | (patternHighLatch & 0xFF);
+        // Attribute quadrant selection
         int coarseX = vramAddress & 0x1F;
         int coarseY = (vramAddress >> 5) & 0x1F;
         int quadSelector = ((coarseY & 0x02) << 1) | (coarseX & 0x02); // 0,2,4,6
@@ -678,26 +676,15 @@ public class Ppu2C02 implements PPU, Clockable {
         int attributeBits = (atLatch >> shift) & 0x03;
         int lowBit = attributeBits & 0x01;
         int highBit = (attributeBits >> 1) & 0x01;
-        // Static attribute bits at bit0 (no shift). Pattern shift-right consumption
-        // keeps them stable.
-        attributeLowShift = (lowBit != 0 ? 0x0001 : 0x0000);
-        attributeHighShift = (highBit != 0 ? 0x0001 : 0x0000);
-        // Aplicar fineX apenas uma vez no primeiro tile visível do scanline.
-        if (!firstTileReloadDone && isVisibleScanline() && cycle <= 8) {
-            int fx = fineX & 0x7;
-            if (fx != 0) {
-                patternLowShift >>>= fx;
-                patternHighShift >>>= fx;
-            }
-            firstTileReloadDone = true;
-        }
+        attributeLowShift = (attributeLowShift & 0xFF00) | (lowBit != 0 ? 0x00FF : 0x0000);
+        attributeHighShift = (attributeHighShift & 0xFF00) | (highBit != 0 ? 0x00FF : 0x0000);
     }
 
     private void shiftBackgroundRegisters() {
-        // Shift-right consumption (one pixel per cycle)
-        patternLowShift = (patternLowShift >>> 1) & 0x00FF;
-        patternHighShift = (patternHighShift >>> 1) & 0x00FF;
-        // Attributes static (bit0 sampled every pixel)
+        patternLowShift = ((patternLowShift << 1) & 0xFFFF);
+        patternHighShift = ((patternHighShift << 1) & 0xFFFF);
+        attributeLowShift = ((attributeLowShift << 1) & 0xFFFF);
+        attributeHighShift = ((attributeHighShift << 1) & 0xFFFF);
     }
 
     // --- Pipeline diagnostics ---
@@ -723,13 +710,7 @@ public class Ppu2C02 implements PPU, Clockable {
     }
 
     // --- Utility: reverse 8-bit value (bit7<->bit0) ---
-    private static int reverseByte(int b) {
-        b &= 0xFF;
-        b = ((b & 0xF0) >>> 4) | ((b & 0x0F) << 4);
-        b = ((b & 0xCC) >>> 2) | ((b & 0x33) << 2);
-        b = ((b & 0xAA) >>> 1) | ((b & 0x55) << 1);
-        return b & 0xFF;
-    }
+    // reverseByte removed (not required for left-shift orientation)
 
     // (No priming helper in accurate pipeline mode)
 
