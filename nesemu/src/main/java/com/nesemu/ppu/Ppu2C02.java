@@ -224,6 +224,9 @@ public class Ppu2C02 implements PPU, Clockable {
             nmiFiredThisVblank = false;
             if ((regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0) {
                 fireNmi();
+            } else {
+                System.out.printf("[PPU VBL NO-NMI] frame=%d scan=%d cyc=%d ctrl=%02X\n", frame, scanline, cycle,
+                        regCTRL & 0xFF);
             }
         } else if (scanline == -1 && cycle == 1) {
             regSTATUS &= ~PpuRegs.STATUS_VBLANK; // clear VBlank
@@ -324,19 +327,45 @@ public class Ppu2C02 implements PPU, Clockable {
         value &= 0xFF;
         switch (reg & 0x7) {
             case 0: // $2000 PPUCTRL
+                int prevCTRL = regCTRL;
                 regCTRL = value;
+                if (forceNmiEnable && (regCTRL & PpuRegs.CTRL_NMI_ENABLE) == 0) {
+                    int before = regCTRL;
+                    regCTRL |= PpuRegs.CTRL_NMI_ENABLE;
+                    System.out.printf("[PPU FORCE NMI] frame=%d scan=%d cyc=%d ctrl antes=%02X depois=%02X%n", frame,
+                            scanline, cycle, before & 0xFF, regCTRL & 0xFF);
+                }
+                if (((prevCTRL ^ regCTRL) & PpuRegs.CTRL_NMI_ENABLE) != 0) {
+                    System.out.printf("[PPU CTRL NMI CHG] frame=%d scan=%d cyc=%d nmi=%d prev=%02X new=%02X%n", frame,
+                            scanline, cycle,
+                            (regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0 ? 1 : 0, prevCTRL & 0xFF, regCTRL & 0xFF);
+                }
                 tempAddress = (tempAddress & 0x73FF) | ((value & 0x03) << 10); // nametable bits into t
                 // Sprite height (bit5) change invalidates cached ranges
                 spriteRangesDirty = true;
                 logEarlyWrite(reg, value);
                 break;
             case 1: // $2001 PPUMASK
+                int prevMask = regMASK;
                 regMASK = value;
+                boolean changedBg = ((prevMask ^ regMASK) & 0x08) != 0;
+                boolean changedSpr = ((prevMask ^ regMASK) & 0x10) != 0;
                 if (forceBgEnable && (regMASK & 0x08) == 0) {
                     int before = regMASK;
                     regMASK |= 0x08;
                     System.out.printf("[PPU FORCE BG] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
                             scanline, cycle, before & 0xFF, regMASK & 0xFF);
+                }
+                if (forceSpriteEnable && (regMASK & 0x10) == 0) {
+                    int before = regMASK;
+                    regMASK |= 0x10;
+                    System.out.printf("[PPU FORCE SPR] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
+                            scanline, cycle, before & 0xFF, regMASK & 0xFF);
+                }
+                if (changedBg || changedSpr) {
+                    System.out.printf("[PPU MASK CHG] frame=%d scan=%d cyc=%d -> BG=%d SPR=%d raw=%02X\n", frame,
+                            scanline, cycle,
+                            (regMASK & 0x08) != 0 ? 1 : 0, (regMASK & 0x10) != 0 ? 1 : 0, regMASK & 0xFF);
                 }
                 logEarlyWrite(reg, value);
                 break; // removed mid-scanline priming hack
@@ -1239,10 +1268,24 @@ public class Ppu2C02 implements PPU, Clockable {
 
     // Força habilitar background independentemente do valor escrito em $2001
     private boolean forceBgEnable = false;
+    // Força habilitar sprites independentemente do valor escrito em $2001
+    private boolean forceSpriteEnable = false;
+    // Força habilitar NMI mesmo se bit não setado pelo jogo
+    private boolean forceNmiEnable = false;
 
     public void setForceBackgroundEnable(boolean enable) {
         this.forceBgEnable = enable;
         System.out.println("[PPU] forceBgEnable=" + enable);
+    }
+
+    public void setForceSpriteEnable(boolean enable) {
+        this.forceSpriteEnable = enable;
+        System.out.println("[PPU] forceSpriteEnable=" + enable);
+    }
+
+    public void setForceNmiEnable(boolean enable) {
+        this.forceNmiEnable = enable;
+        System.out.println("[PPU] forceNmiEnable=" + enable);
     }
 
     public void enableNmiDebugLog(int limit) {
@@ -1261,8 +1304,10 @@ public class Ppu2C02 implements PPU, Clockable {
         if (spriteRangesDirty || spriteHeight != cachedSpriteHeight) {
             for (int i = 0; i < 64; i++) {
                 int y = oam[i << 2] & 0xFF;
-                spriteTop[i] = y;
-                spriteBottom[i] = y + spriteHeight - 1;
+                int top = (y + 1) & 0xFF; // NES armazena Y-1
+                int bottom = top + spriteHeight - 1;
+                spriteTop[i] = top;
+                spriteBottom[i] = bottom;
             }
             spriteRangesDirty = false;
             cachedSpriteHeight = spriteHeight;
@@ -1331,7 +1376,7 @@ public class Ppu2C02 implements PPU, Clockable {
             int x = oam[base + 3] & 0xFF;
             if (xPixel < x || xPixel >= x + 8)
                 continue;
-            int rowInSprite = sl - y;
+            int rowInSprite = sl - ((y + 1) & 0xFF); // ajustar Y-1
             if (rowInSprite < 0 || rowInSprite >= spriteHeight)
                 continue;
             boolean flipV = (attr & 0x80) != 0;
@@ -1410,5 +1455,18 @@ public class Ppu2C02 implements PPU, Clockable {
      */
     public int getSecondaryOamPreparedLine() {
         return preparedLine;
+    }
+
+    // --- OAM inspection helpers ---
+    /** Retorna cópia dos 256 bytes de OAM. */
+    public byte[] getOamCopy() {
+        byte[] c = new byte[oam.length];
+        System.arraycopy(oam, 0, c, 0, oam.length);
+        return c;
+    }
+
+    /** Lê byte individual de OAM. */
+    public int getOamByte(int index) {
+        return oam[index & 0xFF] & 0xFF;
     }
 }

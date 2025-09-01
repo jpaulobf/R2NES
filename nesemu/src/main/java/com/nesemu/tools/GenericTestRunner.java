@@ -332,5 +332,10 @@ public class GenericTestRunner {
             }
             System.out.println("First ops sample:\n" + firstOps.toString());
         }
+
+        @Override
+        public void attachCPU(CPU cpu) {
+            throw new UnsupportedOperationException("Unimplemented method 'attachCPU'");
+        }
     }
 }

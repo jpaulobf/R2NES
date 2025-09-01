@@ -97,6 +97,7 @@ public class CPU implements NesCPU, Clockable {
      */
     public CPU(NesBus bus) {
         this.busRef = bus;
+        bus.attachCPU(this);
         reset();
     }
 

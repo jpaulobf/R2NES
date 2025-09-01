@@ -213,6 +213,8 @@ public class Bus implements NesBus {
         } else if (address == 0x4014) {
             // OAM DMA trigger: value is high page of source address (value * 0x100)
             pendingDmaPage = value;
+            System.out.printf("[CPU WR 4014] page=%02X frame=%d scan=%d cyc=%d\n", value & 0xFF, getPpuFrame(),
+                    getPpuScanline(), getPpuCycle());
             performOamDma();
             return;
         } else if (address < 0x4020) {
@@ -254,15 +256,26 @@ public class Bus implements NesBus {
 
     /** Perform OAM DMA immediately (blocking copy of 256 bytes). */
     private void performOamDma() {
-        if (pendingDmaPage < 0 || ppu == null || cpuRef == null) {
+        if (pendingDmaPage < 0) {
+            return; // nothing queued
+        }
+        if (ppu == null) {
+            System.out.printf("[DMA OAM SKIP] page=%02X motivo=PPU-null\n", pendingDmaPage & 0xFF);
             pendingDmaPage = -1;
             return;
         }
+        boolean haveCpu = (cpuRef != null);
+        if (!haveCpu) {
+            System.out.printf("[DMA OAM WARN] page=%02X CPU-ref ausente (sem stall)\n", pendingDmaPage & 0xFF);
+        }
         int base = (pendingDmaPage & 0xFF) << 8;
+        int[] firstBytes = new int[32];
         // Copy 256 bytes from CPU memory space (using cpuRead for mapper/RAM
         // visibility)
         for (int i = 0; i < 256; i++) {
             int val = cpuRead(base + i);
+            if (i < firstBytes.length)
+                firstBytes[i] = val & 0xFF;
             try {
                 ppu.getClass().getMethod("dmaOamWrite", int.class, int.class).invoke(ppu, i, val & 0xFF);
             } catch (Exception e) {
@@ -270,17 +283,42 @@ public class Bus implements NesBus {
                 break;
             }
         }
+        // Raw dump (8 sprites * 4 bytes) independent of reflection helper success
+        System.out.printf("[DMA OAM RAW] page=%02X bytes0-31:", pendingDmaPage & 0xFF);
+        for (int i = 0; i < firstBytes.length; i++) {
+            if (i % 16 == 0)
+                System.out.print("\n  ");
+            System.out.printf("%02X ", firstBytes[i]);
+        }
+        System.out.println();
+        // Após cópia, logar primeiros sprites para diagnóstico (máx 8)
+        try {
+            byte[] oamDump = (byte[]) ppu.getClass().getMethod("getOamCopy").invoke(ppu);
+            int spritesToShow = 8;
+            System.out.printf("[DMA OAM] page=%02X primeiros %d sprites:\n", pendingDmaPage & 0xFF, spritesToShow);
+            for (int i = 0; i < spritesToShow; i++) {
+                int off = i * 4;
+                int y = oamDump[off] & 0xFF;
+                int tile = oamDump[off + 1] & 0xFF;
+                int attr = oamDump[off + 2] & 0xFF;
+                int x = oamDump[off + 3] & 0xFF;
+                System.out.printf("  #%02d Y=%02X tile=%02X attr=%02X X=%02X\n", i, y, tile, attr, x);
+            }
+        } catch (Exception e) {
+            // ignore if accessor missing
+        }
         // Stall CPU: 513 cycles normally, +1 if current CPU total cycles is odd (i.e.,
         // if DMA
         // started on an odd CPU cycle). We approximate by inspecting
         // cpuRef.getTotalCycles().
-        long cpuCycles = cpuRef.getTotalCycles();
-        int stall = 513 + ((cpuCycles & 1) != 0 ? 1 : 0);
-        // Via public API addDmaStall
-        try {
-            cpuRef.getClass().getMethod("addDmaStall", int.class).invoke(cpuRef, stall);
-        } catch (Exception e) {
-            // ignore
+        if (haveCpu) {
+            long cpuCycles = cpuRef.getTotalCycles();
+            int stall = 513 + ((cpuCycles & 1) != 0 ? 1 : 0);
+            try {
+                cpuRef.getClass().getMethod("addDmaStall", int.class).invoke(cpuRef, stall);
+            } catch (Exception e) {
+                // ignore
+            }
         }
         pendingDmaPage = -1;
     }
