@@ -53,6 +53,16 @@ public class Ppu2C02 implements PPU, Clockable {
     private int spriteCountThisLine = 0;
     // Debug/feature flag: allow disabling the hardware 8-sprite-per-scanline limit
     private boolean unlimitedSprites = false;
+    // Cached sprite vertical ranges (top/bottom) to avoid recomputing each scanline
+    private final int[] spriteTop = new int[64];
+    private final int[] spriteBottom = new int[64];
+    private boolean spriteRangesDirty = true;
+    private int cachedSpriteHeight = -1;
+    // Secondary OAM simulation and prepared sprite list for next scanline
+    private final byte[] secondaryOam = new byte[32]; // 8 sprites * 4 bytes
+    private final int[] preparedSpriteIndices = new int[EXTENDED_SPRITE_DRAW_LIMIT];
+    private int preparedSpriteCount = 0;
+    private int preparedLine = -2; // which scanline the prepared list corresponds to
     // $2005 PPUSCROLL (x,y latch)
     // $2006 PPUADDR (VRAM address latch)
     // $2007 PPUDATA
@@ -155,11 +165,15 @@ public class Ppu2C02 implements PPU, Clockable {
         if (cycle > 340) {
             cycle = 0;
             scanline++;
+            if (isVisibleScanline()) {
+                publishPreparedSpritesForCurrentLine();
+            } else if (scanline == 240) { // post-render
+                spriteCountThisLine = 0;
+            }
             if (scanline > 260) {
                 scanline = -1; // wrap to pre-render
                 frame++;
                 if (DEBUG) {
-                    // Dump first 32 background indices of scanline 0 for debugging
                     StringBuilder sb = new StringBuilder();
                     sb.append("[PPU] First scanline indices: ");
                     for (int i = 0; i < 32; i++) {
@@ -168,8 +182,6 @@ public class Ppu2C02 implements PPU, Clockable {
                     System.out.println(sb.toString());
                 }
             }
-            // New visible scanline: reset pixel counters
-            // no per-scanline pixel counter reset needed now
         }
 
         // Odd frame cycle skip (short frame): skip cycle 340 on pre-render line (-1)
@@ -182,12 +194,18 @@ public class Ppu2C02 implements PPU, Clockable {
             return;
         }
 
-        // Sprite evaluation at start of each visible scanline (very simplified)
-        if (isVisibleScanline() && cycle == 0) {
-            evaluateSpritesForScanline();
+        // Sprite evaluation pipeline: prepare NEXT visible scanline at cycle 257
+        if ((isVisibleScanline() || isPreRender()) && cycle == 257) {
+            int target = isPreRender() ? 0 : (scanline + 1);
+            if (target >= 0 && target <= 239) {
+                evaluateSpritesForLine(target);
+            } else {
+                preparedSpriteCount = 0;
+                preparedLine = target;
+            }
         }
 
-        // (No priming hack) – rely on 8‑cycle pipeline latency.
+        // (No priming hack) – rely on pipeline latency.
 
         // Enter vblank at scanline 241, cycle 1 (NES spec; some docs cite cycle 0)
         if (scanline == 241 && cycle == 1) {
@@ -318,6 +336,8 @@ public class Ppu2C02 implements PPU, Clockable {
             case 0: // $2000 PPUCTRL
                 regCTRL = value;
                 tempAddress = (tempAddress & 0x73FF) | ((value & 0x03) << 10); // nametable bits into t
+                // Sprite height (bit5) change invalidates cached ranges
+                spriteRangesDirty = true;
                 logEarlyWrite(reg, value);
                 break;
             case 1: // $2001 PPUMASK
@@ -339,6 +359,8 @@ public class Ppu2C02 implements PPU, Clockable {
             case 4: // OAMDATA (stub)
                 oam[oamAddr & 0xFF] = (byte) value;
                 oamAddr = (oamAddr + 1) & 0xFF;
+                spriteRangesDirty = true; // OAM changed
+                preparedLine = -2; // invalidate prepared sprites
                 logEarlyWrite(reg, value);
                 break;
             case 5: // PPUSCROLL
@@ -381,6 +403,8 @@ public class Ppu2C02 implements PPU, Clockable {
      */
     public void dmaOamWrite(int index, int value) {
         oam[index & 0xFF] = (byte) (value & 0xFF);
+        spriteRangesDirty = true;
+        preparedLine = -2;
     }
 
     /** Direct OAM byte read (test/debug). */
@@ -1171,39 +1195,69 @@ public class Ppu2C02 implements PPU, Clockable {
     }
 
     // --- Minimal sprite system (evaluation + per-pixel overlay) ---
-    private void evaluateSpritesForScanline() {
-        spriteCountThisLine = 0;
-        int sl = scanline;
-        int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8; // CTRL bit5 selects 8x16
+    // Remove old immediate evaluation, replace with new pipeline methods
+    // --- Sprite system: secondary OAM style preparation (simplified) ---
+    private void evaluateSpritesForLine(int targetLine) {
+        int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8;
+        if (spriteRangesDirty || spriteHeight != cachedSpriteHeight) {
+            for (int i = 0; i < 64; i++) {
+                int y = oam[i << 2] & 0xFF;
+                spriteTop[i] = y;
+                spriteBottom[i] = y + spriteHeight - 1;
+            }
+            spriteRangesDirty = false;
+            cachedSpriteHeight = spriteHeight;
+        }
+        for (int i = 0; i < 32; i++)
+            secondaryOam[i] = (byte) 0xFF;
+        int found = 0;
         boolean overflow = false;
-        int drawCapacity = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
+        int capacity = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
         for (int i = 0; i < 64; i++) {
-            int base = i * 4;
-            int y = oam[base] & 0xFF; // simplified Y interpretation
-            int top = y;
-            int bottom = y + spriteHeight - 1;
-            if (sl >= top && sl <= bottom) {
-                // Hardware overflow flag triggers when 9th sprite (index >7) is found
-                if (spriteCountThisLine == HW_SPRITE_LIMIT) {
-                    overflow = true;
+            int top = spriteTop[i];
+            int bottom = spriteBottom[i];
+            if (targetLine >= top && targetLine <= bottom) {
+                if (found < capacity) {
+                    preparedSpriteIndices[found] = i;
                 }
-                if (spriteCountThisLine < drawCapacity) {
-                    spriteIndices[spriteCountThisLine] = i;
+                if (found < HW_SPRITE_LIMIT) {
+                    int base = i << 2;
+                    int sec = found << 2;
+                    secondaryOam[sec] = oam[base];
+                    secondaryOam[sec + 1] = oam[base + 1];
+                    secondaryOam[sec + 2] = oam[base + 2];
+                    secondaryOam[sec + 3] = oam[base + 3];
                 }
-                spriteCountThisLine++;
+                found++;
+                if (found > HW_SPRITE_LIMIT && !overflow) {
+                    overflow = true; // 9th sprite encountered
+                    if (!unlimitedSprites) {
+                        break; // stop only in hardware mode
+                    }
+                }
             }
         }
-        // When not in extended mode, clamp exposed count back to hardware limit (tests
-        // rely on this)
-        if (!unlimitedSprites && spriteCountThisLine > HW_SPRITE_LIMIT) {
-            spriteCountThisLine = HW_SPRITE_LIMIT;
-        }
         if (overflow) {
-            regSTATUS |= 0x20; // set sprite overflow flag (bit5)
+            regSTATUS |= 0x20; // sprite overflow flag
+        }
+        preparedSpriteCount = Math.min(found, capacity);
+        preparedLine = targetLine;
+    }
+
+    private void publishPreparedSpritesForCurrentLine() {
+        if (preparedLine != scanline) {
+            evaluateSpritesForLine(scanline); // fallback
+        }
+        spriteCountThisLine = preparedSpriteCount;
+        for (int i = 0; i < spriteCountThisLine; i++) {
+            spriteIndices[i] = preparedSpriteIndices[i];
         }
     }
 
     private void overlaySpritePixel() {
+        if (isVisibleScanline() && preparedLine != scanline) {
+            publishPreparedSpritesForCurrentLine();
+        }
         if (spriteCountThisLine == 0)
             return;
         int xPixel = simpleTiming ? (cycle - 1) : (cycle - 9);
@@ -1211,16 +1265,9 @@ public class Ppu2C02 implements PPU, Clockable {
             return;
         int sl = scanline;
         int spriteHeight = ((regCTRL & 0x20) != 0) ? 16 : 8;
-        // Respect left 8-pixel sprite clipping (PPUMASK bit2). If disabled and within
-        // left region, skip sprite processing entirely for this pixel.
-        if (xPixel < 8 && (regMASK & 0x04) == 0) {
+        if (xPixel < 8 && (regMASK & 0x04) == 0)
             return;
-        }
-        // Capture original background index BEFORE any sprite overlays for sprite 0 hit
-        // logic
-        int bgOriginal = bgBaseIndexBuffer[sl * 256 + xPixel] & 0x0F; // original bg only
-        // Determine how many sprites to actually draw this pixel. In extended mode we
-        // draw up to EXTENDED_SPRITE_DRAW_LIMIT (40). In hardware mode, only first 8.
+        int bgOriginal = bgBaseIndexBuffer[sl * 256 + xPixel] & 0x0F;
         int maxDraw = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
         int drawCount = Math.min(spriteCountThisLine, Math.min(maxDraw, spriteIndices.length));
         for (int si = 0; si < drawCount; si++) {
@@ -1228,7 +1275,7 @@ public class Ppu2C02 implements PPU, Clockable {
             int base = spriteIndex * 4;
             int y = oam[base] & 0xFF;
             int tile = oam[base + 1] & 0xFF;
-            int attr = oam[base + 2] & 0xFF; // bits: 76543210 (7 VFlip,6 HFlip,5 Priority,2-0 Palette)
+            int attr = oam[base + 2] & 0xFF;
             int x = oam[base + 3] & 0xFF;
             if (xPixel < x || xPixel >= x + 8)
                 continue;
@@ -1238,24 +1285,17 @@ public class Ppu2C02 implements PPU, Clockable {
             boolean flipV = (attr & 0x80) != 0;
             boolean flipH = (attr & 0x40) != 0;
             int row = flipV ? (spriteHeight - 1 - rowInSprite) : rowInSprite;
-
-            // --- Sprite pattern table selection ---
-            // 8x8 mode: PPUCTRL bit4 selects base table (0: $0000, 1: $1000) and tile is
-            // index
-            // 8x16 mode: bit4 ignored; bit0 of tile selects table (0:$0000,1:$1000),
-            // remaining 7 bits (tile & 0xFE) form base index for top half.
-            int addrLo;
-            int addrHi;
-            if (spriteHeight == 16) { // 8x16
-                int tableSelect = tile & 0x01; // pattern table chosen by bit0
-                int baseTileIndex = tile & 0xFE; // even index for top half
-                int half = row / 8; // 0 top, 1 bottom
-                int tileRow = row & 0x7; // row inside the selected 8x8 tile
+            int addrLo, addrHi;
+            if (spriteHeight == 16) {
+                int tableSelect = tile & 0x01;
+                int baseTileIndex = tile & 0xFE;
+                int half = row / 8;
+                int tileRow = row & 0x7;
                 int actualTile = baseTileIndex + half;
                 int patternTableBase = tableSelect * 0x1000;
                 addrLo = patternTableBase + actualTile * 16 + tileRow;
                 addrHi = addrLo + 8;
-            } else { // 8x8
+            } else {
                 int patternTableBase = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000);
                 int tileRow = row & 0x7;
                 addrLo = patternTableBase + tile * 16 + tileRow;
@@ -1269,34 +1309,24 @@ public class Ppu2C02 implements PPU, Clockable {
             int p1 = (hi >> bit) & 1;
             int pattern = (p1 << 1) | p0;
             if (pattern == 0)
-                continue; // transparent
-            int paletteGroup = attr & 0x03; // lower 2 bits select sprite palette group
+                continue;
+            int paletteGroup = attr & 0x03;
             int paletteIndex = palette.read(0x3F10 + paletteGroup * 4 + pattern);
             boolean bgTransparent = bgOriginal == 0;
-            boolean spritePriorityFront = (attr & 0x20) == 0; // 0 front, 1 behind
-            // Sprite 0 hit detection (STATUS bit6): occurs when sprite 0 opaque pixel
-            // overlaps
-            // a non-transparent background pixel. Must also honor left clipping bits when
-            // x<8.
+            boolean spritePriorityFront = (attr & 0x20) == 0;
             if (spriteIndex == 0 && pattern != 0 && bgOriginal != 0) {
                 boolean allow = true;
                 if (xPixel < 8) {
-                    // Need both background left (bit1) and sprite left (bit2) enabled to register
-                    // hit
-                    if ((regMASK & 0x02) == 0 || (regMASK & 0x04) == 0) {
+                    if ((regMASK & 0x02) == 0 || (regMASK & 0x04) == 0)
                         allow = false;
-                    }
                 }
-                if (allow) {
-                    regSTATUS |= 0x40; // set sprite 0 hit
-                }
+                if (allow)
+                    regSTATUS |= 0x40;
             }
-            // Draw if sprite is front OR (sprite is behind AND background transparent)
             if (spritePriorityFront || bgTransparent) {
                 frameIndexBuffer[sl * 256 + xPixel] = paletteIndex & 0x0F;
                 frameBuffer[sl * 256 + xPixel] = palette.getArgb(paletteIndex, regMASK);
             }
-            // Stop after first opaque sprite pixel (no back-to-front compositing yet)
             break;
         }
     }
