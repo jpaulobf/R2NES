@@ -59,6 +59,9 @@ public class Main {
         String logCatsOpt = null; // --log-cats=CPU,PPU,... or ALL
         boolean logTimestamps = false; // --log-ts
         String resetKeyToken = null; // configurable reset key (from ini)
+        String toggleFullscreenKey = null; // INI: toggle-fullscreen
+        String toggleHudKey = null; // INI: toggle-hud
+        String toggleFullscreenProportionKey = null; // INI: toogle-fullscreen-proportion (cycles scaling)
         int paletteLogLimit = 0; // --log-palette[=N]
         Boolean unlimitedSprites = null; // --unlimited-sprites[=true|false]
         String spriteYMode = null; // --sprite-y=hardware|test
@@ -392,6 +395,15 @@ public class Main {
             if (resetKeyToken == null && inputCfg.hasOption("reset")) {
                 resetKeyToken = inputCfg.getOption("reset");
             }
+            if (inputCfg.hasOption("toggle-fullscreen")) {
+                toggleFullscreenKey = inputCfg.getOption("toggle-fullscreen");
+            }
+            if (inputCfg.hasOption("toggle-hud")) {
+                toggleHudKey = inputCfg.getOption("toggle-hud");
+            }
+            if (inputCfg.hasOption("toogle-fullscreen-proportion")) { // note: key spelled 'toogle' per INI
+                toggleFullscreenProportionKey = inputCfg.getOption("toogle-fullscreen-proportion");
+            }
             if (paletteLogLimit == 0 && inputCfg.hasOption("log-palette")) {
                 try {
                     paletteLogLimit = Integer.parseInt(inputCfg.getOption("log-palette"));
@@ -704,11 +716,118 @@ public class Main {
                     resetMsgExpireNs[0] = System.nanoTime() + 2_000_000_000L; // show for ~2s
                 });
             }
+            // Runtime toggles (fullscreen/HUD) via additional key listener
+            // Mutable HUD state wrapper for inner classes
+            final boolean[] hudState = new boolean[] { hud };
+            if (toggleFullscreenKey != null || toggleHudKey != null || toggleFullscreenProportionKey != null) {
+                String fsKey = toggleFullscreenKey == null ? null : toggleFullscreenKey.toLowerCase(Locale.ROOT).trim();
+                String hudKey = toggleHudKey == null ? null : toggleHudKey.toLowerCase(Locale.ROOT).trim();
+                String propKey = toggleFullscreenProportionKey == null ? null
+                        : toggleFullscreenProportionKey.toLowerCase(Locale.ROOT).trim();
+                java.awt.event.KeyAdapter adapter = new java.awt.event.KeyAdapter() {
+                    @Override
+                    public void keyPressed(java.awt.event.KeyEvent e) {
+                        String tok = keyEventToToken(e);
+                        if (tok == null)
+                            return;
+                        if (fsKey != null && tok.equals(fsKey)) {
+                            boolean newState = !window.isBorderlessFullscreen();
+                            window.setBorderlessFullscreen(newState);
+                            Log.info(GENERAL, "Toggle fullscreen -> %s", newState ? "ON" : "OFF");
+                        }
+                        if (hudKey != null && tok.equals(hudKey)) {
+                            hudState[0] = !hudState[0];
+                            Log.info(GENERAL, "Toggle HUD -> %s", hudState[0] ? "ON" : "OFF");
+                        }
+                        if (propKey != null && tok.equals(propKey)) {
+                            window.cycleProportionMode();
+                            int mode = window.getProportionMode();
+                            String label = switch (mode) {
+                                case 0 -> "NORMAL";
+                                case 1 -> "PROPORTIONAL-HEIGHT";
+                                case 2 -> "STRETCH";
+                                default -> String.valueOf(mode);
+                            };
+                            Log.info(GENERAL, "Proportion mode -> %s", label);
+                        }
+                    }
+
+                    private String keyEventToToken(java.awt.event.KeyEvent e) {
+                        int code = e.getKeyCode();
+                        switch (code) {
+                            case java.awt.event.KeyEvent.VK_UP:
+                                return "up";
+                            case java.awt.event.KeyEvent.VK_DOWN:
+                                return "down";
+                            case java.awt.event.KeyEvent.VK_LEFT:
+                                return "left";
+                            case java.awt.event.KeyEvent.VK_RIGHT:
+                                return "right";
+                            case java.awt.event.KeyEvent.VK_ENTER:
+                                return "enter";
+                            case java.awt.event.KeyEvent.VK_BACK_SPACE:
+                                return "backspace";
+                            case java.awt.event.KeyEvent.VK_SPACE:
+                                return "space";
+                            case java.awt.event.KeyEvent.VK_ESCAPE:
+                                return "escape";
+                            case java.awt.event.KeyEvent.VK_TAB:
+                                return "tab";
+                            case java.awt.event.KeyEvent.VK_F1:
+                                return "f1";
+                            case java.awt.event.KeyEvent.VK_F2:
+                                return "f2";
+                            case java.awt.event.KeyEvent.VK_F3:
+                                return "f3";
+                            case java.awt.event.KeyEvent.VK_F4:
+                                return "f4";
+                            case java.awt.event.KeyEvent.VK_F5:
+                                return "f5";
+                            case java.awt.event.KeyEvent.VK_F6:
+                                return "f6";
+                            case java.awt.event.KeyEvent.VK_F7:
+                                return "f7";
+                            case java.awt.event.KeyEvent.VK_F8:
+                                return "f8";
+                            case java.awt.event.KeyEvent.VK_F9:
+                                return "f9";
+                            case java.awt.event.KeyEvent.VK_F10:
+                                return "f10";
+                            case java.awt.event.KeyEvent.VK_F11:
+                                return "f11";
+                            case java.awt.event.KeyEvent.VK_F12:
+                                return "f12";
+                            case java.awt.event.KeyEvent.VK_CONTROL: {
+                                int loc = e.getKeyLocation();
+                                if (loc == java.awt.event.KeyEvent.KEY_LOCATION_LEFT)
+                                    return "lcontrol";
+                                if (loc == java.awt.event.KeyEvent.KEY_LOCATION_RIGHT)
+                                    return "rcontrol";
+                                return "control";
+                            }
+                            case java.awt.event.KeyEvent.VK_SHIFT: {
+                                int loc = e.getKeyLocation();
+                                if (loc == java.awt.event.KeyEvent.KEY_LOCATION_LEFT)
+                                    return "lshift";
+                                if (loc == java.awt.event.KeyEvent.KEY_LOCATION_RIGHT)
+                                    return "rshift";
+                                return "shift";
+                            }
+                            default:
+                                char ch = e.getKeyChar();
+                                if (Character.isLetterOrDigit(ch))
+                                    return String.valueOf(Character.toLowerCase(ch));
+                                return null;
+                        }
+                    }
+                };
+                window.getFrame().addKeyListener(adapter);
+            }
             // Unified overlay: HUD (optional) + transient reset message
             var ppu = emuRef[0].getPpu();
-            final boolean hudFinal = hud; // capture value for lambda
+            // Use dynamic HUD state (reads hud variable each frame via array wrapper)
             window.setOverlay(g2 -> {
-                if (hudFinal) {
+                if (hudState[0]) {
                     int padLocal = 4;
                     String l1 = String.format("Frame:%d FPS:%.1f", ppu.getFrame(), window.getLastFps());
                     String l2 = String.format("Scan:%d Cyc:%d VRAM:%04X", ppu.getScanline(), ppu.getCycle(),

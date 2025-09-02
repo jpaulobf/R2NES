@@ -19,6 +19,11 @@ public class NesWindow {
     private volatile boolean useBufferStrategy = true; // default to active BS
     private BufferStrategy bufferStrategy;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private boolean borderless = false;
+    private java.awt.Rectangle windowedBounds = null;
+    // Proportion modes: 0 = normal (fixed scale centered), 1 = aspect (fit height),
+    // 2 = stretch fill window
+    private volatile int proportionMode = 0;
     // FPS tracking
     private volatile double lastFps = 0.0;
     private long fpsWindowStart = 0L;
@@ -77,19 +82,33 @@ public class NesWindow {
                 }
                 return;
             }
-            int x = frame.getX();
-            int y = frame.getY();
-            int w = frame.getWidth();
-            int h = frame.getHeight();
+            if (!enabled) {
+                // restoring to windowed: we must have stored previous bounds
+            } else {
+                // store current bounds before switching
+                windowedBounds = frame.getBounds();
+            }
             frame.dispose(); // required before changing undecorated
             frame.setUndecorated(enabled);
             frame.setVisible(true);
             if (enabled) {
                 frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
             } else {
-                frame.setBounds(x, y, w, h);
+                if (windowedBounds != null) {
+                    frame.setBounds(windowedBounds);
+                }
             }
+            borderless = enabled;
         });
+    }
+
+    public boolean isBorderlessFullscreen() {
+        return borderless;
+    }
+
+    /** Expose underlying JFrame for advanced integrations (limited use). */
+    public javax.swing.JFrame getFrame() {
+        return frame;
     }
 
     public void setOverlay(Consumer<Graphics2D> overlay) {
@@ -202,25 +221,57 @@ public class NesWindow {
     private void blitAndPresent() {
         if (useBufferStrategy && bufferStrategy != null) {
             renderer.blit();
-            int nesW = 256 * renderer.getScale();
-            int nesH = 240 * renderer.getScale();
+            // Determine destination rectangle according to proportionMode
+            int baseScaleW = 256 * renderer.getScale();
+            int baseScaleH = 240 * renderer.getScale();
+            int winW = frame.getWidth();
+            int winH = frame.getHeight();
+            int nesW, nesH, cx, cy; // dest rect and position
+            double scaleX, scaleY; // overlay scaling factors
+            int mode = proportionMode; // local copy
+            switch (mode) {
+                default:
+                case 0: // normal centered integer scaling
+                    nesW = baseScaleW;
+                    nesH = baseScaleH;
+                    cx = (winW - nesW) / 2;
+                    cy = (winH - nesH) / 2;
+                    scaleX = renderer.getScale();
+                    scaleY = renderer.getScale();
+                    break;
+                case 1: // proportional scaled to full window height (maintain aspect)
+                    nesH = winH;
+                    nesW = (int) Math.round(nesH * (256.0 / 240.0));
+                    // position: top centered horizontally
+                    cx = (winW - nesW) / 2;
+                    cy = 0;
+                    scaleY = nesH / 240.0;
+                    scaleX = nesW / 256.0;
+                    break;
+                case 2: // stretched fill
+                    nesW = winW;
+                    nesH = winH;
+                    cx = 0;
+                    cy = 0;
+                    scaleX = nesW / 256.0;
+                    scaleY = nesH / 240.0;
+                    break;
+            }
             do {
                 do {
                     Graphics2D g = (Graphics2D) bufferStrategy.getDrawGraphics();
                     try {
                         // Fill background (avoid stale artifacts / flicker borders)
                         g.setColor(Color.BLACK);
-                        g.fillRect(0, 0, frame.getWidth(), frame.getHeight());
-                        int cx = (frame.getWidth() - nesW) / 2;
-                        int cy = (frame.getHeight() - nesH) / 2;
-                        // Draw framebuffer image centered
+                        g.fillRect(0, 0, winW, winH);
+                        // Draw framebuffer image according to computed rectangle
                         g.drawImage(renderer.getImage(), cx, cy, nesW, nesH, null);
                         var ov = renderer.getOverlay();
                         if (ov != null) {
                             Graphics2D g2 = (Graphics2D) g.create();
                             try {
                                 g2.translate(cx, cy);
-                                g2.scale(renderer.getScale(), renderer.getScale());
+                                g2.scale(scaleX, scaleY);
                                 ov.accept(g2);
                             } finally {
                                 g2.dispose();
@@ -235,6 +286,16 @@ public class NesWindow {
         } else {
             renderer.blitAndRepaint();
         }
+    }
+
+    /** Cycle proportion mode 0->1->2->0. */
+    public void cycleProportionMode() {
+        int next = (proportionMode + 1) % 3;
+        proportionMode = next;
+    }
+
+    public int getProportionMode() {
+        return proportionMode;
     }
 
     public void setUseBufferStrategy(boolean enable) {
