@@ -821,7 +821,7 @@ public class Main {
                         }
                     }
                 };
-                window.getFrame().addKeyListener(adapter);
+                window.addGlobalKeyListener(adapter);
             }
             // Unified overlay: HUD (optional) + transient reset message
             var ppu = emuRef[0].getPpu();

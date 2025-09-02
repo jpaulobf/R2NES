@@ -4,6 +4,7 @@ import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.awt.Graphics2D;
 import java.awt.Color;
 import java.awt.Canvas;
@@ -36,6 +37,7 @@ public class NesWindow {
         canvas = new Canvas();
         canvas.setPreferredSize(new java.awt.Dimension(256 * scale, 240 * scale));
         canvas.setBackground(Color.BLACK);
+        canvas.setFocusable(true);
         frame = new JFrame(title);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.getContentPane().setBackground(Color.BLACK);
@@ -124,10 +126,12 @@ public class NesWindow {
                                 } catch (Exception ignore) {
                                 } finally {
                                     suspendRendering = false;
+                                    restoreFocus();
                                 }
                             });
                         } else {
                             suspendRendering = false;
+                            restoreFocus();
                         }
                     } catch (Exception ex) {
                         // Fallback to Swing path
@@ -139,10 +143,12 @@ public class NesWindow {
                             frame.getContentPane().add(renderer);
                         frame.revalidate();
                         suspendRendering = false;
+                        restoreFocus();
                     }
                 });
             } else {
                 suspendRendering = false;
+                restoreFocus();
             }
         });
     }
@@ -154,6 +160,15 @@ public class NesWindow {
     /** Expose underlying JFrame for advanced integrations (limited use). */
     public javax.swing.JFrame getFrame() {
         return frame;
+    }
+
+    /**
+     * Add a KeyListener to both frame and canvas so it keeps working regardless of
+     * focus target.
+     */
+    public void addGlobalKeyListener(KeyListener l) {
+        frame.addKeyListener(l);
+        canvas.addKeyListener(l);
     }
 
     public void setOverlay(Consumer<Graphics2D> overlay) {
@@ -358,10 +373,25 @@ public class NesWindow {
     public void cycleProportionMode() {
         int next = (proportionMode + 1) % 3;
         proportionMode = next;
+        restoreFocus();
     }
 
     public int getProportionMode() {
         return proportionMode;
+    }
+
+    private void restoreFocus() {
+        SwingUtilities.invokeLater(() -> {
+            if (canvas.isDisplayable()) {
+                if (!canvas.isFocusOwner()) {
+                    canvas.requestFocus();
+                }
+            } else {
+                if (!frame.isFocusOwner()) {
+                    frame.requestFocus();
+                }
+            }
+        });
     }
 
     public void setUseBufferStrategy(boolean enable) {
@@ -423,7 +453,7 @@ public class NesWindow {
     public void installControllerKeyListener(com.nesemu.io.NesController p1, com.nesemu.io.NesController p2,
             String resetToken, Runnable onReset) {
         final String resetTok = resetToken == null ? null : resetToken.toLowerCase();
-        frame.addKeyListener(new KeyAdapter() {
+        KeyAdapter adapter = new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 handle(e, true);
@@ -516,6 +546,8 @@ public class NesWindow {
                         return null;
                 }
             }
-        });
+        };
+        frame.addKeyListener(adapter);
+        canvas.addKeyListener(adapter);
     }
 }
