@@ -88,6 +88,8 @@ public class NesWindow {
                 // store current bounds before switching
                 windowedBounds = frame.getBounds();
             }
+            // Invalidate current BufferStrategy before disposing peer
+            bufferStrategy = null;
             frame.dispose(); // required before changing undecorated
             frame.setUndecorated(enabled);
             frame.setVisible(true);
@@ -99,6 +101,17 @@ public class NesWindow {
                 }
             }
             borderless = enabled;
+            // Recreate BufferStrategy asynchronously after new peer established
+            if (useBufferStrategy) {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        canvas.createBufferStrategy(3);
+                        bufferStrategy = canvas.getBufferStrategy();
+                    } catch (Exception ex) {
+                        useBufferStrategy = false; // fallback to Swing path
+                    }
+                });
+            }
         });
     }
 
@@ -219,6 +232,11 @@ public class NesWindow {
     }
 
     private void blitAndPresent() {
+        // If using BS but strategy not yet ready (e.g., after fullscreen toggle), skip
+        // this frame safely
+        if (useBufferStrategy && bufferStrategy == null) {
+            return; // next frames will pick up once recreated
+        }
         if (useBufferStrategy && bufferStrategy != null) {
             renderer.blit();
             // Determine destination rectangle according to proportionMode
