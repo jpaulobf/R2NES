@@ -21,6 +21,8 @@ public class NesWindow {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private boolean borderless = false;
     private java.awt.Rectangle windowedBounds = null;
+    // When true render thread skips presenting (during fullscreen transitions)
+    private volatile boolean suspendRendering = false;
     // Proportion modes: 0 = normal (fixed scale centered), 1 = aspect (fit height),
     // 2 = stretch fill window
     private volatile int proportionMode = 0;
@@ -75,42 +77,72 @@ public class NesWindow {
      */
     public void setBorderlessFullscreen(boolean enabled) {
         SwingUtilities.invokeLater(() -> {
+            suspendRendering = true; // pause drawing while peer recreated
             boolean needChange = frame.isUndecorated() != enabled;
-            if (!needChange) {
+            if (needChange) {
+                if (enabled) {
+                    windowedBounds = frame.getBounds();
+                }
+                // Dispose & reconfigure decorations
+                bufferStrategy = null; // invalidate
+                frame.dispose();
+                frame.setUndecorated(enabled);
+                frame.setVisible(true);
                 if (enabled) {
                     frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-                }
-                return;
-            }
-            if (!enabled) {
-                // restoring to windowed: we must have stored previous bounds
-            } else {
-                // store current bounds before switching
-                windowedBounds = frame.getBounds();
-            }
-            // Invalidate current BufferStrategy before disposing peer
-            bufferStrategy = null;
-            frame.dispose(); // required before changing undecorated
-            frame.setUndecorated(enabled);
-            frame.setVisible(true);
-            if (enabled) {
-                frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-            } else {
-                if (windowedBounds != null) {
+                } else if (windowedBounds != null) {
                     frame.setBounds(windowedBounds);
                 }
+                borderless = enabled;
+            } else if (enabled) { // already undecorated, just ensure maximized
+                frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
             }
-            borderless = enabled;
-            // Recreate BufferStrategy asynchronously after new peer established
+
             if (useBufferStrategy) {
+                // Recreate strategy in a later tick so new native peer is ready
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        canvas.createBufferStrategy(3);
-                        bufferStrategy = canvas.getBufferStrategy();
+                        if (canvas.getParent() == null) {
+                            // ensure canvas in hierarchy
+                            if (renderer.getParent() != null)
+                                frame.getContentPane().remove(renderer);
+                            frame.getContentPane().add(canvas);
+                            frame.revalidate();
+                        }
+                        if (canvas.isDisplayable()) {
+                            canvas.createBufferStrategy(3);
+                            bufferStrategy = canvas.getBufferStrategy();
+                        }
+                        // Second chance if first failed (e.g. still not displayable)
+                        if (bufferStrategy == null) {
+                            SwingUtilities.invokeLater(() -> {
+                                try {
+                                    if (canvas.isDisplayable()) {
+                                        canvas.createBufferStrategy(3);
+                                        bufferStrategy = canvas.getBufferStrategy();
+                                    }
+                                } catch (Exception ignore) {
+                                } finally {
+                                    suspendRendering = false;
+                                }
+                            });
+                        } else {
+                            suspendRendering = false;
+                        }
                     } catch (Exception ex) {
-                        useBufferStrategy = false; // fallback to Swing path
+                        // Fallback to Swing path
+                        useBufferStrategy = false;
+                        bufferStrategy = null;
+                        if (canvas.getParent() != null)
+                            frame.getContentPane().remove(canvas);
+                        if (renderer.getParent() == null)
+                            frame.getContentPane().add(renderer);
+                        frame.revalidate();
+                        suspendRendering = false;
                     }
                 });
+            } else {
+                suspendRendering = false;
             }
         });
     }
@@ -232,12 +264,25 @@ public class NesWindow {
     }
 
     private void blitAndPresent() {
-        // If using BS but strategy not yet ready (e.g., after fullscreen toggle), skip
-        // this frame safely
-        if (useBufferStrategy && bufferStrategy == null) {
-            return; // next frames will pick up once recreated
+        if (suspendRendering) {
+            return; // skip while transitioning
         }
-        if (useBufferStrategy && bufferStrategy != null) {
+        if (useBufferStrategy) {
+            if (bufferStrategy == null) {
+                // Try lazy creation (covers cases where initial show toggled quickly)
+                try {
+                    if (canvas.isDisplayable()) {
+                        canvas.createBufferStrategy(3);
+                        bufferStrategy = canvas.getBufferStrategy();
+                    }
+                } catch (Exception ignored) {
+                    // If still null, skip frame
+                }
+                if (bufferStrategy == null) {
+                    return;
+                }
+            }
+            // From here bufferStrategy is non-null
             renderer.blit();
             // Determine destination rectangle according to proportionMode
             int baseScaleW = 256 * renderer.getScale();
@@ -275,32 +320,35 @@ public class NesWindow {
                     scaleY = nesH / 240.0;
                     break;
             }
-            do {
+            try {
                 do {
-                    Graphics2D g = (Graphics2D) bufferStrategy.getDrawGraphics();
-                    try {
-                        // Fill background (avoid stale artifacts / flicker borders)
-                        g.setColor(Color.BLACK);
-                        g.fillRect(0, 0, winW, winH);
-                        // Draw framebuffer image according to computed rectangle
-                        g.drawImage(renderer.getImage(), cx, cy, nesW, nesH, null);
-                        var ov = renderer.getOverlay();
-                        if (ov != null) {
-                            Graphics2D g2 = (Graphics2D) g.create();
-                            try {
-                                g2.translate(cx, cy);
-                                g2.scale(scaleX, scaleY);
-                                ov.accept(g2);
-                            } finally {
-                                g2.dispose();
+                    do {
+                        Graphics2D g = (Graphics2D) bufferStrategy.getDrawGraphics();
+                        try {
+                            g.setColor(Color.BLACK);
+                            g.fillRect(0, 0, winW, winH);
+                            g.drawImage(renderer.getImage(), cx, cy, nesW, nesH, null);
+                            var ov = renderer.getOverlay();
+                            if (ov != null) {
+                                Graphics2D g2 = (Graphics2D) g.create();
+                                try {
+                                    g2.translate(cx, cy);
+                                    g2.scale(scaleX, scaleY);
+                                    ov.accept(g2);
+                                } finally {
+                                    g2.dispose();
+                                }
                             }
+                        } finally {
+                            g.dispose();
                         }
-                    } finally {
-                        g.dispose();
-                    }
-                } while (bufferStrategy.contentsRestored());
-                bufferStrategy.show();
-            } while (bufferStrategy.contentsLost());
+                    } while (bufferStrategy.contentsRestored());
+                    bufferStrategy.show();
+                } while (bufferStrategy != null && bufferStrategy.contentsLost());
+            } catch (NullPointerException | IllegalStateException race) {
+                // Race: strategy invalidated mid-draw. Reset and skip.
+                bufferStrategy = null;
+            }
         } else {
             renderer.blitAndRepaint();
         }
