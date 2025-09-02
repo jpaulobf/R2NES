@@ -65,6 +65,7 @@ public class Main {
         String pacerModeOpt = null; // --pacer=legacy|hr
         Boolean bufferStrategyOpt = null; // --buffer-strategy[=true|false]
         Integer initialMaskOverride = null; // --initial-mask=HEX (ppumask value to write early)
+        Boolean borderlessFullscreen = null; // --borderless-fullscreen / INI borderless-fullscreen
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         boolean patternStandalone = false; // modo especial: renderiza apenas padrão sintético sem ROM/CPU
@@ -259,6 +260,18 @@ public class Main {
                     bufferStrategyOpt = Boolean.FALSE;
                 else
                     Log.warn(GENERAL, "Valor inválido em --buffer-strategy= (usar true|false)");
+            } else if (a.equalsIgnoreCase("--borderless-fullscreen")) {
+                borderlessFullscreen = Boolean.TRUE;
+            } else if (a.equalsIgnoreCase("--no-borderless-fullscreen")) {
+                borderlessFullscreen = Boolean.FALSE;
+            } else if (a.startsWith("--borderless-fullscreen=")) {
+                String v = a.substring(a.indexOf('=') + 1).trim().toLowerCase(Locale.ROOT);
+                if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
+                    borderlessFullscreen = Boolean.TRUE;
+                else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
+                    borderlessFullscreen = Boolean.FALSE;
+                else
+                    Log.warn(GENERAL, "Valor inválido em --borderless-fullscreen= (usar true|false)");
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
@@ -413,6 +426,16 @@ public class Main {
                         bufferStrategyOpt = Boolean.TRUE;
                     else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
                         bufferStrategyOpt = Boolean.FALSE;
+                } catch (Exception ignore) {
+                }
+            }
+            if (borderlessFullscreen == null && inputCfg.hasOption("borderless-fullscreen")) {
+                try {
+                    String v = inputCfg.getOption("borderless-fullscreen").trim().toLowerCase(Locale.ROOT);
+                    if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
+                        borderlessFullscreen = Boolean.TRUE;
+                    else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
+                        borderlessFullscreen = Boolean.FALSE;
                 } catch (Exception ignore) {
                 }
             }
@@ -666,6 +689,12 @@ public class Main {
         Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (initialMaskOverride != null ? " (override)" : ""));
         if (gui) {
             NesWindow window = new NesWindow("NESemu - " + romFilePath.getFileName(), 3);
+            if (borderlessFullscreen != null && borderlessFullscreen) {
+                window.setBorderlessFullscreen(true);
+                Log.info(GENERAL, "Borderless fullscreen: ON");
+            } else if (borderlessFullscreen != null) {
+                Log.info(GENERAL, "Borderless fullscreen: OFF");
+            }
             final long[] resetMsgExpireNs = new long[] { 0L };
             if (controllerPad1 != null) {
                 final String resetTok = resetKeyToken == null ? null : resetKeyToken.toLowerCase(Locale.ROOT).trim();

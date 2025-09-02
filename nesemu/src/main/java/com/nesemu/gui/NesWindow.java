@@ -5,6 +5,7 @@ import javax.swing.SwingUtilities;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.Graphics2D;
+import java.awt.Color;
 import java.awt.Canvas;
 import java.awt.image.BufferStrategy;
 import java.util.function.Consumer;
@@ -27,8 +28,11 @@ public class NesWindow {
         renderer = new VideoRenderer(scale);
         canvas = new Canvas();
         canvas.setPreferredSize(new java.awt.Dimension(256 * scale, 240 * scale));
+        canvas.setBackground(Color.BLACK);
         frame = new JFrame(title);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.getContentPane().setBackground(Color.BLACK);
+        frame.getRootPane().setDoubleBuffered(false); // we'll manage buffering
         // Adiciona inicialmente o canvas (path ativo). Se usuário desabilitar depois,
         // faremos swap.
         frame.getContentPane().add(canvas);
@@ -56,6 +60,34 @@ public class NesWindow {
                         frame.pack();
                     }
                 }
+            }
+        });
+    }
+
+    /**
+     * Enable/disable borderless fullscreen (undecorated + maximized). Calling this
+     * after the window is visible will dispose/re-show to apply decoration change.
+     */
+    public void setBorderlessFullscreen(boolean enabled) {
+        SwingUtilities.invokeLater(() -> {
+            boolean needChange = frame.isUndecorated() != enabled;
+            if (!needChange) {
+                if (enabled) {
+                    frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                }
+                return;
+            }
+            int x = frame.getX();
+            int y = frame.getY();
+            int w = frame.getWidth();
+            int h = frame.getHeight();
+            frame.dispose(); // required before changing undecorated
+            frame.setUndecorated(enabled);
+            frame.setVisible(true);
+            if (enabled) {
+                frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+            } else {
+                frame.setBounds(x, y, w, h);
             }
         });
     }
@@ -170,11 +202,30 @@ public class NesWindow {
     private void blitAndPresent() {
         if (useBufferStrategy && bufferStrategy != null) {
             renderer.blit();
+            int nesW = 256 * renderer.getScale();
+            int nesH = 240 * renderer.getScale();
             do {
                 do {
                     Graphics2D g = (Graphics2D) bufferStrategy.getDrawGraphics();
                     try {
-                        renderer.drawTo(g);
+                        // Fill background (avoid stale artifacts / flicker borders)
+                        g.setColor(Color.BLACK);
+                        g.fillRect(0, 0, frame.getWidth(), frame.getHeight());
+                        int cx = (frame.getWidth() - nesW) / 2;
+                        int cy = (frame.getHeight() - nesH) / 2;
+                        // Draw framebuffer image centered
+                        g.drawImage(renderer.getImage(), cx, cy, nesW, nesH, null);
+                        var ov = renderer.getOverlay();
+                        if (ov != null) {
+                            Graphics2D g2 = (Graphics2D) g.create();
+                            try {
+                                g2.translate(cx, cy);
+                                g2.scale(renderer.getScale(), renderer.getScale());
+                                ov.accept(g2);
+                            } finally {
+                                g2.dispose();
+                            }
+                        }
                     } finally {
                         g.dispose();
                     }

@@ -63,6 +63,18 @@ public class VideoRenderer extends JPanel {
         this.overlay = overlay;
     }
 
+    public int getScale() {
+        return scale;
+    }
+
+    public BufferedImage getImage() {
+        return image;
+    }
+
+    public Consumer<Graphics2D> getOverlay() {
+        return overlay;
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
