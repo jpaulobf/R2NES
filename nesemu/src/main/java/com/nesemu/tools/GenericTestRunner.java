@@ -6,6 +6,7 @@ import com.nesemu.cpu.CPU;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.mapper.Mapper2;
 import com.nesemu.mapper.Mapper3;
+import com.nesemu.mapper.Mapper5;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
@@ -42,6 +43,7 @@ public class GenericTestRunner {
         Mapper0 mapper0 = null;
         Mapper3 mapper3 = null;
         Mapper2 mapper2 = null;
+        Mapper5 mapper5 = null;
         switch (mapperNum) {
             case 0:
                 mapper0 = new Mapper0(rom);
@@ -51,6 +53,9 @@ public class GenericTestRunner {
                 break;
             case 3:
                 mapper3 = new Mapper3(rom);
+                break;
+            case 5:
+                mapper5 = new Mapper5(rom);
                 break;
             default:
                 Log.warn(TEST, "Mapper %d not explicitly supported; using NROM fallback.", mapperNum);
@@ -66,6 +71,8 @@ public class GenericTestRunner {
             bus.attachMapper(mapper2, rom);
         } else if (mapper3 != null) {
             bus.attachMapper(mapper3, rom);
+        } else if (mapper5 != null) {
+            bus.attachMapper(mapper5, rom);
         }
         NesBus baseBus = bus;
         NesBus cpuBus = baseBus;
