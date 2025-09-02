@@ -99,25 +99,60 @@ java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main --log-attr=300 --log-nt=
 
 ### Controle de verbosidade
 
-Por padrão o emulador inicia em modo verboso (mostrando vários `System.out` de debug: mudanças de registros PPU, DMA de OAM, dumps iniciais de sprites, etc). Para reduzir ruído durante execução de jogos:
+O sistema de logs foi refatorado para um logger interno (`Log`) com níveis e categorias.
 
+### Níveis
+`TRACE`, `DEBUG`, `INFO` (default), `WARN`, `ERROR`.
+
+### Categorias
+`CPU, PPU, APU, BUS, DMA, CONTROLLER, ROM, TEST, GENERAL` (todas habilitadas por default). É possível limitar via `--log-cats` ou `log-cats=` no arquivo de configuração.
+
+### Flags de logging
+| Flag | Descrição |
+|------|-----------|
+| `--log-level=LEVEL` | Ajusta nível mínimo global (ex: DEBUG) |
+| `--log-cats=LIST` | Lista separada por vírgulas (`CPU,PPU`) ou `ALL` |
+| `--log-ts` | Adiciona timestamp (HH:mm:ss.SSS) em cada linha |
+| `--quiet` / `--no-debug` | Desliga apenas a verbosidade "legada" de PPU/Bus (não muda `log-level`) |
+| `--verbose` | Se `--log-level` não for definido, força nível DEBUG (mantém categorias) |
+
+Exemplos:
 ```powershell
-# Executar silencioso (desabilita grande parte dos prints de diagnóstico)
-java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --gui --quiet
+# Depuração focada em PPU e CPU com timestamps
+java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --gui --log-level=DEBUG --log-cats=PPU,CPU --log-ts
 
-# Alias equivalente
-java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --no-debug
+# Modo de rastreamento máximo (todas as categorias, nível TRACE)
+java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --log-level=TRACE --log-cats=ALL --frames=10
 
-# Reativar explicitamente (caso no futuro o default mude para silencioso)
-java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --verbose
+# Reduz ruído de prints legados mantendo logs INFO principais
+java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --quiet --frames=120
 ```
 
-Internamente:
-* `--quiet` / `--no-debug` chama `Ppu2C02.setVerboseLogging(false)` e `Bus.setGlobalVerbose(false)`.
-* Logs controlados incluem: `[PPU WR]`, alterações de MASK/CTRL, eventos de NMI forçado, dumps de DMA (`[CPU WR 4014]`, `[DMA OAM RAW]`, `[DMA OAM]`).
-* Logs explícitos solicitados por outras flags (ex: `--log-attr`, `--log-nt`, pipeline, samples) ainda aparecerão se você habilitar essas flags; use `--quiet` para suprimir somente o ruído padrão.
+Regras de precedência:
+1. Argumentos CLI têm prioridade.
+2. Caso a flag não seja passada na linha de comando, busca-se fallback no `emulator.ini`.
+3. Se ausente em ambos, aplica-se o default interno (nível=INFO, categorias=ALL, timestamps=off).
 
-Observação de precisão: o pipeline de sprites atualmente usa semântica de Y "direta" (valor de OAM é a linha superior do sprite) para alinhar com a suíte de testes. O hardware real armazena Y-1. Uma flag de compatibilidade poderá ser adicionada futuramente para alternar entre os modos.
+### Arquivo `emulator.ini`
+Pode ser colocado na raiz ao lado do JAR (`emulator.ini`) ou usado o exemplar em `src/main/java/com/nesemu/config/emulator.ini` (para desenvolvimento). Exemplo resumido:
+```ini
+# Enable GUI (true/false)
+gui=true
+# Logger level (TRACE|DEBUG|INFO|WARN|ERROR)
+log-level=INFO
+# Logger categories (comma list or ALL)
+log-cats=PPU,CPU
+# Show timestamps (true/false)
+log-ts=true
+# Dump nametable
+dump-nt=false
+```
+Todas as outras flags suportadas pela CLI podem ter a mesma forma (remova o `--` e use `=` ou `true/false`). Comentários começam com `#`.
+
+### Interação com flags de diagnóstico
+Flags que habilitam logs específicos (ex: `--log-attr`, `--log-nt`, `--pipe-log`, `--dbg-bg-sample`) produzem saída mesmo que você tenha reduzido categorias — contanto que a categoria correspondente (geralmente `PPU`) permaneça ativa e o nível seja suficiente. Para silenciar integralmente, ajuste tanto nível/categorias quanto não habilite as flags produtoras de log.
+
+Observação de precisão: o pipeline de sprites atualmente usa semântica de Y "direta" (valor de OAM é a linha superior do sprite) para alinhar com a suíte de testes. O hardware real armazena Y-1; poderá ser adicionada flag de compatibilidade futura.
 
 ## Notas de implementação
 
