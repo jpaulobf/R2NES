@@ -74,6 +74,7 @@ public class Bus implements NesBus {
     // Global verbose logging toggle (shared concept with PPU) to silence bus
     // diagnostics
     private static volatile boolean globalVerbose = true;
+    // (Controller debug logging removido)
 
     public static void setGlobalVerbose(boolean enable) {
         globalVerbose = enable;
@@ -82,6 +83,8 @@ public class Bus implements NesBus {
     public static boolean isGlobalVerbose() {
         return globalVerbose;
     }
+
+    public static void enableQuietControllerDebug(boolean enable) { /* no-op (legacy) */ }
 
     private static void vprintf(String fmt, Object... args) {
         if (globalVerbose)
@@ -152,42 +155,58 @@ public class Bus implements NesBus {
     /** CPU read (8-bit). */
     public int cpuRead(int address) {
         address &= 0xFFFF;
-        if (address < 0x2000) {
-            return memory.readInternalRam(address);
-        } else if (address < 0x4000) {
-            // PPU registers mirrored every 8 bytes
-            if (ppu == null) {
-                // Fallback to shadow for tests when no PPU attached
-                return testShadow[address - 0x2000] & 0xFF;
-            }
+        int value;
+        if (address < 0x2000) { // 2KB internal RAM mirrored each 0x800
+            value = memory.readInternalRam(address);
+        } else if (address < 0x4000) { // PPU registers mirrored every 8 bytes
             int reg = 0x2000 + (address & 0x7);
-            int value = readPpuRegister(reg) & 0xFF;
-            if (logPpuRegs && ppuRegLogCount < ppuRegLogLimit && globalVerbose) {
-                vprintf("[PPU REG RD] %04X = %02X frame=%d scan=%d cyc=%d\n", reg, value, getPpuFrame(),
-                        getPpuScanline(), getPpuCycle());
-                ppuRegLogCount++;
-            }
-            if (watchReadAddress == reg) {
-                watchTriggerCount++;
-                watchTriggered = true;
-                if (watchTriggerCount <= watchReadLimit) {
-                    vprintf("[WATCH READ HIT] addr=%04X count=%d frame=%d scan=%d cyc=%d val=%02X\n", reg,
-                            watchTriggerCount, getPpuFrame(), getPpuScanline(), getPpuCycle(), value);
+            if (ppu != null) {
+                value = readPpuRegister(reg) & 0xFF;
+                if (logPpuRegs && ppuRegLogCount < ppuRegLogLimit && globalVerbose) {
+                    vprintf("[PPU REG RD] %04X = %02X frame=%d scan=%d cyc=%d\n", reg, value & 0xFF, getPpuFrame(),
+                            getPpuScanline(), getPpuCycle());
+                    ppuRegLogCount++;
                 }
+            } else {
+                value = testShadow[address - 0x2000] & 0xFF; // fallback for tests when PPU absent
             }
-            return value;
-        } else if (address < 0x6000) {
-            // Expansion ROM / rarely used (shadow)
-            return testShadow[address - 0x2000] & 0xFF;
-        } else {
-            // PRG ROM region; prefer mapper; else fall back to backingMemory contents.
+        } else if (address < 0x4016) { // APU + IO ($4000-$4015 before controllers)
+            if (address >= 0x4000 && address <= 0x4013) {
+                value = apuRegs[address - 0x4000] & 0xFF;
+            } else if (address == 0x4015) {
+                value = apuRegs[0x15] & 0xFF;
+            } else {
+                value = 0; // unused / frame counter $4017 handled later
+            }
+        } else if (address == 0x4016) { // Controller 1 serial
+            value = (pad1 != null) ? (pad1.read() & 1) : 0;
+        } else if (address == 0x4017) { // Controller 2 serial / APU frame counter read (simplified)
+            value = (pad2 != null) ? (pad2.read() & 1) : 0;
+        } else if (address < 0x6000) { // Expansion / test shadow region
+            value = testShadow[address - 0x2000] & 0xFF;
+        } else if (address < 0x8000) { // PRG RAM / SRAM
             if (mapper != null) {
-                return mapper.cpuRead(address);
+                value = mapper.cpuRead(address) & 0xFF; // mapper may handle RAM
+            } else {
+                value = memory.readSram(address) & 0xFF;
             }
-            // Mirror 16KB if only first half loaded (handled by loadCartridge logic in
-            // backingMemory)
-            return memory.read(address);
+        } else { // PRG ROM (mapper or fallback memory)
+            if (mapper != null) {
+                value = mapper.cpuRead(address) & 0xFF;
+            } else {
+                value = memory.read(address) & 0xFF;
+            }
         }
+
+        if (address == watchReadAddress) {
+            watchTriggerCount++;
+            watchTriggered = true;
+            if (watchTriggerCount <= watchReadLimit && globalVerbose) {
+                vprintf("[WATCH READ HIT] addr=%04X count=%d frame=%d scan=%d cyc=%d val=%02X\n", address,
+                        watchTriggerCount, getPpuFrame(), getPpuScanline(), getPpuCycle(), value & 0xFF);
+            }
+        }
+        return value & 0xFF;
     }
 
     /** CPU write (8-bit). */
@@ -212,22 +231,10 @@ public class Bus implements NesBus {
             }
             return;
         } else if (address < 0x4014) {
-            // APU + IO writes
-            if (address == 0x4016) {
-                if (pad1 != null)
-                    pad1.write(value);
-                if (pad2 != null)
-                    pad2.write(value);
-            }
+            // APU registers $4000-$4013
             if (address >= 0x4000 && address <= 0x4013) {
-                apuRegs[address - 0x4000] = value; // store
-            } else if (address == 0x4015) {
-                apuRegs[0x15] = value;
-            } else if (address == 0x4017) {
-                apuRegs[0x17] = value; // frame counter mode latch
+                apuRegs[address - 0x4000] = value;
             }
-            // TODO: route APU register writes (0x4000-0x4013,4015,4017) once APU
-            // implemented.
             return;
         } else if (address == 0x4014) {
             // OAM DMA trigger: value is high page of source address (value * 0x100)
@@ -237,6 +244,17 @@ public class Bus implements NesBus {
                         getPpuScanline(), getPpuCycle());
             }
             performOamDma();
+            return;
+        } else if (address == 0x4015) {
+            apuRegs[0x15] = value; // APU status
+            return;
+        } else if (address == 0x4016) {
+            // Controller strobe
+            if (pad1 != null) pad1.write(value);
+            if (pad2 != null) pad2.write(value);
+            return;
+        } else if (address == 0x4017) {
+            apuRegs[0x17] = value; // frame counter mode latch
             return;
         } else if (address < 0x4020) {
             // APU status / frame counter etc. (stub)

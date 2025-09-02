@@ -20,9 +20,9 @@ public class NesController implements Controller {
     private final ControllerConfig config;
     // Live key token pressed state
     private final Set<String> pressed = ConcurrentHashMap.newKeySet();
-    // Latched shift register (8 bits A..Right)
-    private int shiftRegister = 0;
-    private boolean strobe = false;
+    private boolean strobe = false; // current strobe line (bit0 of last write)
+    private int readBitIndex = 0; // 0..8 (#bits already returned in current snapshot)
+    private int latchedValue = 0; // snapshot of buttons (A..Right bits 0..7)
     // Direct logical button overrides (for programmatic tests)
     private final Map<ControllerButton, Boolean> logicalState = new EnumMap<>(ControllerButton.class);
 
@@ -68,29 +68,44 @@ public class NesController implements Controller {
             if (isButtonActive(b))
                 v |= (1 << b.bitIndex());
         }
-        shiftRegister = v;
+        latchedValue = v;
     }
 
     @Override
     public void write(int value) {
         boolean newStrobe = (value & 1) != 0;
         if (newStrobe) {
-            // While high, continually latch
+            // Strobe high: keep re-latching continuously; reads should always return A bit.
+            if (!strobe) {
+                // rising edge resets index
+                readBitIndex = 0;
+            }
             strobe = true;
             latch();
-        } else if (strobe && !newStrobe) {
-            // Transition 1->0 locks current state, then shifting begins on reads
+        } else {
+            if (strobe) {
+                // Falling edge: latch once and prepare to shift bits out
+                latch();
+                readBitIndex = 0;
+            }
             strobe = false;
         }
     }
 
     @Override
     public int read() {
-        int ret = shiftRegister & 1;
-        if (!strobe) {
-            // Shift only after strobe released
-            shiftRegister = ((shiftRegister >> 1) | 0x80); // fill with 1s after 8 bits (hardware behavior
-                                                           // approximation)
+        if (strobe) {
+            // While strobe high, always return current A (bit0) ignoring index
+            latch(); // hardware re-latches each read effectively
+            return latchedValue & 1;
+        }
+        int ret;
+        if (readBitIndex < 8) {
+            ret = (latchedValue >> readBitIndex) & 1;
+            readBitIndex++;
+        } else {
+            // After 8 reads hardware returns 1
+            ret = 1;
         }
         return ret;
     }
@@ -125,5 +140,21 @@ public class NesController implements Controller {
                 sb.append(' ');
             sb.append(label);
         }
+    }
+
+    public int getReadBitIndexDebug() {
+        return readBitIndex;
+    }
+
+    public int getLatchedValueDebug() {
+        return latchedValue;
+    }
+
+    public String getLatchedBitsString() {
+        int v = latchedValue;
+        StringBuilder sb = new StringBuilder(8);
+        for (int i = 0; i < 8; i++)
+            sb.append(((v >> i) & 1)); // LSB first A..Right
+        return sb.toString();
     }
 }
