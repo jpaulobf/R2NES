@@ -3,7 +3,7 @@
 Projeto experimental de emulação do NES (CPU/PPU) em Java, com foco atual em estudo do pipeline de background da PPU e ferramentas de inspeção/diagnóstico.
 
 <div align="center">
-  <img src="./nesemu/.assets/logo.png"/>
+  <img src="./nesemu/.assets/logob.png"/>
 </div>
 
 ## Build
