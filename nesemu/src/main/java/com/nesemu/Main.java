@@ -58,6 +58,7 @@ public class Main {
         String logCatsOpt = null; // --log-cats=CPU,PPU,... or ALL
         boolean logTimestamps = false; // --log-ts
         String resetKeyToken = null; // configurable reset key (from ini)
+        int paletteLogLimit = 0; // --log-palette[=N]
         for (String a : args) {
             if (a.equalsIgnoreCase("--gui"))
                 gui = true;
@@ -187,6 +188,16 @@ public class Main {
                 logCatsOpt = a.substring(11).trim();
             } else if (a.equalsIgnoreCase("--log-ts")) {
                 logTimestamps = true;
+            } else if (a.startsWith("--log-palette")) {
+                if (a.contains("=")) {
+                    try {
+                        paletteLogLimit = Integer.parseInt(a.substring(a.indexOf('=') + 1));
+                    } catch (NumberFormatException e) {
+                        Log.warn(PPU, "Valor inválido em --log-palette= (usar número)");
+                    }
+                } else {
+                    paletteLogLimit = 256; // default
+                }
             } else if (a.startsWith("--reset-key=")) {
                 resetKeyToken = a.substring(12).trim();
             } else if (!a.startsWith("--"))
@@ -308,6 +319,13 @@ public class Main {
             if (resetKeyToken == null && inputCfg.hasOption("reset")) {
                 resetKeyToken = inputCfg.getOption("reset");
             }
+            if (paletteLogLimit == 0 && inputCfg.hasOption("log-palette")) {
+                try {
+                    paletteLogLimit = Integer.parseInt(inputCfg.getOption("log-palette"));
+                } catch (Exception ignore) {
+                    paletteLogLimit = 256; // fallback default if present but not numeric
+                }
+            }
             // Controllers
             var pad1 = new NesController(inputCfg.getController(0));
             var pad2 = new NesController(inputCfg.getController(1));
@@ -397,6 +415,9 @@ public class Main {
         }
         if (logNtLimit > 0) {
             emu.getPpu().enableNametableRuntimeLog(logNtLimit, ntBaseline == null ? -1 : ntBaseline);
+        }
+        if (paletteLogLimit > 0) {
+            emu.getPpu().enablePaletteWriteLog(paletteLogLimit);
         }
         if (initScroll) {
             // Configura scroll e VRAM address iniciais (coarse/fine = 0, nametable 0)

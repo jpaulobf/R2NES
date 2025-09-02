@@ -55,12 +55,12 @@ public class Palette {
         if ((index & 0x13) == 0x10) {
             index &= ~0x10;
         }
-        // Optional strengthening: treat $3F04/$08/$0C as additional mirrors of
-        // universal background color ($3F00). This matches many emulators and avoids
-        // stray divergent writes. If fidelity requires distinct storage later, remove.
-        if ((index & 0x03) == 0 && index < 0x10) {
-            index = 0; // collapse 0,4,8,12 -> 0
-        }
+        // NOTE: Do NOT collapse $3F04/$3F08/$3F0C into $3F00. Games (e.g. SMB) may
+        // write a distinct value (often $0F) to those entries after setting the
+        // universal background color at $3F00. Collapsing them causes the sky (which
+        // relies on $3F00) to be overwritten to black. Only $3F10/$14/$18/$1C mirror
+        // $3F00/$04/$08/$0C per hardware rules (handled above by clearing bit4 when
+        // pattern matches 0x10/0x14/0x18/0x1C).
         return index;
     }
 

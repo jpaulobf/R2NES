@@ -118,6 +118,7 @@ O sistema de logs foi refatorado para um logger interno (`Log`) com níveis e ca
 | `--log-cats=LIST` | Lista separada por vírgulas (`CPU,PPU`) ou `ALL` |
 | `--log-ts` | Adiciona timestamp (HH:mm:ss.SSS) em cada linha |
 | `--reset-key=F1` | Define tecla para reset rápido (CPU+PPU) na GUI |
+| `--log-palette[=N]` | Loga escritas à palette ($3F00-$3F1F); N limite (default 256) |
 | `--quiet` / `--no-debug` | Desliga apenas a verbosidade "legada" de PPU/Bus (não muda `log-level`) |
 | `--verbose` | Se `--log-level` não for definido, força nível DEBUG (mantém categorias) |
 
@@ -154,6 +155,8 @@ log-cats=PPU,CPU
 log-ts=true
 # Reset key (GUI): press to reinitialize CPU+PPU (optional, default none)
 reset=F1
+# Palette writes log limit (0=off)
+log-palette=256
 # Dump nametable
 dump-nt=false
 ```

@@ -130,6 +130,10 @@ public class Ppu2C02 implements PPU, Clockable {
 
     // Palette subsystem
     private final Palette palette = new Palette();
+    // Palette write logging
+    private boolean paletteWriteLog = false;
+    private int paletteWriteLogLimit = 0;
+    private int paletteWriteLogCount = 0;
 
     // --- Background rendering simplified ---
     // Pattern tables + nametables (2x1KB) temporary internal storage
@@ -825,6 +829,11 @@ public class Ppu2C02 implements PPU, Clockable {
             }
         } else if (addr < 0x4000) {
             palette.write(addr, value);
+            if (paletteWriteLog && (paletteWriteLogLimit == 0 || paletteWriteLogCount < paletteWriteLogLimit)) {
+                vprintf("[PPU PAL WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d%n", addr, value & 0xFF, frame,
+                        scanline, cycle);
+                paletteWriteLogCount++;
+            }
         }
     }
 
@@ -855,6 +864,12 @@ public class Ppu2C02 implements PPU, Clockable {
 
     public long getFrame() {
         return frame;
+    }
+
+    public void enablePaletteWriteLog(int limit) {
+        this.paletteWriteLog = true;
+        this.paletteWriteLogLimit = Math.max(0, limit);
+        this.paletteWriteLogCount = 0;
     }
 
     // --- Testing / debug accessors ---
