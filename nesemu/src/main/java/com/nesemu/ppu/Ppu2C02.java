@@ -770,10 +770,12 @@ public class Ppu2C02 implements PPU, Clockable {
             int table = (nt >> 10) & 0x03; // 0..3 logical tables before mirroring
             int physical = table; // map to 0 or 1 based on mirroring
             MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL; // default vertical
-            if (mt == MirrorType.VERTICAL) {
-                physical = table & 0x01; // 0,1,0,1
-            } else { // HORIZONTAL
-                physical = (table >> 1); // 0,0,1,1
+            switch (mt) {
+                case VERTICAL -> physical = table & 0x01; // 0,1,0,1
+                case HORIZONTAL -> physical = (table >> 1); // 0,0,1,1
+                case SINGLE0 -> physical = 0;
+                case SINGLE1 -> physical = 1;
+                default -> physical = table & 0x01;
             }
             return nameTables[(physical * 0x0400) + index] & 0xFF;
         } else if (addr < 0x4000) {
@@ -798,10 +800,12 @@ public class Ppu2C02 implements PPU, Clockable {
             int table = (nt >> 10) & 0x03; // logical
             int physical;
             MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
-            if (mt == MirrorType.VERTICAL) {
-                physical = table & 0x01; // 0,1,0,1
-            } else {
-                physical = (table >> 1); // 0,0,1,1
+            switch (mt) {
+                case VERTICAL -> physical = table & 0x01;
+                case HORIZONTAL -> physical = (table >> 1);
+                case SINGLE0 -> physical = 0;
+                case SINGLE1 -> physical = 1;
+                default -> physical = table & 0x01;
             }
             nameTables[(physical * 0x0400) + index] = (byte) value;
             // Attribute table logging ($23C0-$23FF etc.) after mirroring mapping
@@ -1101,10 +1105,12 @@ public class Ppu2C02 implements PPU, Clockable {
                 int index = nt & 0x03FF; // posição dentro da tabela lógica
                 int table = (nt >> 10) & 0x03; // tabela lógica 0..3
                 int physical;
-                if (mt == MirrorType.VERTICAL) {
-                    physical = table & 0x01; // 0,1,0,1
-                } else { // HORIZONTAL
-                    physical = (table >> 1); // 0,0,1,1
+                switch (mt) {
+                    case VERTICAL -> physical = table & 0x01;
+                    case HORIZONTAL -> physical = (table >> 1);
+                    case SINGLE0 -> physical = 0;
+                    case SINGLE1 -> physical = 1;
+                    default -> physical = table & 0x01;
                 }
                 int value = nameTables[(physical * 0x0400) + index] & 0xFF;
                 sb.append(String.format("%02X", value));

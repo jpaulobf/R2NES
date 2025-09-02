@@ -6,6 +6,7 @@ import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.mapper.Mapper3;
 import com.nesemu.mapper.Mapper2;
+import com.nesemu.mapper.Mapper1;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.rom.INesRom;
@@ -35,9 +36,10 @@ public class NesEmulator {
         switch (mapperNum) {
             case 0 -> this.mapper = new Mapper0(rom);
             case 2 -> this.mapper = new Mapper2(rom);
+            case 1 -> this.mapper = new Mapper1(rom); // MMC1
             case 3 -> this.mapper = new Mapper3(rom);
             default ->
-                throw new IllegalArgumentException("Unsupported mapper " + mapperNum + " (only 0,2,3 implemented)");
+                throw new IllegalArgumentException("Unsupported mapper " + mapperNum + " (only 0,1,2,3 implemented)");
         }
         this.ppu = new Ppu2C02();
         this.ppu.reset();

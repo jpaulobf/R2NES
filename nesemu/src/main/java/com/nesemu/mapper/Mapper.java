@@ -26,6 +26,6 @@ public interface Mapper {
     }
 
     enum MirrorType {
-        HORIZONTAL, VERTICAL
+        HORIZONTAL, VERTICAL, SINGLE0, SINGLE1
     }
 }

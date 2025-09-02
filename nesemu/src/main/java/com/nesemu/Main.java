@@ -59,6 +59,7 @@ public class Main {
         boolean logTimestamps = false; // --log-ts
         String resetKeyToken = null; // configurable reset key (from ini)
         int paletteLogLimit = 0; // --log-palette[=N]
+    Boolean unlimitedSprites = null; // --unlimited-sprites[=true|false]
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         for (String a : args) {
@@ -202,6 +203,16 @@ public class Main {
                 }
             } else if (a.startsWith("--reset-key=")) {
                 resetKeyToken = a.substring(12).trim();
+            } else if (a.equalsIgnoreCase("--unlimited-sprites")) {
+                unlimitedSprites = Boolean.TRUE;
+            } else if (a.startsWith("--unlimited-sprites=")) {
+                String v = a.substring(20).trim().toLowerCase(Locale.ROOT);
+                if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
+                    unlimitedSprites = Boolean.TRUE;
+                else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
+                    unlimitedSprites = Boolean.FALSE;
+                else
+                    Log.warn(PPU, "Valor inválido em --unlimited-sprites= (usar true|false)");
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
@@ -329,6 +340,16 @@ public class Main {
                     paletteLogLimit = 256; // fallback default if present but not numeric
                 }
             }
+            if (unlimitedSprites == null && inputCfg.hasOption("unlimited-sprites")) {
+                try {
+                    String v = inputCfg.getOption("unlimited-sprites").trim().toLowerCase(Locale.ROOT);
+                    if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
+                        unlimitedSprites = Boolean.TRUE;
+                    else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
+                        unlimitedSprites = Boolean.FALSE;
+                } catch (Exception ignore) {
+                }
+            }
             // (Adia attach de controllers até após criação do emu)
         } catch (Exception ex) {
             Log.warn(CONTROLLER, "Falha ao carregar configuração de input: %s", ex.getMessage());
@@ -443,6 +464,10 @@ public class Main {
         if (testPattern != null) {
             emuRef[0].getPpu().setTestPatternMode(testPattern);
             Log.info(PPU, "TEST-PATTERN modo=%s", testPattern);
+        }
+        if (unlimitedSprites != null) {
+            emuRef[0].getPpu().setUnlimitedSprites(unlimitedSprites);
+            Log.info(PPU, "Unlimited sprites: %s", unlimitedSprites ? "ON" : "OFF");
         }
         if (logAttrLimit > 0) {
             emuRef[0].getPpu().enableAttributeRuntimeLog(logAttrLimit);
