@@ -18,13 +18,24 @@ Artefato gerado: `target/nesemu-1.0-SNAPSHOT.jar`.
 
 ## Execução básica
 
-Sem argumentos (usa ROM padrão definida no código):
+Precedência para escolha da ROM:
+1. Caminho passado na linha de comando (primeiro argumento que não inicia com `--`).
+2. Chave `rom=` no `emulator.ini` (raiz ou exemplar de desenvolvimento).
+3. Fallback interno (`roms/donkeykong.nes`).
+
+Sem argumentos (usa `rom=` do INI se existir, senão fallback):
 
 ```powershell
 java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main --frames=60
 ```
 
-Especificando ROM e abrindo GUI com HUD:
+Usando ROM definida no INI + abrindo GUI:
+
+```powershell
+java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main --gui --hud
+```
+
+Override explícito de ROM na CLI (sobrepõe `rom=` do INI):
 
 ```powershell
 java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main D:\caminho\jogo.nes --gui --hud
@@ -159,8 +170,15 @@ reset=F1
 log-palette=256
 # Dump nametable
 dump-nt=false
+# Default ROM (sobrepõe fallback interno se CLI não informar)
+rom=roms/donkeykong.nes
 ```
 Todas as outras flags suportadas pela CLI podem ter a mesma forma (remova o `--` e use `=` ou `true/false`). Comentários começam com `#`.
+
+Notas sobre `rom=`:
+* Se você quiser alternar rapidamente de jogo sem editar scripts de execução, mantenha várias linhas comentadas e descomente a desejada.
+* A linha de comando sempre vence: `java -cp ... Main outra.nes` ignora o `rom=` definido.
+* Caminhos relativos são resolvidos a partir da pasta onde o processo é iniciado.
 
 ### Interação com flags de diagnóstico
 Flags que habilitam logs específicos (ex: `--log-attr`, `--log-nt`, `--pipe-log`, `--dbg-bg-sample`) produzem saída mesmo que você tenha reduzido categorias — contanto que a categoria correspondente (geralmente `PPU`) permaneça ativa e o nível seja suficiente. Para silenciar integralmente, ajuste tanto nível/categorias quanto não habilite as flags produtoras de log.
