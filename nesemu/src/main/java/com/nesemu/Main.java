@@ -670,7 +670,7 @@ public class Main {
             // 8 pixels
             ppu.writeRegister(1, 0x08 | 0x02);
             if (gui) {
-                NesWindow window = new NesWindow("NESemu TestPattern-" + testPattern, 3);
+                NesWindow window = new NesWindow("R2-NES TestPattern-" + testPattern, 3);
                 window.show(ppu.getFrameBuffer());
                 Log.info(GENERAL, "Iniciando GUI TestPattern (Ctrl+C para sair)");
                 window.startRenderLoop(() -> {
@@ -700,7 +700,7 @@ public class Main {
         emuRef[0].getBus().cpuWrite(0x2001, initMask);
         Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (initialMaskOverride != null ? " (override)" : ""));
         if (gui) {
-            NesWindow window = new NesWindow("NESemu - " + romFilePath.getFileName(), 3);
+            NesWindow window = new NesWindow("R2-NES - " + romFilePath.getFileName(), 3);
             if (borderlessFullscreen != null && borderlessFullscreen) {
                 window.setBorderlessFullscreen(true);
                 Log.info(GENERAL, "Borderless fullscreen: ON");
