@@ -1,5 +1,3 @@
-<div style="background-color:#071E35;">
-
 # R2NES - NES Emulator em Java
 
 Projeto experimental de emulação do NES (CPU/PPU) em Java, com foco atual em estudo do pipeline de background da PPU e ferramentas de inspeção/diagnóstico.
@@ -180,4 +178,3 @@ Observação de precisão: o pipeline de sprites atualmente usa semântica de Y 
 
 ---
 Projeto em evolução; partes do PPU (sprites, scroll fino completo entre tiles, eventos precisos) ainda estão incompletas.
-</div>
