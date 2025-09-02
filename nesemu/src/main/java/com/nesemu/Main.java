@@ -64,6 +64,7 @@ public class Main {
         String spriteYMode = null; // --sprite-y=hardware|test
         String pacerModeOpt = null; // --pacer=legacy|hr
         Boolean bufferStrategyOpt = null; // --buffer-strategy[=true|false]
+        Integer initialMaskOverride = null; // --initial-mask=HEX (ppumask value to write early)
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         boolean patternStandalone = false; // modo especial: renderiza apenas padrão sintético sem ROM/CPU
@@ -630,7 +631,9 @@ public class Main {
             ppu.setTestPatternMode(testPattern); // já validado não-nulo
             // Habilita background (bit 3) para permitir pipeline & render (necessário para
             // passar renderingEnabled())
-            ppu.writeRegister(1, 0x08);
+            // Habilita background (bit3) e garante BG_LEFT (bit1) para visualizar primeiros
+            // 8 pixels
+            ppu.writeRegister(1, 0x08 | 0x02);
             if (gui) {
                 NesWindow window = new NesWindow("NESemu TestPattern-" + testPattern, 3);
                 window.show(ppu.getFrameBuffer());
@@ -656,7 +659,11 @@ public class Main {
             return; // encerra main
         }
         // Optionally force background enable early (most games set this quickly anyway)
-        emuRef[0].getBus().cpuWrite(0x2001, 0x08);
+        // Escreve PPUMASK inicial para acelerar primeiros frames (BG + coluna esquerda
+        // por padrão)
+        int initMask = (initialMaskOverride != null) ? initialMaskOverride : 0x0A; // 0x08 BG | 0x02 BG_LEFT
+        emuRef[0].getBus().cpuWrite(0x2001, initMask);
+        Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (initialMaskOverride != null ? " (override)" : ""));
         if (gui) {
             NesWindow window = new NesWindow("NESemu - " + romFilePath.getFileName(), 3);
             final long[] resetMsgExpireNs = new long[] { 0L };
