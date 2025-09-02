@@ -17,10 +17,7 @@ import com.nesemu.ppu.Ppu2C02;
 
 /**
  * Simple headless runner: loads a .nes ROM, executes a number of frames and
- * dumps
- * background information for inspection (ASCII tile matrix + PPM of palette
- * indices).
- * Usage: java -cp nesemu.jar com.nesemu.Main path/to/game.nes [frames]
+ * dumps background info.
  */
 public class Main {
     private static NesController controllerPad1;
@@ -202,25 +199,113 @@ public class Main {
         Log.info(ROM, "Carregando ROM: %s", p.toAbsolutePath());
         INesRom rom = RomLoader.load(p);
         NesEmulator emu = new NesEmulator(rom);
-        // Load input configuration (emulator.ini in working dir, fallback to classpath
-        // location if moved later)
+        // Load configuration file for controller + global option fallbacks
+        InputConfig inputCfg;
         try {
             var inputPath = Path.of("emulator.ini");
-            InputConfig inputCfg;
-            if (Files.exists(inputPath)) {
+            if (Files.exists(inputPath))
                 inputCfg = InputConfig.load(inputPath);
-            } else {
-                // Try relative to source tree for dev environment
+            else {
                 var devPath = Path.of("src/main/java/com/nesemu/config/emulator.ini");
                 if (Files.exists(devPath))
                     inputCfg = InputConfig.load(devPath);
                 else
                     inputCfg = new InputConfig();
             }
+            // Apply fallback options (only where CLI not specified)
+            if (inputCfg.hasOption("quiet") && !quiet)
+                quiet = Boolean.parseBoolean(inputCfg.getOption("quiet"));
+            if (!gui && inputCfg.hasOption("gui"))
+                gui = Boolean.parseBoolean(inputCfg.getOption("gui"));
+            if (verboseFlag == null && inputCfg.hasOption("verbose"))
+                verboseFlag = Boolean.parseBoolean(inputCfg.getOption("verbose"));
+            if (!hud && inputCfg.hasOption("hud"))
+                hud = Boolean.parseBoolean(inputCfg.getOption("hud"));
+            if (logLevelOpt == null && inputCfg.hasOption("log-level"))
+                logLevelOpt = inputCfg.getOption("log-level");
+            if (logCatsOpt == null && inputCfg.hasOption("log-cats"))
+                logCatsOpt = inputCfg.getOption("log-cats");
+            if (!logTimestamps && inputCfg.hasOption("log-ts"))
+                logTimestamps = Boolean.parseBoolean(inputCfg.getOption("log-ts"));
+            if (tileMatrixMode == null && inputCfg.hasOption("tile-matrix"))
+                tileMatrixMode = inputCfg.getOption("tile-matrix");
+            if (!chrLog && inputCfg.hasOption("chr-log"))
+                chrLog = Boolean.parseBoolean(inputCfg.getOption("chr-log"));
+            if (!dumpNt && inputCfg.hasOption("dump-nt"))
+                dumpNt = Boolean.parseBoolean(inputCfg.getOption("dump-nt"));
+            if (dumpPattern == null && inputCfg.hasOption("dump-pattern"))
+                try {
+                    dumpPattern = Integer.parseInt(inputCfg.getOption("dump-pattern"), 16);
+                } catch (Exception ignore) {
+                }
+            if (dumpPatternsList == null && inputCfg.hasOption("dump-patterns"))
+                dumpPatternsList = inputCfg.getOption("dump-patterns");
+            if (!traceNmi && inputCfg.hasOption("trace-nmi"))
+                traceNmi = Boolean.parseBoolean(inputCfg.getOption("trace-nmi"));
+            if (!logPpuReg && inputCfg.hasOption("log-ppu-reg"))
+                logPpuReg = Boolean.parseBoolean(inputCfg.getOption("log-ppu-reg"));
+            if (breakAtPc == null && inputCfg.hasOption("break-at"))
+                try {
+                    breakAtPc = Integer.parseInt(inputCfg.getOption("break-at"), 16);
+                } catch (Exception ignore) {
+                }
+            if (breakReadAddr < 0 && inputCfg.hasOption("break-read"))
+                try {
+                    var spec = inputCfg.getOption("break-read");
+                    var parts = spec.split(",");
+                    breakReadAddr = Integer.parseInt(parts[0], 16);
+                    if (parts.length > 1)
+                        breakReadCount = Integer.parseInt(parts[1]);
+                } catch (Exception ignore) {
+                }
+            if (!untilVblank && inputCfg.hasOption("until-vblank"))
+                untilVblank = Boolean.parseBoolean(inputCfg.getOption("until-vblank"));
+            if (dbgBgSample == 0 && inputCfg.hasOption("dbg-bg-sample"))
+                try {
+                    dbgBgSample = Integer.parseInt(inputCfg.getOption("dbg-bg-sample"));
+                } catch (Exception ignore) {
+                }
+            if (!dbgBgAll && inputCfg.hasOption("dbg-bg-all"))
+                dbgBgAll = Boolean.parseBoolean(inputCfg.getOption("dbg-bg-all"));
+            if (!initScroll && inputCfg.hasOption("init-scroll"))
+                initScroll = Boolean.parseBoolean(inputCfg.getOption("init-scroll"));
+            if (!timingSimple && inputCfg.hasOption("timing-simple"))
+                timingSimple = Boolean.parseBoolean(inputCfg.getOption("timing-simple"));
+            if (logAttrLimit == 0 && inputCfg.hasOption("log-attr"))
+                try {
+                    logAttrLimit = Integer.parseInt(inputCfg.getOption("log-attr"));
+                } catch (Exception ignore) {
+                }
+            if (logNtLimit == 0 && inputCfg.hasOption("log-nt"))
+                try {
+                    logNtLimit = Integer.parseInt(inputCfg.getOption("log-nt"));
+                } catch (Exception ignore) {
+                }
+            if (ntBaseline == null && inputCfg.hasOption("nt-baseline"))
+                try {
+                    ntBaseline = Integer.parseInt(inputCfg.getOption("nt-baseline"), 16) & 0xFF;
+                } catch (Exception ignore) {
+                }
+            if (!forceBg && inputCfg.hasOption("force-bg"))
+                forceBg = Boolean.parseBoolean(inputCfg.getOption("force-bg"));
+            if (!bgColStats && inputCfg.hasOption("bg-col-stats"))
+                bgColStats = Boolean.parseBoolean(inputCfg.getOption("bg-col-stats"));
+            if (testPattern == null && inputCfg.hasOption("test-pattern"))
+                testPattern = inputCfg.getOption("test-pattern");
+            if (pipeLogLimit == 0 && inputCfg.hasOption("pipe-log"))
+                try {
+                    pipeLogLimit = Integer.parseInt(inputCfg.getOption("pipe-log"));
+                } catch (Exception ignore) {
+                }
+            if (frames == 60 && inputCfg.hasOption("frames"))
+                try {
+                    frames = Integer.parseInt(inputCfg.getOption("frames"));
+                } catch (Exception ignore) {
+                }
+            // Controllers
             var pad1 = new NesController(inputCfg.getController(0));
             var pad2 = new NesController(inputCfg.getController(1));
             emu.getBus().attachControllers(pad1, pad2);
-            // Defer key listener installation until GUI created (if any)
             controllerPad1 = pad1;
             controllerPad2 = pad2;
         } catch (Exception ex) {
