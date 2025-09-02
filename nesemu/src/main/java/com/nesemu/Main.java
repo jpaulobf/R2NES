@@ -1,14 +1,19 @@
 package com.nesemu;
 
 import java.nio.file.*;
+import java.util.EnumSet;
+import java.util.Locale;
 
+import com.nesemu.bus.Bus;
 import com.nesemu.emulator.NesEmulator;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
 import com.nesemu.gui.NesWindow;
+import com.nesemu.input.InputConfig;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
 import com.nesemu.io.NesController;
+import com.nesemu.ppu.Ppu2C02;
 
 /**
  * Simple headless runner: loads a .nes ROM, executes a number of frames and
@@ -52,6 +57,9 @@ public class Main {
         int pipeLogLimit = 0; // ativa log do pipeline de fetch de background
         boolean quiet = false; // desabilita logs verbosos
         Boolean verboseFlag = null; // se usuário força verbose
+        String logLevelOpt = null; // --log-level=TRACE|DEBUG|INFO|WARN|ERROR
+        String logCatsOpt = null; // --log-cats=CPU,PPU,... or ALL
+        boolean logTimestamps = false; // --log-ts
         for (String a : args) {
             if (a.equalsIgnoreCase("--gui"))
                 gui = true;
@@ -175,6 +183,12 @@ public class Main {
                 quiet = true;
             } else if (a.equalsIgnoreCase("--verbose")) {
                 verboseFlag = Boolean.TRUE;
+            } else if (a.startsWith("--log-level=")) {
+                logLevelOpt = a.substring(12).trim();
+            } else if (a.startsWith("--log-cats=")) {
+                logCatsOpt = a.substring(11).trim();
+            } else if (a.equalsIgnoreCase("--log-ts")) {
+                logTimestamps = true;
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
@@ -192,19 +206,19 @@ public class Main {
         // location if moved later)
         try {
             var inputPath = Path.of("emulator.ini");
-            com.nesemu.input.InputConfig inputCfg;
+            InputConfig inputCfg;
             if (Files.exists(inputPath)) {
-                inputCfg = com.nesemu.input.InputConfig.load(inputPath);
+                inputCfg = InputConfig.load(inputPath);
             } else {
                 // Try relative to source tree for dev environment
                 var devPath = Path.of("src/main/java/com/nesemu/config/emulator.ini");
                 if (Files.exists(devPath))
-                    inputCfg = com.nesemu.input.InputConfig.load(devPath);
+                    inputCfg = InputConfig.load(devPath);
                 else
-                    inputCfg = new com.nesemu.input.InputConfig();
+                    inputCfg = new InputConfig();
             }
-            var pad1 = new com.nesemu.io.NesController(inputCfg.getController(0));
-            var pad2 = new com.nesemu.io.NesController(inputCfg.getController(1));
+            var pad1 = new NesController(inputCfg.getController(0));
+            var pad2 = new NesController(inputCfg.getController(1));
             emu.getBus().attachControllers(pad1, pad2);
             // Defer key listener installation until GUI created (if any)
             controllerPad1 = pad1;
@@ -214,11 +228,47 @@ public class Main {
         }
         // Aplicar política de verbosidade
         if (quiet) {
-            com.nesemu.ppu.Ppu2C02.setVerboseLogging(false);
-            com.nesemu.bus.Bus.setGlobalVerbose(false);
+            Ppu2C02.setVerboseLogging(false);
+            Bus.setGlobalVerbose(false);
         } else if (verboseFlag != null && verboseFlag) {
-            com.nesemu.ppu.Ppu2C02.setVerboseLogging(true);
-            com.nesemu.bus.Bus.setGlobalVerbose(true);
+            Ppu2C02.setVerboseLogging(true);
+            Bus.setGlobalVerbose(true);
+        }
+        // Configurar nível de log se fornecido
+        if (logLevelOpt != null) {
+            try {
+                Log.setLevel(Log.Level.valueOf(logLevelOpt.toUpperCase(Locale.ROOT)));
+            } catch (IllegalArgumentException ex) {
+                Log.warn(GENERAL, "Nível de log inválido: %s (usar TRACE|DEBUG|INFO|WARN|ERROR)", logLevelOpt);
+            }
+        } else if (verboseFlag != null && verboseFlag && !quiet) {
+            Log.setLevel(Log.Level.DEBUG);
+        }
+        // Configurar categorias
+        if (logCatsOpt != null) {
+            if (logCatsOpt.equalsIgnoreCase("ALL")) {
+                Log.setCategories(EnumSet.allOf(Log.Cat.class));
+            } else {
+                EnumSet<Log.Cat> set = EnumSet.noneOf(Log.Cat.class);
+                for (String c : logCatsOpt.split(",")) {
+                    c = c.trim();
+                    if (c.isEmpty())
+                        continue;
+                    try {
+                        set.add(Log.Cat.valueOf(c.toUpperCase(Locale.ROOT)));
+                    } catch (IllegalArgumentException ex) {
+                        Log.warn(GENERAL, "Categoria de log inválida ignorada: %s", c);
+                    }
+                }
+                if (set.isEmpty()) {
+                    Log.warn(GENERAL, "Nenhuma categoria válida em --log-cats, mantendo padrão.");
+                } else {
+                    Log.setCategories(set);
+                }
+            }
+        }
+        if (logTimestamps) {
+            Log.setTimestamps(true);
         }
         if (tileMatrixMode != null) {
             emu.getPpu().setTileMatrixMode(tileMatrixMode);

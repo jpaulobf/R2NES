@@ -2,6 +2,7 @@ package com.nesemu.util;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,6 +39,14 @@ public final class Log {
 
     public static void setTimestamps(boolean on) {
         timestamps.set(on);
+    }
+
+    /** Replace enabled category set (thread-unsafe coarse reconfiguration). */
+    public static void setCategories(Collection<Cat> cats) {
+        enabledCats.clear();
+        if (cats != null && !cats.isEmpty()) {
+            enabledCats.addAll(cats);
+        }
     }
 
     public static boolean isEnabled(Level lvl, Cat cat) {
