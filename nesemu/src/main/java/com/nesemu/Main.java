@@ -59,7 +59,8 @@ public class Main {
         boolean logTimestamps = false; // --log-ts
         String resetKeyToken = null; // configurable reset key (from ini)
         int paletteLogLimit = 0; // --log-palette[=N]
-    Boolean unlimitedSprites = null; // --unlimited-sprites[=true|false]
+        Boolean unlimitedSprites = null; // --unlimited-sprites[=true|false]
+        String spriteYMode = null; // --sprite-y=hardware|test
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         for (String a : args) {
@@ -213,6 +214,13 @@ public class Main {
                     unlimitedSprites = Boolean.FALSE;
                 else
                     Log.warn(PPU, "Valor inválido em --unlimited-sprites= (usar true|false)");
+            } else if (a.startsWith("--sprite-y=")) {
+                String v = a.substring(11).trim().toLowerCase(Locale.ROOT);
+                if (v.equals("hardware") || v.equals("test")) {
+                    spriteYMode = v;
+                } else {
+                    Log.warn(PPU, "Valor inválido em --sprite-y= (usar hardware|test)");
+                }
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
@@ -350,6 +358,11 @@ public class Main {
                 } catch (Exception ignore) {
                 }
             }
+            if (spriteYMode == null && inputCfg.hasOption("sprite-y")) {
+                String v = inputCfg.getOption("sprite-y").trim().toLowerCase(Locale.ROOT);
+                if (v.equals("hardware") || v.equals("test"))
+                    spriteYMode = v;
+            }
             // (Adia attach de controllers até após criação do emu)
         } catch (Exception ex) {
             Log.warn(CONTROLLER, "Falha ao carregar configuração de input: %s", ex.getMessage());
@@ -468,6 +481,11 @@ public class Main {
         if (unlimitedSprites != null) {
             emuRef[0].getPpu().setUnlimitedSprites(unlimitedSprites);
             Log.info(PPU, "Unlimited sprites: %s", unlimitedSprites ? "ON" : "OFF");
+        }
+        if (spriteYMode != null) {
+            boolean hw = spriteYMode.equals("hardware");
+            emuRef[0].getPpu().setSpriteYHardware(hw);
+            Log.info(PPU, "Sprite Y mode: %s", hw ? "HARDWARE(+1)" : "TEST(EXACT)");
         }
         if (logAttrLimit > 0) {
             emuRef[0].getPpu().enableAttributeRuntimeLog(logAttrLimit);

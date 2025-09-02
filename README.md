@@ -92,6 +92,8 @@ java -jar target\nesemu-1.0-SNAPSHOT.jar --gui --hud roms\donkeykong.nes
 | `--hud` | Exibe overlay (FPS, frame, scanline, ciclo, VRAM, MASK, STATUS, fineX) na GUI |
 | `--quiet` / `--no-debug` | Desliga logs verbosos (PPU writes, DMA, mudanças de MASK/CTRL, dumps de OAM) |
 | `--verbose` | Força reativação de logs verbosos (override caso futuro default seja silencioso) |
+| `--unlimited-sprites` | Remove limite de 8 sprites por scanline (hardware cap). Útil para diagnóstico visual de sobreposição. |
+| `--sprite-y=hardware|test` | Seleciona semântica do Y de sprites: `hardware` = OAM Y representa (top-1); `test` = Y direto (modo legado de testes). |
 
 Exemplos combinando diagnóstico:
 ```powershell
@@ -175,6 +177,15 @@ rom=roms/donkeykong.nes
 ```
 Todas as outras flags suportadas pela CLI podem ter a mesma forma (remova o `--` e use `=` ou `true/false`). Comentários começam com `#`.
 
+Novas chaves relevantes:
+```ini
+# Desabilita limite de 8 sprites por linha (pode aumentar custo de render):
+unlimited-sprites=true
+
+# Semântica de Y de sprites: hardware|test (default atual: hardware)
+sprite-y=hardware
+```
+
 Notas sobre `rom=`:
 * Se você quiser alternar rapidamente de jogo sem editar scripts de execução, mantenha várias linhas comentadas e descomente a desejada.
 * A linha de comando sempre vence: `java -cp ... Main outra.nes` ignora o `rom=` definido.
@@ -183,7 +194,25 @@ Notas sobre `rom=`:
 ### Interação com flags de diagnóstico
 Flags que habilitam logs específicos (ex: `--log-attr`, `--log-nt`, `--pipe-log`, `--dbg-bg-sample`) produzem saída mesmo que você tenha reduzido categorias — contanto que a categoria correspondente (geralmente `PPU`) permaneça ativa e o nível seja suficiente. Para silenciar integralmente, ajuste tanto nível/categorias quanto não habilite as flags produtoras de log.
 
-Observação de precisão: o pipeline de sprites atualmente usa semântica de Y "direta" (valor de OAM é a linha superior do sprite) para alinhar com a suíte de testes. O hardware real armazena Y-1; poderá ser adicionada flag de compatibilidade futura.
+### Sprites: Y e limite por scanline
+
+O NES real escreve em OAM o valor (scanline superior do sprite - 1). A flag `--sprite-y=hardware` (ou `sprite-y=hardware` no INI) habilita essa semântica fiel: internamente o emulador adiciona +1 ao Y antes de avaliar cobertura vertical. Para manter compatibilidade com cenários de teste legados, `--sprite-y=test` trata o valor de OAM como o topo diretamente.
+
+O limite de 8 sprites por scanline é implementado pelo hardware original para decidir prioridade e setar o flag de overflow. A flag `--unlimited-sprites` (ou `unlimited-sprites=true`) permite renderizar todos os sprites que cruzem a linha, ignorando esse corte — útil para depuração visual de ordem, sobreposição e arte que normalmente ficaria oculta.
+
+### Mappers suportados
+
+Atualmente implementados:
+| Mapper | Nome comum | Recursos principais suportados |
+|--------|------------|--------------------------------|
+| 0 | NROM | PRG fixo 16/32K, CHR ROM 8K, mirroring H/V |
+| 1 | MMC1 | Shift register, PRG banking (32K ou 16K com fixação), CHR 8K ou 2×4K, mirroring: H, V, single-screen (0/1) |
+| 2 | UNROM (UxROM) | PRG switching 16K (banco baixo) + 16K final fixo, CHR RAM 8K |
+| 3 | CNROM | CHR bank switching 8K, PRG fixo, opção de simulação de bus conflict |
+
+Mirroring adicional: além de Horizontal / Vertical, modos single-screen (`SINGLE0` / `SINGLE1`) usados pelo MMC1.
+
+Próximos incrementos possíveis: PRG RAM persistente (battery) para MMC1, testes adicionais de modos de CHR 4K, suporte a mais mappers (4/MMC3, 7/AxROM, etc.).
 
 ## Notas de implementação
 

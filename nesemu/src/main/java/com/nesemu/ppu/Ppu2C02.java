@@ -77,6 +77,9 @@ public class Ppu2C02 implements PPU, Clockable {
     private final int[] spriteBottom = new int[64];
     private boolean spriteRangesDirty = true;
     private int cachedSpriteHeight = -1;
+    // Sprite Y semantics flag: false = test-friendly (OAM Y is top), true =
+    // hardware (OAM Y = top-1)
+    private boolean spriteYHardware = false;
     // Secondary OAM simulation and prepared sprite list for next scanline
     private final byte[] secondaryOam = new byte[32]; // 8 sprites * 4 bytes
     private final int[] preparedSpriteIndices = new int[EXTENDED_SPRITE_DRAW_LIMIT];
@@ -1342,10 +1345,7 @@ public class Ppu2C02 implements PPU, Clockable {
         if (spriteRangesDirty || spriteHeight != cachedSpriteHeight) {
             for (int i = 0; i < 64; i++) {
                 int y = oam[i << 2] & 0xFF;
-                // Test-friendly semantics: treat stored Y as the actual top scanline.
-                // (Previously we added +1 to emulate hardware storing Y-1; unit tests assume
-                // direct Y.)
-                int top = y & 0xFF;
+                int top = spriteYHardware ? ((y + 1) & 0xFF) : (y & 0xFF);
                 int bottom = top + spriteHeight - 1;
                 spriteTop[i] = top;
                 spriteBottom[i] = bottom;
@@ -1417,8 +1417,8 @@ public class Ppu2C02 implements PPU, Clockable {
             int x = oam[base + 3] & 0xFF;
             if (xPixel < x || xPixel >= x + 8)
                 continue;
-            // With test-friendly Y semantics (no +1), compute row directly.
-            int rowInSprite = sl - (y & 0xFF);
+            int spriteTopY = spriteYHardware ? ((y + 1) & 0xFF) : (y & 0xFF);
+            int rowInSprite = sl - spriteTopY;
             if (rowInSprite < 0 || rowInSprite >= spriteHeight)
                 continue;
             boolean flipV = (attr & 0x80) != 0;
@@ -1510,5 +1510,18 @@ public class Ppu2C02 implements PPU, Clockable {
     /** Lê byte individual de OAM. */
     public int getOamByte(int index) {
         return oam[index & 0xFF] & 0xFF;
+    }
+
+    // --- Sprite Y semantics control ---
+    public void setSpriteYHardware(boolean enable) {
+        if (this.spriteYHardware != enable) {
+            this.spriteYHardware = enable;
+            spriteRangesDirty = true; // recalc ranges
+            Log.info(PPU, "spriteYHardware=%s", enable);
+        }
+    }
+
+    public boolean isSpriteYHardware() {
+        return spriteYHardware;
     }
 }
