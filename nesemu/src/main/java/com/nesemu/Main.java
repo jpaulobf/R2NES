@@ -62,6 +62,7 @@ public class Main {
         Boolean unlimitedSprites = null; // --unlimited-sprites[=true|false]
         String spriteYMode = null; // --sprite-y=hardware|test
         String pacerModeOpt = null; // --pacer=legacy|hr
+        Boolean bufferStrategyOpt = null; // --buffer-strategy[=true|false]
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         for (String a : args) {
@@ -229,6 +230,18 @@ public class Main {
                 } else {
                     Log.warn(GENERAL, "Valor inválido em --pacer= (usar legacy|hr)");
                 }
+            } else if (a.equalsIgnoreCase("--buffer-strategy")) {
+                bufferStrategyOpt = Boolean.TRUE;
+            } else if (a.startsWith("--buffer-strategy=")) {
+                int eq = a.indexOf('=');
+                String v = (eq >= 0 && eq + 1 < a.length()) ? a.substring(eq + 1) : "";
+                v = v.trim().toLowerCase(Locale.ROOT);
+                if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
+                    bufferStrategyOpt = Boolean.TRUE;
+                else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
+                    bufferStrategyOpt = Boolean.FALSE;
+                else
+                    Log.warn(GENERAL, "Valor inválido em --buffer-strategy= (usar true|false)");
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
@@ -375,6 +388,16 @@ public class Main {
                 String v = inputCfg.getOption("pacer").trim().toLowerCase(Locale.ROOT);
                 if (v.equals("legacy") || v.equals("hr"))
                     pacerModeOpt = v;
+            }
+            if (bufferStrategyOpt == null && inputCfg.hasOption("buffer-strategy")) {
+                try {
+                    String v = inputCfg.getOption("buffer-strategy").trim().toLowerCase(Locale.ROOT);
+                    if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
+                        bufferStrategyOpt = Boolean.TRUE;
+                    else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
+                        bufferStrategyOpt = Boolean.FALSE;
+                } catch (Exception ignore) {
+                }
             }
             // (Adia attach de controllers até após criação do emu)
         } catch (Exception ex) {
@@ -590,6 +613,12 @@ public class Main {
             NesWindow.PacerMode pm = (pacerModeOpt == null || pacerModeOpt.equals("hr")) ? NesWindow.PacerMode.HR
                     : NesWindow.PacerMode.LEGACY;
             Log.info(GENERAL, "Pacer mode: %s", pm);
+            if (bufferStrategyOpt != null) {
+                window.setUseBufferStrategy(bufferStrategyOpt);
+                Log.info(GENERAL, "BufferStrategy: %s", bufferStrategyOpt ? "ON" : "OFF (Swing repaint)");
+            } else {
+                Log.info(GENERAL, "BufferStrategy: DEFAULT(ON)");
+            }
             window.startRenderLoop(() -> emuRef[0].stepFrame(), 60, pm); // target 60 fps
         } else {
             long start = System.nanoTime();

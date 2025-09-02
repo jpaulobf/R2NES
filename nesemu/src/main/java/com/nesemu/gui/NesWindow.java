@@ -5,13 +5,18 @@ import javax.swing.SwingUtilities;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.Graphics2D;
+import java.awt.Canvas;
+import java.awt.image.BufferStrategy;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Basic Swing window that displays the current NES framebuffer. */
 public class NesWindow {
     private final JFrame frame;
-    private final VideoRenderer renderer;
+    private final VideoRenderer renderer; // Swing path
+    private final Canvas canvas; // Active rendering path
+    private volatile boolean useBufferStrategy = true; // default to active BS
+    private BufferStrategy bufferStrategy;
     private final AtomicBoolean running = new AtomicBoolean(false);
     // FPS tracking
     private volatile double lastFps = 0.0;
@@ -20,9 +25,13 @@ public class NesWindow {
 
     public NesWindow(String title, int scale) {
         renderer = new VideoRenderer(scale);
+        canvas = new Canvas();
+        canvas.setPreferredSize(new java.awt.Dimension(256 * scale, 240 * scale));
         frame = new JFrame(title);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setContentPane(renderer);
+        // Adiciona inicialmente o canvas (path ativo). Se usuário desabilitar depois,
+        // faremos swap.
+        frame.getContentPane().add(canvas);
         frame.pack();
         frame.setLocationRelativeTo(null);
     }
@@ -30,6 +39,25 @@ public class NesWindow {
     public void show(int[] framebuffer) {
         renderer.setFrameBuffer(framebuffer);
         SwingUtilities.invokeLater(() -> frame.setVisible(true));
+        // Lazy BS creation after showing (required on some platforms)
+        SwingUtilities.invokeLater(() -> {
+            if (useBufferStrategy && bufferStrategy == null) {
+                try {
+                    canvas.createBufferStrategy(3); // triple buffer to reduce tearing
+                    bufferStrategy = canvas.getBufferStrategy();
+                } catch (Exception e) {
+                    useBufferStrategy = false; // fallback silently
+                    // Garantir que painel Swing entre em cena se BS falhou
+                    if (canvas.getParent() != null) {
+                        frame.getContentPane().remove(canvas);
+                    }
+                    if (renderer.getParent() == null) {
+                        frame.getContentPane().add(renderer);
+                        frame.pack();
+                    }
+                }
+            }
+        });
     }
 
     public void setOverlay(Consumer<Graphics2D> overlay) {
@@ -68,7 +96,7 @@ public class NesWindow {
         while (running.get()) {
             long start = System.nanoTime();
             perFrame.run();
-            renderer.blitAndRepaint();
+            blitAndPresent();
             fpsFrames++;
             long now = System.nanoTime();
             long windowElapsed = now - fpsWindowStart;
@@ -97,7 +125,7 @@ public class NesWindow {
             fpsWindowStart = System.nanoTime();
             while (running.get()) {
                 perFrame.run();
-                renderer.blitAndRepaint();
+                blitAndPresent();
             }
             return;
         }
@@ -105,7 +133,7 @@ public class NesWindow {
         fpsWindowStart = System.nanoTime();
         while (running.get()) {
             perFrame.run();
-            renderer.blitAndRepaint();
+            blitAndPresent();
             fpsFrames++;
             long now = System.nanoTime();
             long winElapsed = now - fpsWindowStart;
@@ -137,6 +165,69 @@ public class NesWindow {
             }
             // Opcional: se frequentemente atrasado, relaxa spin (não implementado ainda)
         }
+    }
+
+    private void blitAndPresent() {
+        if (useBufferStrategy && bufferStrategy != null) {
+            renderer.blit();
+            do {
+                do {
+                    Graphics2D g = (Graphics2D) bufferStrategy.getDrawGraphics();
+                    try {
+                        renderer.drawTo(g);
+                    } finally {
+                        g.dispose();
+                    }
+                } while (bufferStrategy.contentsRestored());
+                bufferStrategy.show();
+            } while (bufferStrategy.contentsLost());
+        } else {
+            renderer.blitAndRepaint();
+        }
+    }
+
+    public void setUseBufferStrategy(boolean enable) {
+        if (this.useBufferStrategy == enable)
+            return;
+        this.useBufferStrategy = enable;
+        SwingUtilities.invokeLater(() -> {
+            if (enable) {
+                // Swap para canvas + BS
+                if (renderer.getParent() != null) {
+                    frame.getContentPane().remove(renderer);
+                }
+                if (canvas.getParent() == null) {
+                    frame.getContentPane().add(canvas);
+                }
+                frame.revalidate();
+                frame.pack();
+                try {
+                    canvas.createBufferStrategy(3);
+                    bufferStrategy = canvas.getBufferStrategy();
+                } catch (Exception e) {
+                    useBufferStrategy = false; // falhou, volta para Swing
+                    bufferStrategy = null;
+                    // Re-adiciona renderer
+                    if (canvas.getParent() != null)
+                        frame.getContentPane().remove(canvas);
+                    if (renderer.getParent() == null)
+                        frame.getContentPane().add(renderer);
+                    frame.revalidate();
+                    frame.pack();
+                }
+            } else {
+                // Swap para painel Swing
+                bufferStrategy = null; // GC reclaim
+                if (canvas.getParent() != null) {
+                    frame.getContentPane().remove(canvas);
+                }
+                if (renderer.getParent() == null) {
+                    frame.getContentPane().add(renderer);
+                }
+                frame.revalidate();
+                frame.pack();
+            }
+        });
     }
 
     public double getLastFps() {

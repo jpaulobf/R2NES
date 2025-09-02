@@ -28,13 +28,36 @@ public class VideoRenderer extends JPanel {
         this.source = argb;
     }
 
+    /**
+     * Copy latest emulator framebuffer into backing image and schedule Swing
+     * repaint.
+     */
     public void blitAndRepaint() {
+        blit();
+        repaint();
+    }
+
+    /** Copy latest emulator framebuffer into backing image (no repaint). */
+    public void blit() {
         int[] src = source;
         if (src != null) {
-            // Copia direta (≈61K ints) – mais leve que setRGB e evita validações extras
             System.arraycopy(src, 0, imageData, 0, 256 * 240);
         }
-        repaint();
+    }
+
+    /** Draw current image + overlay (scaled) into provided Graphics2D. */
+    public void drawTo(Graphics2D g) {
+        g.drawImage(image, 0, 0, 256 * scale, 240 * scale, null);
+        Consumer<Graphics2D> ov = overlay;
+        if (ov != null) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.scale(scale, scale);
+                ov.accept(g2);
+            } finally {
+                g2.dispose();
+            }
+        }
     }
 
     public void setOverlay(Consumer<Graphics2D> overlay) {
