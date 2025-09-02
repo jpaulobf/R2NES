@@ -57,7 +57,7 @@ public class Main {
         String logLevelOpt = null; // --log-level=TRACE|DEBUG|INFO|WARN|ERROR
         String logCatsOpt = null; // --log-cats=CPU,PPU,... or ALL
         boolean logTimestamps = false; // --log-ts
-    String resetKeyToken = null; // configurable reset key (from ini)
+        String resetKeyToken = null; // configurable reset key (from ini)
         for (String a : args) {
             if (a.equalsIgnoreCase("--gui"))
                 gui = true;

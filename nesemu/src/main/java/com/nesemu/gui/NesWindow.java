@@ -84,7 +84,9 @@ public class NesWindow {
         installControllerKeyListener(p1, p2, null, null);
     }
 
-    /** Extended variant allowing a special reset key token that fires a callback. */
+    /**
+     * Extended variant allowing a special reset key token that fires a callback.
+     */
     public void installControllerKeyListener(com.nesemu.io.NesController p1, com.nesemu.io.NesController p2,
             String resetToken, Runnable onReset) {
         final String resetTok = resetToken == null ? null : resetToken.toLowerCase();
