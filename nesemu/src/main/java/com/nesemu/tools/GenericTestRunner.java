@@ -11,6 +11,8 @@ import com.nesemu.rom.RomLoader;
 
 import java.nio.file.Path;
 import java.util.Locale;
+import com.nesemu.util.Log;
+import static com.nesemu.util.Log.Cat.*;
 
 /**
  * Runner genérico para ROMs de teste estilo blargg:
@@ -22,7 +24,7 @@ import java.util.Locale;
 public class GenericTestRunner {
     public static void main(String[] args) throws Exception {
         if (args.length < 1) {
-            System.err.println("Usage: GenericTestRunner <romFile> [maxInstr] [maxCycles]");
+            Log.error(TEST, "Usage: GenericTestRunner <romFile> [maxInstr] [maxCycles]");
             return;
         }
         Path romPath = Path.of(args[0]);
@@ -46,7 +48,7 @@ public class GenericTestRunner {
                 mapper3 = new Mapper3(rom);
                 break;
             default:
-                System.err.println("[WARN] Mapper " + mapperNum + " not explicitly supported; using NROM fallback.");
+                Log.warn(TEST, "Mapper %d not explicitly supported; using NROM fallback.", mapperNum);
                 mapper0 = new Mapper0(rom);
         }
         Ppu2C02 ppu = new Ppu2C02();
@@ -86,40 +88,37 @@ public class GenericTestRunner {
         boolean initLoopStuckReported = false;
         while (true) {
             if (debug && !vblankLogged && ppu.isInVBlank()) {
-                System.out.printf(Locale.ROOT,
-                        "VBLANK_REACHED instr=%d cycles=%d scanline=%d ppuCycle=%d status2002=%02X%n",
+                Log.debug(TEST, "VBLANK_REACHED instr=%d cycles=%d scanline=%d ppuCycle=%d status2002=%02X",
                         instrCount, cpu.getTotalCycles(), ppu.getScanline(), ppu.getCycle(), bus.read(0x2002));
                 vblankLogged = true;
             }
             if (debug && instrCount - lastScanReport >= 100_000) {
                 lastScanReport = instrCount;
-                System.out.printf(Locale.ROOT,
-                        "DBG instr=%d cpuCycles=%d scan=%d ppuCycle=%d vblank=%s status2002=%02X\n",
+                Log.debug(TEST, "DBG instr=%d cpuCycles=%d scan=%d ppuCycle=%d vblank=%s status2002=%02X",
                         instrCount, cpu.getTotalCycles(), ppu.getScanline(), ppu.getCycle(), ppu.isInVBlank(),
                         bus.read(0x2002));
             }
             if (debug && instrCount >= nextInstrMilestone) {
-                System.out.printf(Locale.ROOT,
-                        "MILESTONE instr=%d cpuCycles=%d scan=%d ppuCycle=%d vblank=%s status2002=%02X\n",
+                Log.info(TEST, "MILESTONE instr=%d cpuCycles=%d scan=%d ppuCycle=%d vblank=%s status2002=%02X",
                         instrCount, cpu.getTotalCycles(), ppu.getScanline(), ppu.getCycle(), ppu.isInVBlank(),
                         bus.read(0x2002));
                 nextInstrMilestone += 10_000;
             }
             if (instrCount >= maxInstr || cpu.getTotalCycles() >= maxCycles) {
-                System.out.printf(Locale.ROOT,
-                        "TIMEOUT instr=%d cycles=%d status=%02X msg=%s finalScan=%d finalPpuCycle=%d vblank=%s%n",
+                Log.warn(TEST,
+                        "TIMEOUT instr=%d cycles=%d status=%02X msg=%s finalScan=%d finalPpuCycle=%d vblank=%s",
                         instrCount, cpu.getTotalCycles(), cpuBus.read(0x6000), readMsg(cpuBus), ppu.getScanline(),
                         ppu.getCycle(), ppu.isInVBlank());
                 long actualPpuCycles = computePpuCycles(ppu.getScanline(), ppu.getCycle());
                 long expectedPpuCycles = cpu.getTotalCycles() * 3L;
-                System.out.printf(Locale.ROOT,
-                        "TIMING_SUMMARY cpuCycles=%d expectedPpuCycles=%d actualPpuCycles=%d ratio=%.4f scan=%d cyc=%d%n",
+                Log.info(TEST,
+                        "TIMING_SUMMARY cpuCycles=%d expectedPpuCycles=%d actualPpuCycles=%d ratio=%.4f scan=%d cyc=%d",
                         cpu.getTotalCycles(), expectedPpuCycles, actualPpuCycles,
                         (expectedPpuCycles > 0 ? (double) actualPpuCycles / expectedPpuCycles : 0.0), ppu.getScanline(),
                         ppu.getCycle());
                 if (traceCount > 0 && traceCount < traceLimit) {
-                    System.out.println("--- Early Instruction Trace (partial " + traceCount + "/" + traceLimit
-                            + ") ---\n" + earlyTrace);
+                    Log.info(TEST, "--- Early Instruction Trace (partial %d/%d) ---%n%s", traceCount, traceLimit,
+                            earlyTrace.toString());
                 }
                 if (tap != null)
                     tap.dumpSummary();
@@ -129,15 +128,14 @@ public class GenericTestRunner {
             if (status != 0) {
                 String msg = readMsg(cpuBus);
                 if (status == 1) {
-                    System.out.printf(Locale.ROOT, "PASS instr=%d cycles=%d msg=%s%n", instrCount, cpu.getTotalCycles(),
-                            msg);
+                    Log.info(TEST, "PASS instr=%d cycles=%d msg=%s", instrCount, cpu.getTotalCycles(), msg);
                 } else {
-                    System.out.printf(Locale.ROOT, "FAIL code=%02X instr=%d cycles=%d msg=%s%n", status, instrCount,
+                    Log.error(TEST, "FAIL code=%02X instr=%d cycles=%d msg=%s", status, instrCount,
                             cpu.getTotalCycles(), msg);
                 }
                 if (traceCount > 0 && traceCount < traceLimit) {
-                    System.out.println("--- Early Instruction Trace (partial " + traceCount + "/" + traceLimit
-                            + ") ---\n" + earlyTrace);
+                    Log.info(TEST, "--- Early Instruction Trace (partial %d/%d) ---%n%s", traceCount, traceLimit,
+                            earlyTrace.toString());
                 }
                 if (tap != null)
                     tap.dumpSummary();
@@ -155,7 +153,7 @@ public class GenericTestRunner {
             } while (!cpu.isInstructionBoundary());
             long consumed = cpu.getTotalCycles() - cycStart;
             if (consumed == 0) {
-                System.out.printf(Locale.ROOT, "ASSERT_FAIL consumed==0 pc=%04X lastOpcode=%02X totalCycles=%d\n",
+                Log.error(TEST, "ASSERT_FAIL consumed==0 pc=%04X lastOpcode=%02X totalCycles=%d",
                         cpu.getPC(), cpu.getLastOpcodeByte(), cpu.getTotalCycles());
                 break;
             }
@@ -165,10 +163,10 @@ public class GenericTestRunner {
                 if (lastPC == 0xE59E) { // BIT $2002
                     int neg = cpu.isNegative() ? 1 : 0;
                     int statVal = bus.read(0x2002); // peek (will clear vblank) for log context
-                    System.out.printf(Locale.ROOT, "BIT_PPUSTATUS pc=%04X N=%d read2002=%02X cycles=%d\n", lastPC, neg,
+                    Log.debug(TEST, "BIT_PPUSTATUS pc=%04X N=%d read2002=%02X cycles=%d", lastPC, neg,
                             statVal, cpu.getTotalCycles());
                 } else if (lastPC == 0xE5A1) { // BPL
-                    System.out.printf(Locale.ROOT, "BPL_LOOP pc=%04X N=%d willBranch=%s cycles=%d Y=%02X\n", lastPC,
+                    Log.debug(TEST, "BPL_LOOP pc=%04X N=%d willBranch=%s cycles=%d Y=%02X", lastPC,
                             cpu.isNegative() ? 1 : 0, (!cpu.isNegative()) + "", cpu.getTotalCycles(), cpu.getY());
                 }
                 // Detecta DEY no endereço E596 como marcador de uma iteração do laço
@@ -176,21 +174,19 @@ public class GenericTestRunner {
                     initLoopSeen = true;
                     initLoopIterations++;
                     if (!initLoopStuckReported && initLoopIterations > 400) {
-                        System.out.printf(Locale.ROOT,
-                                "INIT_LOOP_STUCK iter=%d Y=%02X A=%02X X=%02X flags[C=%d Z=%d N=%d] cycles=%d\n",
-                                initLoopIterations, cpu.getY(), cpu.getA(), cpu.getX(),
-                                cpu.isCarry() ? 1 : 0, cpu.isZero() ? 1 : 0, cpu.isNegative() ? 1 : 0,
-                                cpu.getTotalCycles());
+                        Log.warn(TEST,
+                                "INIT_LOOP_STUCK iter=%d Y=%02X A=%02X X=%02X flags[C=%d Z=%d N=%d] cycles=%d",
+                                initLoopIterations, cpu.getY(), cpu.getA(), cpu.getX(), cpu.isCarry() ? 1 : 0,
+                                cpu.isZero() ? 1 : 0, cpu.isNegative() ? 1 : 0, cpu.getTotalCycles());
                         initLoopStuckReported = true;
                     }
                 } else {
                     // Se saiu da faixa E596-E599 depois de ter estado lá, reporta saída uma vez
                     if (!initLoopExitReported && initLoopSeen && (lastPC < 0xE596 || lastPC > 0xE599)) {
-                        System.out.printf(Locale.ROOT,
-                                "INIT_LOOP_EXIT iter=%d lastPC=%04X Y=%02X A=%02X X=%02X flags[C=%d Z=%d N=%d] cycles=%d\n",
-                                initLoopIterations, lastPC, cpu.getY(), cpu.getA(), cpu.getX(),
-                                cpu.isCarry() ? 1 : 0, cpu.isZero() ? 1 : 0, cpu.isNegative() ? 1 : 0,
-                                cpu.getTotalCycles());
+                        Log.info(TEST,
+                                "INIT_LOOP_EXIT iter=%d lastPC=%04X Y=%02X A=%02X X=%02X flags[C=%d Z=%d N=%d] cycles=%d",
+                                initLoopIterations, lastPC, cpu.getY(), cpu.getA(), cpu.getX(), cpu.isCarry() ? 1 : 0,
+                                cpu.isZero() ? 1 : 0, cpu.isNegative() ? 1 : 0, cpu.getTotalCycles());
                         initLoopExitReported = true;
                     }
                 }
@@ -206,32 +202,33 @@ public class GenericTestRunner {
                         cpu.getTotalCycles()));
                 traceCount++;
                 if (traceCount == traceLimit) {
-                    System.out.println("--- Early Instruction Trace (first " + traceLimit + ") ---\n" + earlyTrace);
+                    Log.info(TEST, "--- Early Instruction Trace (first %d) ---%n%s", traceLimit,
+                            earlyTrace.toString());
                 }
             }
             if (debug && instrCount > 0 && instrCount % timingReportInterval == 0) {
                 long actualPpuCycles = computePpuCycles(ppu.getScanline(), ppu.getCycle());
                 long expectedPpuCycles = cpu.getTotalCycles() * 3L;
-                System.out.printf(Locale.ROOT,
-                        "TIMING_CHECK instr=%d cpuCycles=%d expectedPpu=%d actualPpu=%d ratio=%.4f scan=%d cyc=%d vblank=%s%n",
+                Log.debug(TEST,
+                        "TIMING_CHECK instr=%d cpuCycles=%d expectedPpu=%d actualPpu=%d ratio=%.4f scan=%d cyc=%d vblank=%s",
                         instrCount, cpu.getTotalCycles(), expectedPpuCycles, actualPpuCycles,
-                        (expectedPpuCycles > 0 ? (double) actualPpuCycles / expectedPpuCycles : 0.0),
-                        ppu.getScanline(), ppu.getCycle(), ppu.isInVBlank());
+                        (expectedPpuCycles > 0 ? (double) actualPpuCycles / expectedPpuCycles : 0.0), ppu.getScanline(),
+                        ppu.getCycle(), ppu.isInVBlank());
             }
             instrCount++;
             if (tap != null && tap.detectedTightLoop()) {
-                System.out.printf(Locale.ROOT, "LOOP_DETECTED pc=%04X instr=%d cycles=%d status=%02X msg=%s%n",
-                        cpu.getPC(), instrCount, cpu.getTotalCycles(), cpuBus.read(0x6000) & 0xFF, readMsg(cpuBus));
+                Log.warn(TEST, "LOOP_DETECTED pc=%04X instr=%d cycles=%d status=%02X msg=%s", cpu.getPC(),
+                        instrCount, cpu.getTotalCycles(), cpuBus.read(0x6000) & 0xFF, readMsg(cpuBus));
                 if (traceCount > 0 && traceCount < traceLimit) {
-                    System.out.println("--- Early Instruction Trace (partial " + traceCount + "/" + traceLimit
-                            + ") ---\n" + earlyTrace);
+                    Log.info(TEST, "--- Early Instruction Trace (partial %d/%d) ---%n%s", traceCount, traceLimit,
+                            earlyTrace.toString());
                 }
                 tap.dumpSummary();
                 break;
             }
             if (instrCount - lastReport >= 500_000) {
                 lastReport = instrCount;
-                System.out.printf(Locale.ROOT, ". instr=%d cycles=%d status=0\r", instrCount, cpu.getTotalCycles());
+                Log.debug(TEST, ". instr=%d cycles=%d status=0", instrCount, cpu.getTotalCycles());
             }
         }
     }
@@ -322,15 +319,15 @@ public class GenericTestRunner {
         }
 
         void dumpSummary() {
-            System.out.println("--- DebugTap Summary ---");
-            System.out.println("Total bus ops: " + opCount);
-            System.out.println("Top addresses (non-zero freq):");
+            Log.info(TEST, "--- DebugTap Summary ---");
+            Log.info(TEST, "Total bus ops: %d", opCount);
+            Log.info(TEST, "Top addresses (non-zero freq):");
             for (int i = 0; i < addrFreq.length; i++) {
                 if (addrFreq[i] > 0 && addrFreq[i] >= 1000) {
-                    System.out.printf(Locale.ROOT, "%04X = %d\n", i, addrFreq[i]);
+                    Log.debug(TEST, "%04X = %d", i, addrFreq[i]);
                 }
             }
-            System.out.println("First ops sample:\n" + firstOps.toString());
+            Log.info(TEST, "First ops sample:\n%s", firstOps.toString());
         }
 
         @Override

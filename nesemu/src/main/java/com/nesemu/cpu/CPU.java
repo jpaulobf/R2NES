@@ -3,6 +3,7 @@ package com.nesemu.cpu;
 import com.nesemu.cpu.interfaces.NesCPU;
 import com.nesemu.emulator.Clockable;
 import com.nesemu.bus.interfaces.NesBus;
+import com.nesemu.util.Log;
 
 /**
  * Class representing the NES CPU.
@@ -23,7 +24,7 @@ public class CPU implements NesCPU, Clockable {
     private boolean overflow;
     private boolean negative;
 
-    //reference to the bus (memory interface)
+    // reference to the bus (memory interface)
     private final NesBus busRef;
 
     // Page crossing flag for instructions that may apply an extra cycle
@@ -32,7 +33,8 @@ public class CPU implements NesCPU, Clockable {
     // Cycle counter for instruction timing
     private int cycles;
 
-    // Dynamic extra cycles (branch taken, page crossing in branches, etc.) applied after execution
+    // Dynamic extra cycles (branch taken, page crossing in branches, etc.) applied
+    // after execution
     private int extraCycles;
 
     // Total executed CPU cycles (for tracing / nestest log)
@@ -75,7 +77,8 @@ public class CPU implements NesCPU, Clockable {
             6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, // 0x20-0x2F
             2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x30-0x3F (corrected: AND abs,Y 0x39=4)
             6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, // 0x40-0x4F
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x50-0x5F (adjustments: 0x54 DOP zpg,X=4, 0x55 EOR zpg,X=4, 0x58 CLI=2, 0x5C TOP abs,X=4)
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x50-0x5F (adjustments: 0x54 DOP zpg,X=4, 0x55 EOR
+                                                            // zpg,X=4, 0x58 CLI=2, 0x5C TOP abs,X=4)
             6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, // 0x60-0x6F (corrected: JMP (ind) 0x6C=5)
             2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0x70-0x7F (0x78 SEI=2)
             2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, // 0x80-0x8F
@@ -85,7 +88,8 @@ public class CPU implements NesCPU, Clockable {
             2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xC0-0xCF
             2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xD0-0xDF (corrected: CMP abs,Y 0xD9=4)
             2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, // 0xE0-0xEF
-            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xF0-0xFF (corrected: SBC abs,Y 0xF9=4, INC/ISC adjustments 0xF6=6,0xF7=6,0xFE=7,0xFF=7)
+            2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, // 0xF0-0xFF (corrected: SBC abs,Y 0xF9=4, INC/ISC
+                                                            // adjustments 0xF6=6,0xF7=6,0xFE=7,0xFF=7)
     };
 
     // Debug logging flag (JSR/RTS tracing). Disable to silence verbose output.
@@ -93,6 +97,7 @@ public class CPU implements NesCPU, Clockable {
 
     /**
      * Constructor for the CPU class.
+     * 
      * @param bus
      */
     public CPU(NesBus bus) {
@@ -246,7 +251,8 @@ public class CPU implements NesCPU, Clockable {
     public void reset() {
         registers.A = registers.X = registers.Y = 0;
         registers.SP = 0xFD;
-        // PC is initialized from the reset vector (0xFFFC/0xFFFD) - low byte first, then high byte
+        // PC is initialized from the reset vector (0xFFFC/0xFFFD) - low byte first,
+        // then high byte
         registers.PC = (busRef.read(0xFFFC) | (busRef.read(0xFFFD) << 8));
         carry = zero = interruptDisable = decimal = breakFlag = overflow = negative = false;
         unused = true; // Bit 5 of the status register is always set
@@ -273,14 +279,18 @@ public class CPU implements NesCPU, Clockable {
         // If cycles remain, process possible RMW phases and consume one cycle
         if (cycles > 0) {
             if (rmwActive) {
-                // 6502 pattern for memory RMW instructions: ... read -> dummy write -> final write
-                // Our 'cycles' counter already includes all remaining cycles for this instruction.
-                // We'll trigger a dummy write when 2 cycles remain, and final commit when 1 remains.
+                // 6502 pattern for memory RMW instructions: ... read -> dummy write -> final
+                // write
+                // Our 'cycles' counter already includes all remaining cycles for this
+                // instruction.
+                // We'll trigger a dummy write when 2 cycles remain, and final commit when 1
+                // remains.
                 if (cycles == 2) {
                     // Dummy write of the original value (no logical side effects)
                     busRef.write(rmwAddress, rmwOriginal & 0xFF);
                 } else if (cycles == 1) {
-                    // Final commit (writes modified value and applies effects on A/flags according to type)
+                    // Final commit (writes modified value and applies effects on A/flags according
+                    // to type)
                     performRmwCommit();
                     rmwActive = false;
                 }
@@ -1148,10 +1158,8 @@ public class CPU implements NesCPU, Clockable {
                 // Push (PC-1) onto stack (high byte first, then low byte) - 6502 real behavior
                 int returnAddr = (registers.PC - 1) & 0xFFFF;
                 if (TRACE_JSR_RTS) {
-                    System.err.printf("[JSR] PC=%04X, returnAddr=%04X, push high=%02X, low=%02X, SP=%02X\n",
-                            registers.PC,
-                            returnAddr,
-                            (returnAddr >> 8) & 0xFF, returnAddr & 0xFF, registers.SP);
+                    Log.debug(Log.Cat.CPU, "[JSR] PC=%04X, returnAddr=%04X, push high=%02X, low=%02X, SP=%02X",
+                            registers.PC, returnAddr, (returnAddr >> 8) & 0xFF, returnAddr & 0xFF, registers.SP);
                 }
                 push((returnAddr >> 8) & 0xFF); // High byte
                 push(returnAddr & 0xFF); // Low byte
@@ -1239,9 +1247,8 @@ public class CPU implements NesCPU, Clockable {
                 int pch_rts = pop();
                 int retAddr = ((pch_rts << 8) | pcl_rts);
                 if (TRACE_JSR_RTS) {
-                    System.err.printf("[RTS] pop low=%02X, high=%02X, retAddr=%04X, PC=%04X, SP=%02X\n", pcl_rts,
-                            pch_rts,
-                            retAddr, registers.PC, registers.SP);
+                    Log.debug(Log.Cat.CPU, "[RTS] pop low=%02X, high=%02X, retAddr=%04X, PC=%04X, SP=%02X", pcl_rts,
+                            pch_rts, retAddr, registers.PC, registers.SP);
                 }
                 registers.PC = (retAddr + 1) & 0xFFFF;
                 break;
@@ -1612,7 +1619,8 @@ public class CPU implements NesCPU, Clockable {
 
     // --- DMA stall API (used by Bus when $4014 written) ---
     public void addDmaStall(int cycles) {
-        if (cycles <= 0) return;
+        if (cycles <= 0)
+            return;
         dmaStallCycles += cycles;
     }
 

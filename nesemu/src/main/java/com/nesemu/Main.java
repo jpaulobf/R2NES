@@ -3,6 +3,8 @@ package com.nesemu;
 import java.nio.file.*;
 
 import com.nesemu.emulator.NesEmulator;
+import com.nesemu.util.Log;
+import static com.nesemu.util.Log.Cat.*;
 import com.nesemu.gui.NesWindow;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
@@ -63,7 +65,7 @@ public class Main {
                 try {
                     dumpPattern = Integer.parseInt(a.substring(15), 16);
                 } catch (NumberFormatException e) {
-                    System.err.println("Valor de tile inválido em --dump-pattern (usar hex)");
+                    Log.error(GENERAL, "Valor de tile inválido em --dump-pattern (usar hex)");
                 }
             } else if (a.startsWith("--dump-patterns=")) {
                 dumpPatternsList = a.substring(16);
@@ -77,7 +79,7 @@ public class Main {
                 try {
                     traceInstrCount = Long.parseLong(a.substring(12));
                 } catch (NumberFormatException e) {
-                    System.err.println("Valor inválido para --trace-cpu (usar número de instruções)");
+                    Log.error(CPU, "Valor inválido para --trace-cpu (usar número de instruções)");
                 }
             } else if (a.equalsIgnoreCase("--trace-nmi"))
                 traceNmi = true;
@@ -87,7 +89,7 @@ public class Main {
                 try {
                     breakAtPc = Integer.parseInt(a.substring(11), 16);
                 } catch (NumberFormatException e) {
-                    System.err.println("PC inválido em --break-at (hex)");
+                    Log.error(CPU, "PC inválido em --break-at (hex)");
                 }
             } else if (a.startsWith("--break-read=")) {
                 String spec = a.substring(13);
@@ -97,13 +99,13 @@ public class Main {
                     if (parts.length > 1)
                         breakReadCount = Integer.parseInt(parts[1]);
                 } catch (NumberFormatException e) {
-                    System.err.println("Formato --break-read=ADDR[,count] inválido");
+                    Log.error(CPU, "Formato --break-read=ADDR[,count] inválido");
                 }
             } else if (a.startsWith("--dbg-bg-sample=")) {
                 try {
                     dbgBgSample = Integer.parseInt(a.substring(17));
                 } catch (NumberFormatException e) {
-                    System.err.println("Valor inválido em --dbg-bg-sample (usar número)");
+                    Log.error(PPU, "Valor inválido em --dbg-bg-sample (usar número)");
                 }
             } else if (a.equalsIgnoreCase("--dbg-bg-all")) {
                 dbgBgAll = true;
@@ -116,7 +118,7 @@ public class Main {
                     try {
                         logAttrLimit = Integer.parseInt(a.substring(a.indexOf('=') + 1));
                     } catch (NumberFormatException e) {
-                        System.err.println("Valor inválido em --log-attr= (usar número)");
+                        Log.error(PPU, "Valor inválido em --log-attr= (usar número)");
                     }
                 } else {
                     logAttrLimit = 200; // default
@@ -126,7 +128,7 @@ public class Main {
                     try {
                         logNtLimit = Integer.parseInt(a.substring(a.indexOf('=') + 1));
                     } catch (NumberFormatException e) {
-                        System.err.println("Valor inválido em --log-nt= (usar número)");
+                        Log.error(PPU, "Valor inválido em --log-nt= (usar número)");
                     }
                 } else {
                     logNtLimit = 200;
@@ -154,7 +156,7 @@ public class Main {
                         throw new NumberFormatException("empty");
                     }
                 } catch (NumberFormatException e) {
-                    System.err.println("Valor inválido em --nt-baseline= (usar hex)");
+                    Log.error(PPU, "Valor inválido em --nt-baseline= (usar hex)");
                 }
             } else if (a.startsWith("--pipe-log")) {
                 int eq = a.indexOf('=');
@@ -162,7 +164,7 @@ public class Main {
                     try {
                         pipeLogLimit = Integer.parseInt(a.substring(eq + 1));
                     } catch (NumberFormatException e) {
-                        System.err.println("Valor inválido em --pipe-log= (usar número)");
+                        Log.error(PPU, "Valor inválido em --pipe-log= (usar número)");
                     }
                 } else {
                     pipeLogLimit = 400; // default se não informado
@@ -180,10 +182,10 @@ public class Main {
             romPath = "D:\\Desenvolvimento\\Games\\Nesemu\\nesemu\\roms\\donkeykong.nes";
         Path p = Path.of(romPath);
         if (!Files.exists(p)) {
-            System.err.println("ROM não encontrada: " + romPath);
+            Log.error(ROM, "ROM não encontrada: %s", romPath);
             return;
         }
-        System.out.println("Carregando ROM: " + p.toAbsolutePath());
+        Log.info(ROM, "Carregando ROM: %s", p.toAbsolutePath());
         INesRom rom = RomLoader.load(p);
         NesEmulator emu = new NesEmulator(rom);
         // Load input configuration (emulator.ini in working dir, fallback to classpath
@@ -208,7 +210,7 @@ public class Main {
             controllerPad1 = pad1;
             controllerPad2 = pad2;
         } catch (Exception ex) {
-            System.err.println("Falha ao carregar configuração de input: " + ex.getMessage());
+            Log.warn(CONTROLLER, "Falha ao carregar configuração de input: %s", ex.getMessage());
         }
         // Aplicar política de verbosidade
         if (quiet) {
@@ -220,17 +222,17 @@ public class Main {
         }
         if (tileMatrixMode != null) {
             emu.getPpu().setTileMatrixMode(tileMatrixMode);
-            System.out.println("Tile matrix mode: " + tileMatrixMode);
+            Log.info(PPU, "Tile matrix mode: %s", tileMatrixMode);
         }
         // Se solicitou pipe-log e nenhum modo de tile matrix foi especificado, usar
         // 'center'
         if (pipeLogLimit > 0 && tileMatrixMode == null) {
             emu.getPpu().setTileMatrixMode("center");
-            System.out.println("[PIPE-LOG] Ajustando tileMatrixMode=center para mostrar pixels centrais.");
+            Log.debug(PPU, "PIPE-LOG ajustando tileMatrixMode=center");
         }
         if (pipeLogLimit > 0) {
             emu.getPpu().enablePipelineLog(pipeLogLimit);
-            System.out.println("[PIPE-LOG] Habilitado limite=" + pipeLogLimit);
+            Log.info(PPU, "PIPE-LOG habilitado limite=%d", pipeLogLimit);
         }
         if (dbgBgSample > 0) {
             if (dbgBgAll)
@@ -243,11 +245,11 @@ public class Main {
         }
         if (forceBg) {
             emu.getPpu().setForceBackgroundEnable(true);
-            System.out.println("[FORCE-BG] Forçando bit 3 (background) em PPUMASK");
+            Log.info(PPU, "FORCE-BG bit3 PPUMASK");
         }
         if (testPattern != null) {
             emu.getPpu().setTestPatternMode(testPattern);
-            System.out.println("[TEST-PATTERN] modo=" + testPattern);
+            Log.info(PPU, "TEST-PATTERN modo=%s", testPattern);
         }
         if (logAttrLimit > 0) {
             emu.getPpu().enableAttributeRuntimeLog(logAttrLimit);
@@ -262,11 +264,11 @@ public class Main {
             emu.getBus().cpuWrite(0x2005, 0x00); // Y scroll
             emu.getBus().cpuWrite(0x2006, 0x20); // high byte (0x2000)
             emu.getBus().cpuWrite(0x2006, 0x00); // low byte
-            System.out.println("[INIT-SCROLL] Scroll e VRAM inicializados (nametable 0, pattern $1000)");
+            Log.debug(PPU, "INIT-SCROLL VRAM inicializada nametable0 pattern $1000");
         }
         if (showHeader) {
             var h = rom.getHeader();
-            System.out.printf("Header: PRG=%d x16KB (%d bytes) CHR=%d x8KB (%d bytes) Mapper=%d Mirroring=%s%n",
+            Log.info(ROM, "Header: PRG=%d x16KB (%d bytes) CHR=%d x8KB (%d bytes) Mapper=%d Mirroring=%s",
                     h.getPrgRomPages(), h.getPrgRomPages() * 16384, h.getChrRomPages(), h.getChrRomPages() * 8192,
                     h.getMapper(),
                     h.isVerticalMirroring() ? "VERTICAL" : "HORIZONTAL");
@@ -279,12 +281,12 @@ public class Main {
         }
         if (breakReadAddr >= 0) {
             emu.getBus().setWatchReadAddress(breakReadAddr, breakReadCount);
-            System.out.printf("Watch de leitura armado em %04X count=%d\n", breakReadAddr, breakReadCount);
+            Log.info(BUS, "Watch leitura %04X count=%d", breakReadAddr, breakReadCount);
         }
         if (traceNmi) {
             emu.getPpu().setNmiCallback(() -> {
                 int pc = emu.getCpu().getPC();
-                System.out.printf("[NMI FIRING] frame=%d PC=%04X cycles=%d\n", emu.getFrame(), pc,
+                Log.debug(PPU, "NMI frame=%d PC=%04X cycles=%d", emu.getFrame(), pc,
                         emu.getCpu().getTotalCycles());
             });
         }
@@ -318,7 +320,7 @@ public class Main {
                     g2.drawString(l4, pad, 48);
                 });
             }
-            System.out.println("Iniciando loop de render em modo GUI (Ctrl+C para sair)...");
+            Log.info(GENERAL, "Iniciando GUI (Ctrl+C para sair)");
             window.startRenderLoop(() -> {
                 emu.stepFrame();
             }, 60); // target 60 fps
@@ -339,13 +341,13 @@ public class Main {
                     executed++;
                 }
                 if (emu.getPpu().isInVBlank()) {
-                    System.out.printf(
-                            "[UNTIL-VBLANK] vblank atingido após %d instruções (CPU cycles ~%d) frame=%d scan=%d cyc=%d status=%02X%n",
+                    Log.info(PPU,
+                            "UNTIL-VBLANK atingido instr=%d cpuCycles~%d frame=%d scan=%d cyc=%d status=%02X",
                             executed, (emu.getCpu().getTotalCycles() - startCpuCycles), emu.getPpu().getFrame(),
                             emu.getPpu().getScanline(), emu.getPpu().getCycle(), emu.getPpu().getStatusRegister());
                 } else {
-                    System.out.printf(
-                            "[UNTIL-VBLANK] limite de instruções (%d) atingido sem vblank. scan=%d cyc=%d frame=%d%n",
+                    Log.warn(PPU,
+                            "UNTIL-VBLANK limite instr (%d) sem vblank scan=%d cyc=%d frame=%d",
                             maxInstr, emu.getPpu().getScanline(), emu.getPpu().getCycle(), emu.getPpu().getFrame());
                 }
                 // Depois roda frames solicitados (se frames>0)
@@ -358,7 +360,7 @@ public class Main {
                 while (executed < traceInstrCount) {
                     int pc = emu.getCpu().getPC();
                     int opcode = emu.getBus().read(pc);
-                    System.out.printf("TRACE PC=%04X OP=%02X A=%02X X=%02X Y=%02X P=%02X SP=%02X CYC=%d\n",
+                    Log.trace(CPU, "TRACE PC=%04X OP=%02X A=%02X X=%02X Y=%02X P=%02X SP=%02X CYC=%d",
                             pc, opcode, emu.getCpu().getA(), emu.getCpu().getX(), emu.getCpu().getY(),
                             emu.getCpu().getStatusByte(), emu.getCpu().getSP(), emu.getCpu().getTotalCycles());
                     // Executa instrução enquanto alimenta PPU com 3 ciclos por ciclo de CPU gasto.
@@ -371,16 +373,16 @@ public class Main {
                     }
                     executed++;
                     if (breakAtPc != null && emu.getCpu().getPC() == (breakAtPc & 0xFFFF)) {
-                        System.out.printf("[BREAK] PC atingiu %04X após %d instruções\n", breakAtPc, executed);
+                        Log.info(CPU, "BREAK PC=%04X após %d instruções", breakAtPc, executed);
                         break;
                     }
                     if (breakReadAddr >= 0 && emu.getBus().isWatchTriggered()) {
-                        System.out.printf("[BREAK] Leitura monitorada %04X atingida (count=%d) após %d instruções\n",
+                        Log.info(BUS, "BREAK leitura %04X atingida count=%d após %d instr",
                                 breakReadAddr, breakReadCount, executed);
                         break;
                     }
                     if (traceNmi && executed % 5000 == 0) {
-                        System.out.println("-- trace progress instr=" + executed);
+                        Log.debug(CPU, "trace progress instr=%d", executed);
                     }
                 }
                 // Depois roda frames solicitados (se frames>0)
@@ -393,16 +395,16 @@ public class Main {
             }
             long elapsedNs = System.nanoTime() - start;
             double fpsSim = frames / (elapsedNs / 1_000_000_000.0);
-            System.out.printf("Frames simulados: %d (%.2f fps simulado)\n", frames, fpsSim);
+            Log.info(GENERAL, "Frames simulados: %d (%.2f fps)", frames, fpsSim);
             if (pipeLogLimit > 0) {
-                System.out.println("--- PIPELINE LOG ---");
-                System.out.print(emu.getPpu().consumePipelineLog());
+                Log.info(PPU, "--- PIPELINE LOG ---");
+                Log.info(PPU, "%s", emu.getPpu().consumePipelineLog());
             }
             if (dbgBgSample > 0) {
                 emu.getPpu().dumpFirstBackgroundSamples(Math.min(dbgBgSample, 50));
             }
             // Dump ASCII matrix (first pixel per tile)
-            System.out.println("--- Tile index matrix (hex of first pixel per tile) ---");
+            Log.info(PPU, "--- Tile index matrix (hex of first pixel per tile) ---");
             emu.getPpu().printTileIndexMatrix();
             emu.getPpu().printBackgroundIndexHistogram();
             if (bgColStats) {
@@ -411,7 +413,7 @@ public class Main {
             // Dump PPM (palette index grayscale)
             Path out = Path.of("background.ppm");
             emu.getPpu().dumpBackgroundToPpm(out);
-            System.out.println("PPM gerado: " + out.toAbsolutePath());
+            Log.info(PPU, "PPM gerado: %s", out.toAbsolutePath());
             if (dumpNt) {
                 emu.getPpu().printNameTableTileIds(0);
             }
@@ -427,7 +429,7 @@ public class Main {
                         int t = Integer.parseInt(part, 16);
                         emu.getPpu().dumpPatternTile(t);
                     } catch (NumberFormatException e) {
-                        System.err.println("Tile inválido em lista: " + part);
+                        Log.error(PPU, "Tile inválido em lista: %s", part);
                     }
                 }
             }

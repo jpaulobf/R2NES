@@ -4,6 +4,8 @@ import com.nesemu.cpu.CPU;
 import com.nesemu.emulator.Clockable;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper.MirrorType;
+import com.nesemu.util.Log;
+import static com.nesemu.util.Log.Cat.*;
 import com.nesemu.ppu.PpuRegs;
 
 /**
@@ -37,7 +39,7 @@ public class Ppu2C02 implements PPU, Clockable {
 
     private static void vprintf(String fmt, Object... args) {
         if (verboseLogging)
-            System.out.printf(fmt, args);
+            Log.debug(PPU, fmt, args);
     }
 
     // Optional CPU callback for NMI (set by Bus/emulator)
@@ -205,7 +207,7 @@ public class Ppu2C02 implements PPU, Clockable {
                     for (int i = 0; i < 32; i++) {
                         sb.append(String.format("%02x ", frameIndexBuffer[i] & 0xFF));
                     }
-                    System.out.println(sb.toString());
+                    Log.debug(PPU, sb.toString());
                 }
             }
         }
@@ -297,7 +299,7 @@ public class Ppu2C02 implements PPU, Clockable {
         nmiFiredThisVblank = true;
         if (cpu != null) {
             if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
-                System.out.printf("[PPU NMI->CPU] frame=%d scan=%d cyc=%d\n", frame, scanline, cycle);
+                Log.debug(PPU, "[PPU NMI->CPU] frame=%d scan=%d cyc=%d", frame, scanline, cycle);
                 debugNmiLogCount++;
             }
             cpu.nmi();
@@ -731,7 +733,7 @@ public class Ppu2C02 implements PPU, Clockable {
             this.pipelineLogLimit = limit;
         this.pipelineLogCount = 0;
         pipelineLog.setLength(0);
-        System.out.println("[PPU] Pipeline log enabled limit=" + pipelineLogLimit);
+        Log.info(PPU, "Pipeline log enabled limit=%d", pipelineLogLimit);
     }
 
     public String consumePipelineLog() {
@@ -986,7 +988,7 @@ public class Ppu2C02 implements PPU, Clockable {
                 w.write("\n");
             }
         } catch (Exception e) {
-            System.err.println("PPU dumpBackgroundToPpm failed: " + e.getMessage());
+            Log.error(PPU, "dumpBackgroundToPpm failed: %s", e.getMessage());
         }
     }
 
@@ -1028,7 +1030,7 @@ public class Ppu2C02 implements PPU, Clockable {
             }
             sb.append('\n');
         }
-        System.out.print(sb.toString());
+        Log.info(PPU, "TileIndexMatrix\n%s", sb.toString());
     }
 
     // Tile matrix sampling mode (default "first")
@@ -1056,7 +1058,7 @@ public class Ppu2C02 implements PPU, Clockable {
         for (int i = 0; i < frameIndexBuffer.length; i++) {
             counts[frameIndexBuffer[i] & 0x0F]++;
         }
-        System.out.println("--- Background index histogram (count) ---");
+        Log.info(PPU, "--- Background index histogram (count) ---");
         for (int i = 0; i < 16; i++) {
             int c = counts[i];
             if (c > 0) {
@@ -1094,7 +1096,7 @@ public class Ppu2C02 implements PPU, Clockable {
                 if (col != 31)
                     sb.append(' ');
             }
-            System.out.println(sb.toString());
+            Log.info(PPU, sb.toString());
         }
     }
 
@@ -1117,7 +1119,7 @@ public class Ppu2C02 implements PPU, Clockable {
                 int pix = (b1 << 1) | b0;
                 bits.append(pix);
             }
-            System.out.println(bits.toString());
+            Log.info(PPU, bits.toString());
         }
     }
 
@@ -1155,7 +1157,7 @@ public class Ppu2C02 implements PPU, Clockable {
     public void setSimpleTiming(boolean simple) {
         // Deprecated: manter assinatura para compatibilidade de CLI, sem efeito.
         if (simple) {
-            System.out.println("[PPU] simpleTiming ignorado (deprecated, pipeline unificado)");
+            Log.info(PPU, "simpleTiming ignorado (deprecated, pipeline unificado)");
         }
     }
 
@@ -1191,7 +1193,7 @@ public class Ppu2C02 implements PPU, Clockable {
                 palette.write(0x3F01 + i, cols[i]);
             }
         }
-        System.out.println("[PPU] testPatternMode=" + testPatternMode + " (prev=" + prev + ")");
+        Log.info(PPU, "testPatternMode=%d (prev=%d)", testPatternMode, prev);
     }
 
     public void enableAttributeRuntimeLog(int limit) {
@@ -1232,7 +1234,7 @@ public class Ppu2C02 implements PPU, Clockable {
             }
         }
         if (printed == 0) {
-            System.out.println("[BG-SAMPLE-FALLBACK] Nenhum pixel não-zero encontrado neste frame.");
+            Log.info(PPU, "[BG-SAMPLE-FALLBACK] Nenhum pixel não-zero encontrado neste frame.");
         }
     }
 
@@ -1256,7 +1258,7 @@ public class Ppu2C02 implements PPU, Clockable {
                 sum += pixelCounts[x];
             tileCounts[t] = sum; // max 8*240=1920
         }
-        System.out.println("--- Background non-zero pixel counts per pixel column (only columns >0) ---");
+        Log.info(PPU, "--- Background non-zero pixel counts per pixel column (only columns >0) ---");
         StringBuilder sb = new StringBuilder();
         int shown = 0;
         for (int x = 0; x < 256; x++) {
@@ -1264,16 +1266,16 @@ public class Ppu2C02 implements PPU, Clockable {
                 sb.append(String.format("%d:%d ", x, pixelCounts[x]));
                 shown++;
                 if (shown % 16 == 0) {
-                    System.out.println(sb.toString());
+                    Log.info(PPU, sb.toString());
                     sb.setLength(0);
                 }
             }
         }
         if (sb.length() > 0)
-            System.out.println(sb.toString());
+            Log.info(PPU, sb.toString());
         if (shown == 0)
-            System.out.println("(nenhuma coluna com pixels !=0)");
-        System.out.println("--- Background non-zero pixel counts per tile column (0..31) ---");
+            Log.info(PPU, "(nenhuma coluna com pixels !=0)");
+        Log.info(PPU, "--- Background non-zero pixel counts per tile column (0..31) ---");
         for (int t = 0; t < 32; t++) {
             int cnt = tileCounts[t];
             double pct = (cnt / 1920.0) * 100.0;
@@ -1290,17 +1292,17 @@ public class Ppu2C02 implements PPU, Clockable {
 
     public void setForceBackgroundEnable(boolean enable) {
         this.forceBgEnable = enable;
-        System.out.println("[PPU] forceBgEnable=" + enable);
+        Log.info(PPU, "forceBgEnable=%s", enable);
     }
 
     public void setForceSpriteEnable(boolean enable) {
         this.forceSpriteEnable = enable;
-        System.out.println("[PPU] forceSpriteEnable=" + enable);
+        Log.info(PPU, "forceSpriteEnable=%s", enable);
     }
 
     public void setForceNmiEnable(boolean enable) {
         this.forceNmiEnable = enable;
-        System.out.println("[PPU] forceNmiEnable=" + enable);
+        Log.info(PPU, "forceNmiEnable=%s", enable);
     }
 
     public void enableNmiDebugLog(int limit) {

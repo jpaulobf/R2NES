@@ -13,6 +13,8 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.util.Locale;
+import com.nesemu.util.Log;
+import static com.nesemu.util.Log.Cat.*;
 
 /**
  * Minimal runner to execute nestest.nes and produce a trace log similar to
@@ -24,7 +26,7 @@ public class NestestRunner {
 
     public static void main(String[] args) throws Exception {
         if (args.length < 2) {
-            System.err.println("Usage: NestestRunner <nestest.nes> <out.log> [maxInstructions]");
+            Log.error(TEST, "Usage: NestestRunner <nestest.nes> <out.log> [maxInstructions]");
             System.exit(1);
         }
         Path romPath = Path.of(args[0]);
@@ -89,7 +91,7 @@ public class NestestRunner {
         }
         if (termination == null)
             termination = "Unknown";
-        System.out.printf(Locale.ROOT, "Trace written to %s (%d instructions, cycles=%d). Termination: %s%n", outPath,
+        Log.info(TEST, "Trace written to %s (%d instructions, cycles=%d). Termination: %s", outPath,
                 executed, cpu.getTotalCycles(), termination);
     }
 

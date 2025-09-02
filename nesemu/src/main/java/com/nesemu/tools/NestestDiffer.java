@@ -10,6 +10,8 @@ import com.nesemu.rom.RomLoader;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import com.nesemu.util.Log;
+import static com.nesemu.util.Log.Cat.*;
 
 /**
  * Differential runner: executes nestest and compares each produced trace line's
@@ -22,7 +24,7 @@ public class NestestDiffer {
 
     public static void main(String[] args) throws Exception {
         if (args.length < 2) {
-            System.err.println("Usage: NestestDiffer <romFile> <referenceLog> [limit]");
+            Log.error(TEST, "Usage: NestestDiffer <romFile> <referenceLog> [limit]");
             return;
         }
         File romFile = new File(args[0]);
@@ -32,7 +34,7 @@ public class NestestDiffer {
         // Load ROM and construct minimal system using Bus + Mapper0 + PPU
         com.nesemu.rom.INesRom rom = RomLoader.load(romFile.toPath());
         if (rom.getHeader().getMapper() != 0) {
-            System.err.println("Only mapper 0 supported in this simple differ");
+            Log.error(TEST, "Only mapper 0 supported in this simple differ");
             return;
         }
         Mapper0 mapper0 = new Mapper0(rom);
@@ -75,28 +77,27 @@ public class NestestDiffer {
                 cpu.stepInstruction();
                 step++;
             }
-            System.out.println("Finished without mismatch up to steps=" + step + " refCycles=" + refCycles);
+            Log.info(TEST, "Finished without mismatch up to steps=%d refCycles=%d", step, refCycles);
         }
     }
 
     private static void dumpMismatch(int step, String kind, long expected, long actual, CPU cpu, NesBus mem,
             String refLine) {
-        System.out.println("=== MISMATCH at step " + step + " kind=" + kind + " expected=" + expected + " actual="
-                + actual + " ===");
-        System.out.println("Reference: " + refLine);
-        System.out.printf("CPU State: PC=%04X A=%02X X=%02X Y=%02X P=%02X SP=%02X TotalCyc=%d\n",
+        Log.error(TEST, "=== MISMATCH step=%d kind=%s expected=%d actual=%d ===", step, kind, expected, actual);
+        Log.error(TEST, "Reference: %s", refLine);
+        Log.error(TEST, String.format("CPU State: PC=%04X A=%02X X=%02X Y=%02X P=%02X SP=%02X TotalCyc=%d",
                 cpu.getPC(), cpu.getA(), cpu.getX(), cpu.getY(), cpu.getStatusByte(), cpu.getSP(),
-                cpu.getTotalCycles());
-        System.out.printf("Last Op: %02X base=%d extra=%d branchTaken=%s pageCross=%s\n",
+                cpu.getTotalCycles()));
+        Log.error(TEST, String.format("Last Op: %02X base=%d extra=%d branchTaken=%s pageCross=%s",
                 cpu.getLastOpcodeByte(), cpu.getLastBaseCycles(), cpu.getLastExtraCycles(),
-                cpu.wasLastBranchTaken(), cpu.wasLastBranchPageCross());
-        // Dump small stack slice
+                cpu.wasLastBranchTaken(), cpu.wasLastBranchPageCross()));
         int sp = cpu.getSP() & 0xFF;
-        System.out.print("Stack (top 8): ");
+        StringBuilder stack = new StringBuilder();
+        stack.append("Stack (top 8): ");
         for (int i = 0; i < 8; i++) {
             int addr = 0x0100 | ((sp - i) & 0xFF);
-            System.out.printf("%02X ", mem.read(addr));
+            stack.append(String.format("%02X ", mem.read(addr)));
         }
-        System.out.println();
+        Log.error(TEST, stack.toString());
     }
 }

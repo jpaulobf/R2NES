@@ -8,6 +8,8 @@ import com.nesemu.mapper.Mapper;
 import com.nesemu.memory.Memory;
 import com.nesemu.ppu.PPU;
 import com.nesemu.rom.INesRom;
+import com.nesemu.util.Log;
+import static com.nesemu.util.Log.Cat.*;
 
 /**
  * NES system bus (CPU address space routing).
@@ -84,11 +86,12 @@ public class Bus implements NesBus {
         return globalVerbose;
     }
 
-    public static void enableQuietControllerDebug(boolean enable) { /* no-op (legacy) */ }
+    public static void enableQuietControllerDebug(boolean enable) {
+        /* no-op (legacy) */ }
 
     private static void vprintf(String fmt, Object... args) {
         if (globalVerbose)
-            System.out.printf(fmt, args);
+            Log.debug(BUS, fmt, args);
     }
 
     public void enablePpuRegLogging(int limit) {
@@ -250,8 +253,10 @@ public class Bus implements NesBus {
             return;
         } else if (address == 0x4016) {
             // Controller strobe
-            if (pad1 != null) pad1.write(value);
-            if (pad2 != null) pad2.write(value);
+            if (pad1 != null)
+                pad1.write(value);
+            if (pad2 != null)
+                pad2.write(value);
             return;
         } else if (address == 0x4017) {
             apuRegs[0x17] = value; // frame counter mode latch
@@ -325,13 +330,14 @@ public class Bus implements NesBus {
         }
         // Raw dump (8 sprites * 4 bytes) independent of reflection helper success
         if (globalVerbose) {
-            vprintf("[DMA OAM RAW] page=%02X bytes0-31:", pendingDmaPage & 0xFF);
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("[DMA OAM RAW] page=%02X bytes0-31:", pendingDmaPage & 0xFF));
             for (int i = 0; i < firstBytes.length; i++) {
                 if (i % 16 == 0)
-                    System.out.print("\n  ");
-                vprintf("%02X ", firstBytes[i]);
+                    sb.append("\n  ");
+                sb.append(String.format("%02X ", firstBytes[i]));
             }
-            System.out.println();
+            Log.debug(DMA, sb.toString());
         }
         // Após cópia, logar primeiros sprites para diagnóstico (máx 8)
         try {

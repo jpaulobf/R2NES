@@ -1,6 +1,8 @@
 package com.nesemu.mapper;
 
 import com.nesemu.rom.INesRom;
+import com.nesemu.util.Log;
+import static com.nesemu.util.Log.Cat.*;
 
 /**
  * NROM (Mapper 0): No bank switching.
@@ -11,6 +13,7 @@ import com.nesemu.rom.INesRom;
  */
 public class Mapper0 implements Mapper {
     private final int prgPageCount; // 16KB units
+    @SuppressWarnings("unused")
     private final int chrPageCount; // 8KB units
     private final byte[] prg; // full raw PRG
     private final byte[] chr; // CHR data (can be length 0 -> treat as RAM)
@@ -67,7 +70,7 @@ public class Mapper0 implements Mapper {
                 if (address < chr.length) {
                     int val = chr[address] & 0xFF;
                     if (chrLogEnabled && chrLogCount < chrLogLimit) {
-                        System.out.printf("[CHR RD] addr=%04X val=%02X%n", address, val);
+                        Log.debug(PPU, "[CHR RD] addr=%04X val=%02X", address, val);
                         chrLogCount++;
                     }
                     return val;
@@ -76,7 +79,7 @@ public class Mapper0 implements Mapper {
             } else {
                 int val = chrRam[address & 0x1FFF] & 0xFF;
                 if (chrLogEnabled && chrLogCount < chrLogLimit) {
-                    System.out.printf("[CHR RD] addr=%04X val=%02X (RAM)%n", address, val);
+                    Log.debug(PPU, "[CHR RD] addr=%04X val=%02X (RAM)", address, val);
                     chrLogCount++;
                 }
                 return val;
