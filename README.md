@@ -113,6 +113,7 @@ O sistema de logs foi refatorado para um logger interno (`Log`) com níveis e ca
 | `--log-level=LEVEL` | Ajusta nível mínimo global (ex: DEBUG) |
 | `--log-cats=LIST` | Lista separada por vírgulas (`CPU,PPU`) ou `ALL` |
 | `--log-ts` | Adiciona timestamp (HH:mm:ss.SSS) em cada linha |
+| `--reset-key=F1` | Define tecla para reset rápido (CPU+PPU) na GUI |
 | `--quiet` / `--no-debug` | Desliga apenas a verbosidade "legada" de PPU/Bus (não muda `log-level`) |
 | `--verbose` | Se `--log-level` não for definido, força nível DEBUG (mantém categorias) |
 
@@ -126,6 +127,9 @@ java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --lo
 
 # Reduz ruído de prints legados mantendo logs INFO principais
 java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --quiet --frames=120
+
+# Define tecla de reset (também pode ir no emulator.ini como reset=F1)
+java -cp target/nesemu-1.0-SNAPSHOT.jar com.nesemu.Main roms\donkeykong.nes --gui --reset-key=F1
 ```
 
 Regras de precedência:

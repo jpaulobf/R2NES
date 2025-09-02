@@ -187,6 +187,8 @@ public class Main {
                 logCatsOpt = a.substring(11).trim();
             } else if (a.equalsIgnoreCase("--log-ts")) {
                 logTimestamps = true;
+            } else if (a.startsWith("--reset-key=")) {
+                resetKeyToken = a.substring(12).trim();
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
@@ -303,7 +305,7 @@ public class Main {
                     frames = Integer.parseInt(inputCfg.getOption("frames"));
                 } catch (Exception ignore) {
                 }
-            if (inputCfg.hasOption("reset")) {
+            if (resetKeyToken == null && inputCfg.hasOption("reset")) {
                 resetKeyToken = inputCfg.getOption("reset");
             }
             // Controllers
@@ -433,18 +435,21 @@ public class Main {
         emu.getBus().cpuWrite(0x2001, 0x08);
         if (gui) {
             NesWindow window = new NesWindow("NESemu - " + p.getFileName(), 3);
+            final long[] resetMsgExpireNs = new long[] { 0L };
             if (controllerPad1 != null) {
                 final String resetTok = resetKeyToken == null ? null : resetKeyToken.toLowerCase(Locale.ROOT).trim();
                 window.installControllerKeyListener(controllerPad1, controllerPad2, resetTok, () -> {
                     Log.info(GENERAL, "RESET key pressed (%s)", resetTok);
                     emu.reset();
+                    resetMsgExpireNs[0] = System.nanoTime() + 2_000_000_000L; // show for ~2s
                 });
             }
-            window.show(emu.getPpu().getFrameBuffer());
-            if (hud) {
-                var ppu = emu.getPpu();
-                window.setOverlay(g2 -> {
-                    int pad = 4;
+            // Unified overlay: HUD (optional) + transient reset message
+            var ppu = emu.getPpu();
+            final boolean hudFinal = hud; // capture value for lambda
+            window.setOverlay(g2 -> {
+                if (hudFinal) {
+                    int padLocal = 4;
                     String l1 = String.format("Frame:%d FPS:%.1f", ppu.getFrame(), window.getLastFps());
                     String l2 = String.format("Scan:%d Cyc:%d VRAM:%04X", ppu.getScanline(), ppu.getCycle(),
                             ppu.getVramAddress() & 0x3FFF);
@@ -456,12 +461,20 @@ public class Main {
                     g2.setColor(new java.awt.Color(0, 0, 0, 160));
                     g2.fillRect(0, 0, 260, boxH);
                     g2.setColor(java.awt.Color.WHITE);
-                    g2.drawString(l1, pad, 12);
-                    g2.drawString(l2, pad, 24);
-                    g2.drawString(l3, pad, 36);
-                    g2.drawString(l4, pad, 48);
-                });
-            }
+                    g2.drawString(l1, padLocal, 12);
+                    g2.drawString(l2, padLocal, 24);
+                    g2.drawString(l3, padLocal, 36);
+                    g2.drawString(l4, padLocal, 48);
+                }
+                if (System.nanoTime() < resetMsgExpireNs[0]) {
+                    String msg = "RESET";
+                    g2.setColor(new java.awt.Color(0, 0, 0, 170));
+                    g2.fillRect(90, 80, 100, 24);
+                    g2.setColor(java.awt.Color.YELLOW);
+                    g2.drawString(msg, 100, 96);
+                }
+            });
+            window.show(emu.getPpu().getFrameBuffer());
             Log.info(GENERAL, "Iniciando GUI (Ctrl+C para sair)");
             window.startRenderLoop(() -> {
                 emu.stepFrame();
