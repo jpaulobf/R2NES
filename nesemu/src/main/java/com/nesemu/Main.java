@@ -61,6 +61,7 @@ public class Main {
         int paletteLogLimit = 0; // --log-palette[=N]
         Boolean unlimitedSprites = null; // --unlimited-sprites[=true|false]
         String spriteYMode = null; // --sprite-y=hardware|test
+        String pacerModeOpt = null; // --pacer=legacy|hr
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         for (String a : args) {
@@ -221,6 +222,13 @@ public class Main {
                 } else {
                     Log.warn(PPU, "Valor inválido em --sprite-y= (usar hardware|test)");
                 }
+            } else if (a.startsWith("--pacer=")) {
+                String v = a.substring(8).trim().toLowerCase(Locale.ROOT);
+                if (v.equals("legacy") || v.equals("hr")) {
+                    pacerModeOpt = v;
+                } else {
+                    Log.warn(GENERAL, "Valor inválido em --pacer= (usar legacy|hr)");
+                }
             } else if (!a.startsWith("--"))
                 romPath = a;
         }
@@ -362,6 +370,11 @@ public class Main {
                 String v = inputCfg.getOption("sprite-y").trim().toLowerCase(Locale.ROOT);
                 if (v.equals("hardware") || v.equals("test"))
                     spriteYMode = v;
+            }
+            if (pacerModeOpt == null && inputCfg.hasOption("pacer")) {
+                String v = inputCfg.getOption("pacer").trim().toLowerCase(Locale.ROOT);
+                if (v.equals("legacy") || v.equals("hr"))
+                    pacerModeOpt = v;
             }
             // (Adia attach de controllers até após criação do emu)
         } catch (Exception ex) {
@@ -574,9 +587,10 @@ public class Main {
             });
             window.show(emuRef[0].getPpu().getFrameBuffer());
             Log.info(GENERAL, "Iniciando GUI (Ctrl+C para sair)");
-            window.startRenderLoop(() -> {
-                emuRef[0].stepFrame();
-            }, 60); // target 60 fps
+            NesWindow.PacerMode pm = (pacerModeOpt == null || pacerModeOpt.equals("hr")) ? NesWindow.PacerMode.HR
+                    : NesWindow.PacerMode.LEGACY;
+            Log.info(GENERAL, "Pacer mode: %s", pm);
+            window.startRenderLoop(() -> emuRef[0].stepFrame(), 60, pm); // target 60 fps
         } else {
             long start = System.nanoTime();
             if (untilVblank) {

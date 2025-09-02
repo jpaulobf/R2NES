@@ -3,6 +3,7 @@ package com.nesemu.gui;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.awt.Graphics2D;
 import java.util.function.Consumer;
 import javax.swing.JPanel;
@@ -10,15 +11,17 @@ import javax.swing.JPanel;
 /** Simple panel that draws a 256x240 framebuffer (int ARGB array). */
 public class VideoRenderer extends JPanel {
     private final BufferedImage image;
-    private volatile int[] source; // reference to emulator ARGB buffer
+    private final int[] imageData; // direct reference to underlying INT ARGB buffer
+    private volatile int[] source; // reference to emulator ARGB buffer (PPU frameBuffer)
     private final int scale;
     private volatile Consumer<Graphics2D> overlay;
 
     public VideoRenderer(int scale) {
         this.scale = Math.max(1, scale);
         this.image = new BufferedImage(256, 240, BufferedImage.TYPE_INT_ARGB);
+        this.imageData = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
         setPreferredSize(new Dimension(256 * this.scale, 240 * this.scale));
-        setDoubleBuffered(true);
+        // Double buffering desnecessário: usamos nosso próprio back buffer (image)
     }
 
     public void setFrameBuffer(int[] argb) {
@@ -26,8 +29,10 @@ public class VideoRenderer extends JPanel {
     }
 
     public void blitAndRepaint() {
-        if (source != null) {
-            image.setRGB(0, 0, 256, 240, source, 0, 256);
+        int[] src = source;
+        if (src != null) {
+            // Copia direta (≈61K ints) – mais leve que setRGB e evita validações extras
+            System.arraycopy(src, 0, imageData, 0, 256 * 240);
         }
         repaint();
     }

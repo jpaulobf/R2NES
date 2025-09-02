@@ -41,38 +41,102 @@ public class NesWindow {
         SwingUtilities.invokeLater(frame::dispose);
     }
 
+    public enum PacerMode {
+        LEGACY, HR
+    }
+
     public void startRenderLoop(Runnable perFrame, int targetFps) {
+        startRenderLoop(perFrame, targetFps, PacerMode.HR);
+    }
+
+    public void startRenderLoop(Runnable perFrame, int targetFps, PacerMode mode) {
         if (running.getAndSet(true))
             return;
         Thread t = new Thread(() -> {
-            final long frameDurationNanos = targetFps > 0 ? 1_000_000_000L / targetFps : 0L;
-            fpsWindowStart = System.nanoTime();
-            while (running.get()) {
-                long start = System.nanoTime();
-                perFrame.run(); // emulator advances a frame
-                renderer.blitAndRepaint();
-                fpsFrames++;
-                long now = System.nanoTime();
-                long windowElapsed = now - fpsWindowStart;
-                if (windowElapsed >= 1_000_000_000L) {
-                    lastFps = fpsFrames / (windowElapsed / 1_000_000_000.0);
-                    fpsFrames = 0;
-                    fpsWindowStart = now;
-                }
-                if (frameDurationNanos > 0) {
-                    long elapsed = System.nanoTime() - start;
-                    long sleep = frameDurationNanos - elapsed;
-                    if (sleep > 0) {
-                        try {
-                            Thread.sleep(sleep / 1_000_000L, (int) (sleep % 1_000_000L));
-                        } catch (InterruptedException ignored) {
-                        }
-                    }
-                }
+            switch (mode) {
+                case LEGACY -> runLegacyLoop(perFrame, targetFps);
+                case HR -> runHighResLoop(perFrame, targetFps);
             }
         }, "NES-RenderLoop");
         t.setDaemon(true);
         t.start();
+    }
+
+    private void runLegacyLoop(Runnable perFrame, int targetFps) {
+        final long frameDurationNanos = targetFps > 0 ? 1_000_000_000L / targetFps : 0L;
+        fpsWindowStart = System.nanoTime();
+        while (running.get()) {
+            long start = System.nanoTime();
+            perFrame.run();
+            renderer.blitAndRepaint();
+            fpsFrames++;
+            long now = System.nanoTime();
+            long windowElapsed = now - fpsWindowStart;
+            if (windowElapsed >= 1_000_000_000L) {
+                lastFps = fpsFrames / (windowElapsed / 1_000_000_000.0);
+                fpsFrames = 0;
+                fpsWindowStart = now;
+            }
+            if (frameDurationNanos > 0) {
+                long elapsed = now - start;
+                long sleep = frameDurationNanos - elapsed;
+                if (sleep > 0) {
+                    try {
+                        Thread.sleep(sleep / 1_000_000L, (int) (sleep % 1_000_000L));
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+            }
+        }
+    }
+
+    private void runHighResLoop(Runnable perFrame, int targetFps) {
+        final long frameDur = targetFps > 0 ? 1_000_000_000L / targetFps : 0L;
+        if (frameDur == 0L) {
+            // Sem alvo: roda o mais rápido possível
+            fpsWindowStart = System.nanoTime();
+            while (running.get()) {
+                perFrame.run();
+                renderer.blitAndRepaint();
+            }
+            return;
+        }
+        long next = System.nanoTime() + frameDur;
+        fpsWindowStart = System.nanoTime();
+        while (running.get()) {
+            perFrame.run();
+            renderer.blitAndRepaint();
+            fpsFrames++;
+            long now = System.nanoTime();
+            long winElapsed = now - fpsWindowStart;
+            if (winElapsed >= 1_000_000_000L) {
+                lastFps = fpsFrames / (winElapsed / 1_000_000_000.0);
+                fpsFrames = 0;
+                fpsWindowStart = now;
+            }
+            // Espera até 'next'
+            long remaining;
+            while ((remaining = next - (now = System.nanoTime())) > 2_000_000L) { // >2ms
+                try {
+                    // Dorme maior parte, deixando ~0.5ms para spin
+                    long sleepNs = remaining - 500_000L;
+                    if (sleepNs <= 0)
+                        break;
+                    Thread.sleep(sleepNs / 1_000_000L, (int) (sleepNs % 1_000_000L));
+                } catch (InterruptedException ignored) {
+                }
+            }
+            while ((remaining = next - (now = System.nanoTime())) > 0) {
+                Thread.onSpinWait();
+            }
+            // Agenda próximo frame
+            next += frameDur;
+            // Se ficamos MUITO atrasados (mais de 3 frames), realinha suavemente
+            if (now - next > frameDur * 3L) {
+                next = now + frameDur; // realinha se backlog exagerado
+            }
+            // Opcional: se frequentemente atrasado, relaxa spin (não implementado ainda)
+        }
     }
 
     public double getLastFps() {
