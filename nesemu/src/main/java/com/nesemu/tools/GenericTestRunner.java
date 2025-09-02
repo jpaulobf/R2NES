@@ -4,6 +4,7 @@ import com.nesemu.bus.Bus;
 import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.cpu.CPU;
 import com.nesemu.mapper.Mapper0;
+import com.nesemu.mapper.Mapper2;
 import com.nesemu.mapper.Mapper3;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.rom.INesRom;
@@ -40,9 +41,13 @@ public class GenericTestRunner {
         // Build minimal system selecting mapper
         Mapper0 mapper0 = null;
         Mapper3 mapper3 = null;
+        Mapper2 mapper2 = null;
         switch (mapperNum) {
             case 0:
                 mapper0 = new Mapper0(rom);
+                break;
+            case 2:
+                mapper2 = new Mapper2(rom);
                 break;
             case 3:
                 mapper3 = new Mapper3(rom);
@@ -55,10 +60,13 @@ public class GenericTestRunner {
         ppu.reset();
         Bus bus = new Bus();
         bus.attachPPU(ppu);
-        if (mapper0 != null)
+        if (mapper0 != null) {
             bus.attachMapper(mapper0, rom);
-        else if (mapper3 != null)
+        } else if (mapper2 != null) {
+            bus.attachMapper(mapper2, rom);
+        } else if (mapper3 != null) {
             bus.attachMapper(mapper3, rom);
+        }
         NesBus baseBus = bus;
         NesBus cpuBus = baseBus;
         DebugTap tap = null;
