@@ -25,6 +25,7 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
         boolean gui = false;
+        boolean guiCliSpecified = false; // registra se usuário definiu GUI explicitamente na CLI
         String romPath = null;
         int frames = 60;
         boolean dumpNt = false;
@@ -65,10 +66,25 @@ public class Main {
         Boolean bufferStrategyOpt = null; // --buffer-strategy[=true|false]
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
+        boolean patternStandalone = false; // modo especial: renderiza apenas padrão sintético sem ROM/CPU
         for (String a : args) {
-            if (a.equalsIgnoreCase("--gui"))
+            if (a.equalsIgnoreCase("--gui")) {
                 gui = true;
-            else if (a.startsWith("--frames="))
+                guiCliSpecified = true;
+            } else if (a.equalsIgnoreCase("--no-gui")) {
+                gui = false;
+                guiCliSpecified = true;
+            } else if (a.startsWith("--gui=")) {
+                String v = a.substring(6).trim().toLowerCase(Locale.ROOT);
+                if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on")) {
+                    gui = true;
+                    guiCliSpecified = true;
+                } else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off")) {
+                    gui = false;
+                    guiCliSpecified = true;
+                } else
+                    Log.warn(GENERAL, "Valor inválido em --gui= (usar true|false)");
+            } else if (a.startsWith("--frames="))
                 frames = Integer.parseInt(a.substring(9));
             else if (a.equalsIgnoreCase("--dump-nt"))
                 dumpNt = true;
@@ -270,7 +286,7 @@ public class Main {
                     Log.info(ROM, "ROM definida via INI: %s", romPath);
                 }
             }
-            if (!gui && inputCfg.hasOption("gui"))
+            if (!guiCliSpecified && !gui && inputCfg.hasOption("gui"))
                 gui = Boolean.parseBoolean(inputCfg.getOption("gui"));
             if (verboseFlag == null && inputCfg.hasOption("verbose"))
                 verboseFlag = Boolean.parseBoolean(inputCfg.getOption("verbose"));
@@ -405,39 +421,49 @@ public class Main {
         }
 
         // Resolve caminho da ROM (precedência: CLI > INI > default)
-        if (romPath == null) {
-            romPath = "roms/donkeykong.nes"; // fallback relativo
-            Log.info(ROM, "ROM fallback padrão: %s", romPath);
+        if (testPattern != null) {
+            // Sempre isola test-pattern para não sofrer efeitos de ROM / CPU / mappers
+            patternStandalone = true;
+            Log.info(ROM, "Modo test-pattern standalone: ignorando carregamento de ROM");
         }
-        Path romFilePath = Path.of(romPath);
-        if (!Files.exists(romFilePath)) {
-            Log.error(ROM, "ROM não encontrada: %s", romPath);
-            return;
-        }
-        Log.info(ROM, "Carregando ROM: %s", romFilePath.toAbsolutePath());
-        romRef[0] = RomLoader.load(romFilePath);
-        emuRef[0] = new NesEmulator(romRef[0]);
-
-        // Agora que 'emu' existe, anexar controllers (se config carregada)
-        try {
-            var inputPath = Path.of("emulator.ini");
-            InputConfig cfgForPads;
-            if (Files.exists(inputPath))
-                cfgForPads = InputConfig.load(inputPath);
-            else {
-                var devPath = Path.of("src/main/java/com/nesemu/config/emulator.ini");
-                if (Files.exists(devPath))
-                    cfgForPads = InputConfig.load(devPath);
-                else
-                    cfgForPads = new InputConfig();
+        Path romFilePath = null;
+        if (!patternStandalone) {
+            if (romPath == null) {
+                romPath = "roms/donkeykong.nes"; // fallback relativo
+                Log.info(ROM, "ROM fallback padrão: %s", romPath);
             }
-            var pad1 = new NesController(cfgForPads.getController(0));
-            var pad2 = new NesController(cfgForPads.getController(1));
-            emuRef[0].getBus().attachControllers(pad1, pad2);
-            controllerPad1 = pad1;
-            controllerPad2 = pad2;
-        } catch (Exception e) {
-            Log.warn(CONTROLLER, "Falha ao reprocessar config para controllers: %s", e.getMessage());
+            romFilePath = Path.of(romPath);
+            if (!Files.exists(romFilePath)) {
+                Log.error(ROM, "ROM não encontrada: %s", romPath);
+                return;
+            }
+            Log.info(ROM, "Carregando ROM: %s", romFilePath.toAbsolutePath());
+            romRef[0] = RomLoader.load(romFilePath);
+            emuRef[0] = new NesEmulator(romRef[0]);
+        }
+
+        if (!patternStandalone) {
+            // Agora que 'emu' existe, anexar controllers (se config carregada)
+            try {
+                var inputPath = Path.of("emulator.ini");
+                InputConfig cfgForPads;
+                if (Files.exists(inputPath))
+                    cfgForPads = InputConfig.load(inputPath);
+                else {
+                    var devPath = Path.of("src/main/java/com/nesemu/config/emulator.ini");
+                    if (Files.exists(devPath))
+                        cfgForPads = InputConfig.load(devPath);
+                    else
+                        cfgForPads = new InputConfig();
+                }
+                var pad1 = new NesController(cfgForPads.getController(0));
+                var pad2 = new NesController(cfgForPads.getController(1));
+                emuRef[0].getBus().attachControllers(pad1, pad2);
+                controllerPad1 = pad1;
+                controllerPad2 = pad2;
+            } catch (Exception e) {
+                Log.warn(CONTROLLER, "Falha ao reprocessar config para controllers: %s", e.getMessage());
+            }
         }
         // Aplicar política de verbosidade
         if (quiet) {
@@ -483,87 +509,151 @@ public class Main {
         if (logTimestamps) {
             Log.setTimestamps(true);
         }
-        if (tileMatrixMode != null) {
-            emuRef[0].getPpu().setTileMatrixMode(tileMatrixMode);
-            Log.info(PPU, "Tile matrix mode: %s", tileMatrixMode);
+        if (!patternStandalone) {
+            if (tileMatrixMode != null) {
+                emuRef[0].getPpu().setTileMatrixMode(tileMatrixMode);
+                Log.info(PPU, "Tile matrix mode: %s", tileMatrixMode);
+            }
         }
         // Se solicitou pipe-log e nenhum modo de tile matrix foi especificado, usar
         // 'center'
-        if (pipeLogLimit > 0 && tileMatrixMode == null) {
-            emuRef[0].getPpu().setTileMatrixMode("center");
-            Log.debug(PPU, "PIPE-LOG ajustando tileMatrixMode=center");
+        if (!patternStandalone) {
+            if (pipeLogLimit > 0 && tileMatrixMode == null) {
+                emuRef[0].getPpu().setTileMatrixMode("center");
+                Log.debug(PPU, "PIPE-LOG ajustando tileMatrixMode=center");
+            }
+            if (pipeLogLimit > 0) {
+                emuRef[0].getPpu().enablePipelineLog(pipeLogLimit);
+                Log.info(PPU, "PIPE-LOG habilitado limite=%d", pipeLogLimit);
+            }
         }
-        if (pipeLogLimit > 0) {
-            emuRef[0].getPpu().enablePipelineLog(pipeLogLimit);
-            Log.info(PPU, "PIPE-LOG habilitado limite=%d", pipeLogLimit);
+        if (!patternStandalone) {
+            if (dbgBgSample > 0) {
+                if (dbgBgAll)
+                    emuRef[0].getPpu().enableBackgroundSampleDebugAll(dbgBgSample);
+                else
+                    emuRef[0].getPpu().enableBackgroundSampleDebug(dbgBgSample);
+            }
         }
-        if (dbgBgSample > 0) {
-            if (dbgBgAll)
-                emuRef[0].getPpu().enableBackgroundSampleDebugAll(dbgBgSample);
-            else
-                emuRef[0].getPpu().enableBackgroundSampleDebug(dbgBgSample);
+        if (!patternStandalone) {
+            if (timingSimple) {
+                emuRef[0].getPpu().setSimpleTiming(true);
+            }
         }
-        if (timingSimple) {
-            emuRef[0].getPpu().setSimpleTiming(true);
+        if (!patternStandalone) {
+            if (forceBg) {
+                emuRef[0].getPpu().setForceBackgroundEnable(true);
+                Log.info(PPU, "FORCE-BG bit3 PPUMASK");
+            }
         }
-        if (forceBg) {
-            emuRef[0].getPpu().setForceBackgroundEnable(true);
-            Log.info(PPU, "FORCE-BG bit3 PPUMASK");
+        // Test pattern: se standalone, aplicaremos em PPU isolada depois
+        if (!patternStandalone) {
+            if (testPattern != null) {
+                emuRef[0].getPpu().setTestPatternMode(testPattern);
+                Log.info(PPU, "TEST-PATTERN modo=%s", testPattern);
+            }
         }
-        if (testPattern != null) {
-            emuRef[0].getPpu().setTestPatternMode(testPattern);
-            Log.info(PPU, "TEST-PATTERN modo=%s", testPattern);
+        if (!patternStandalone) {
+            if (unlimitedSprites != null) {
+                emuRef[0].getPpu().setUnlimitedSprites(unlimitedSprites);
+                Log.info(PPU, "Unlimited sprites: %s", unlimitedSprites ? "ON" : "OFF");
+            }
+            if (spriteYMode != null) {
+                boolean hw = spriteYMode.equals("hardware");
+                emuRef[0].getPpu().setSpriteYHardware(hw);
+                Log.info(PPU, "Sprite Y mode: %s", hw ? "HARDWARE(+1)" : "TEST(EXACT)");
+            }
         }
-        if (unlimitedSprites != null) {
-            emuRef[0].getPpu().setUnlimitedSprites(unlimitedSprites);
-            Log.info(PPU, "Unlimited sprites: %s", unlimitedSprites ? "ON" : "OFF");
+        if (!patternStandalone) {
+            if (logAttrLimit > 0) {
+                emuRef[0].getPpu().enableAttributeRuntimeLog(logAttrLimit);
+            }
+            if (logNtLimit > 0) {
+                emuRef[0].getPpu().enableNametableRuntimeLog(logNtLimit, ntBaseline == null ? -1 : ntBaseline);
+            }
+            if (paletteLogLimit > 0) {
+                emuRef[0].getPpu().enablePaletteWriteLog(paletteLogLimit);
+            }
         }
-        if (spriteYMode != null) {
-            boolean hw = spriteYMode.equals("hardware");
-            emuRef[0].getPpu().setSpriteYHardware(hw);
-            Log.info(PPU, "Sprite Y mode: %s", hw ? "HARDWARE(+1)" : "TEST(EXACT)");
+        if (!patternStandalone) {
+            if (initScroll) {
+                // Configura scroll e VRAM address iniciais (coarse/fine = 0, nametable 0)
+                emuRef[0].getBus().cpuWrite(0x2000, 0x10); // background pattern table = $1000
+                emuRef[0].getBus().cpuWrite(0x2005, 0x00); // X scroll
+                emuRef[0].getBus().cpuWrite(0x2005, 0x00); // Y scroll
+                emuRef[0].getBus().cpuWrite(0x2006, 0x20); // high byte (0x2000)
+                emuRef[0].getBus().cpuWrite(0x2006, 0x00); // low byte
+                Log.debug(PPU, "INIT-SCROLL VRAM inicializada nametable0 pattern $1000");
+            }
         }
-        if (logAttrLimit > 0) {
-            emuRef[0].getPpu().enableAttributeRuntimeLog(logAttrLimit);
+        if (!patternStandalone) {
+            if (showHeader) {
+                var h = romRef[0].getHeader();
+                Log.info(ROM, "Header: PRG=%d x16KB (%d bytes) CHR=%d x8KB (%d bytes) Mapper=%d Mirroring=%s",
+                        h.getPrgRomPages(), h.getPrgRomPages() * 16384, h.getChrRomPages(), h.getChrRomPages() * 8192,
+                        h.getMapper(),
+                        h.isVerticalMirroring() ? "VERTICAL" : "HORIZONTAL");
+            }
         }
-        if (logNtLimit > 0) {
-            emuRef[0].getPpu().enableNametableRuntimeLog(logNtLimit, ntBaseline == null ? -1 : ntBaseline);
+        if (!patternStandalone) {
+            if (chrLog) {
+                emuRef[0].getBus().getMapper0().enableChrLogging(256);
+            }
         }
-        if (paletteLogLimit > 0) {
-            emuRef[0].getPpu().enablePaletteWriteLog(paletteLogLimit);
+        if (!patternStandalone) {
+            if (logPpuReg) {
+                emuRef[0].getBus().enablePpuRegLogging(800);
+            }
         }
-        if (initScroll) {
-            // Configura scroll e VRAM address iniciais (coarse/fine = 0, nametable 0)
-            emuRef[0].getBus().cpuWrite(0x2000, 0x10); // background pattern table = $1000
-            emuRef[0].getBus().cpuWrite(0x2005, 0x00); // X scroll
-            emuRef[0].getBus().cpuWrite(0x2005, 0x00); // Y scroll
-            emuRef[0].getBus().cpuWrite(0x2006, 0x20); // high byte (0x2000)
-            emuRef[0].getBus().cpuWrite(0x2006, 0x00); // low byte
-            Log.debug(PPU, "INIT-SCROLL VRAM inicializada nametable0 pattern $1000");
+        if (!patternStandalone) {
+            if (breakReadAddr >= 0) {
+                emuRef[0].getBus().setWatchReadAddress(breakReadAddr, breakReadCount);
+                Log.info(BUS, "Watch leitura %04X count=%d", breakReadAddr, breakReadCount);
+            }
         }
-        if (showHeader) {
-            var h = romRef[0].getHeader();
-            Log.info(ROM, "Header: PRG=%d x16KB (%d bytes) CHR=%d x8KB (%d bytes) Mapper=%d Mirroring=%s",
-                    h.getPrgRomPages(), h.getPrgRomPages() * 16384, h.getChrRomPages(), h.getChrRomPages() * 8192,
-                    h.getMapper(),
-                    h.isVerticalMirroring() ? "VERTICAL" : "HORIZONTAL");
+        if (!patternStandalone) {
+            if (traceNmi) {
+                emuRef[0].getPpu().setNmiCallback(() -> {
+                    int pc = emuRef[0].getCpu().getPC();
+                    Log.debug(PPU, "NMI frame=%d PC=%04X cycles=%d", emuRef[0].getFrame(), pc,
+                            emuRef[0].getCpu().getTotalCycles());
+                });
+            }
         }
-        if (chrLog) {
-            emuRef[0].getBus().getMapper0().enableChrLogging(256);
-        }
-        if (logPpuReg) {
-            emuRef[0].getBus().enablePpuRegLogging(800);
-        }
-        if (breakReadAddr >= 0) {
-            emuRef[0].getBus().setWatchReadAddress(breakReadAddr, breakReadCount);
-            Log.info(BUS, "Watch leitura %04X count=%d", breakReadAddr, breakReadCount);
-        }
-        if (traceNmi) {
-            emuRef[0].getPpu().setNmiCallback(() -> {
-                int pc = emuRef[0].getCpu().getPC();
-                Log.debug(PPU, "NMI frame=%d PC=%04X cycles=%d", emuRef[0].getFrame(), pc,
-                        emuRef[0].getCpu().getTotalCycles());
-            });
+        if (patternStandalone) {
+            if (!gui) {
+                Log.info(GENERAL, "Standalone test-pattern headless (sem GUI)");
+            }
+            // Modo puro de padrão: instância isolada de PPU
+            Ppu2C02 ppu = new Ppu2C02();
+            ppu.reset();
+            ppu.setTestPatternMode(testPattern); // já validado não-nulo
+            // Habilita background (bit 3) para permitir pipeline & render (necessário para
+            // passar renderingEnabled())
+            ppu.writeRegister(1, 0x08);
+            if (gui) {
+                NesWindow window = new NesWindow("NESemu TestPattern-" + testPattern, 3);
+                window.show(ppu.getFrameBuffer());
+                Log.info(GENERAL, "Iniciando GUI TestPattern (Ctrl+C para sair)");
+                window.startRenderLoop(() -> {
+                    long f = ppu.getFrame();
+                    while (ppu.getFrame() == f) {
+                        ppu.clock();
+                    }
+                }, 60, NesWindow.PacerMode.HR);
+            } else {
+                for (int i = 0; i < frames; i++) {
+                    long f = ppu.getFrame();
+                    while (ppu.getFrame() == f) {
+                        ppu.clock();
+                    }
+                }
+                // Dump opcional / estatísticas simples
+                Path out = Path.of("testpattern.ppm");
+                ppu.dumpBackgroundToPpm(out);
+                Log.info(PPU, "PPM (test-pattern) gerado: %s", out.toAbsolutePath());
+            }
+            return; // encerra main
         }
         // Optionally force background enable early (most games set this quickly anyway)
         emuRef[0].getBus().cpuWrite(0x2001, 0x08);
