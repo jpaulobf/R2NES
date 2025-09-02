@@ -4,6 +4,8 @@ import com.nesemu.cpu.CPU;
 import com.nesemu.bus.Bus;
 import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.mapper.Mapper0;
+import com.nesemu.mapper.Mapper3;
+import com.nesemu.mapper.Mapper;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.rom.INesRom;
 
@@ -16,7 +18,7 @@ public class NesEmulator {
     private final CPU cpu;
     private final Bus bus; // system bus (CPU visible view via iBus)
     private final Ppu2C02 ppu; // minimal PPU skeleton
-    private final Mapper0 mapper; // current mapper (NROM only)
+    private final Mapper mapper; // current mapper (Mapper0 or Mapper3 for now)
 
     // Legacy path (kept for existing tests using Memory directly)
     public NesEmulator() {
@@ -28,10 +30,17 @@ public class NesEmulator {
 
     // New path: build full stack from ROM (mapper 0 only for now)
     public NesEmulator(INesRom rom) {
-        if (rom.getHeader().getMapper() != 0) {
-            throw new IllegalArgumentException("Only mapper 0 supported in NesEmulator constructor");
+        int mapperNum = rom.getHeader().getMapper();
+        switch (mapperNum) {
+            case 0:
+                this.mapper = new Mapper0(rom);
+                break;
+            case 3:
+                this.mapper = new Mapper3(rom);
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported mapper " + mapperNum + " (only 0 and 3 implemented)");
         }
-        this.mapper = new Mapper0(rom);
         this.ppu = new Ppu2C02();
         this.ppu.reset();
         this.ppu.attachMapper(this.mapper);

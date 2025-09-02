@@ -410,6 +410,11 @@ public class Bus implements NesBus {
         return null;
     }
 
+    // Generic mapper accessor (read-only)
+    public Mapper getMapper() {
+        return mapper;
+    }
+
     // PPU state helpers for logging
     private long getPpuFrame() {
         try {
