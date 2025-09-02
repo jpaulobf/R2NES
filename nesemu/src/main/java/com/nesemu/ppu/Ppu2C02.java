@@ -1344,8 +1344,17 @@ public class Ppu2C02 implements PPU, Clockable {
         int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
         if (spriteRangesDirty || spriteHeight != cachedSpriteHeight) {
             for (int i = 0; i < 64; i++) {
-                int y = oam[i << 2] & 0xFF;
-                int top = spriteYHardware ? ((y + 1) & 0xFF) : (y & 0xFF);
+                int yRaw = oam[i << 2] & 0xFF;
+                // Real hardware: OAM Y holds (top - 1). Sentinel values >= 0xF0 hide the
+                // sprite.
+                // Importante: NÃO fazer wrap com &0xFF após +1; se yRaw==0xFF virar 0 causa
+                // sprite fantasma na linha 0.
+                int top = spriteYHardware ? (yRaw + 1) : yRaw; // sem wrap
+                if (top >= 256) { // yRaw==0xFF => top=256 => oculto
+                    spriteTop[i] = 512; // fora de alcance
+                    spriteBottom[i] = 511;
+                    continue;
+                }
                 int bottom = top + spriteHeight - 1;
                 spriteTop[i] = top;
                 spriteBottom[i] = bottom;
@@ -1417,7 +1426,9 @@ public class Ppu2C02 implements PPU, Clockable {
             int x = oam[base + 3] & 0xFF;
             if (xPixel < x || xPixel >= x + 8)
                 continue;
-            int spriteTopY = spriteYHardware ? ((y + 1) & 0xFF) : (y & 0xFF);
+            int spriteTopY = spriteYHardware ? (y + 1) : y; // sem wrap
+            if (spriteTopY >= 256)
+                continue; // y==0xFF sentinel -> oculto
             int rowInSprite = sl - spriteTopY;
             if (rowInSprite < 0 || rowInSprite >= spriteHeight)
                 continue;
