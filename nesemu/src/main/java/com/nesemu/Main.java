@@ -6,6 +6,7 @@ import com.nesemu.emulator.NesEmulator;
 import com.nesemu.gui.NesWindow;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
+import com.nesemu.io.NesController;
 
 /**
  * Simple headless runner: loads a .nes ROM, executes a number of frames and
@@ -15,6 +16,9 @@ import com.nesemu.rom.RomLoader;
  * Usage: java -cp nesemu.jar com.nesemu.Main path/to/game.nes [frames]
  */
 public class Main {
+    private static NesController controllerPad1;
+    private static NesController controllerPad2;
+
     public static void main(String[] args) throws Exception {
         boolean gui = false;
         String romPath = null;
@@ -182,6 +186,30 @@ public class Main {
         System.out.println("Carregando ROM: " + p.toAbsolutePath());
         INesRom rom = RomLoader.load(p);
         NesEmulator emu = new NesEmulator(rom);
+        // Load input configuration (emulator.ini in working dir, fallback to classpath
+        // location if moved later)
+        try {
+            var inputPath = Path.of("emulator.ini");
+            com.nesemu.input.InputConfig inputCfg;
+            if (Files.exists(inputPath)) {
+                inputCfg = com.nesemu.input.InputConfig.load(inputPath);
+            } else {
+                // Try relative to source tree for dev environment
+                var devPath = Path.of("src/main/java/com/nesemu/config/emulator.ini");
+                if (Files.exists(devPath))
+                    inputCfg = com.nesemu.input.InputConfig.load(devPath);
+                else
+                    inputCfg = new com.nesemu.input.InputConfig();
+            }
+            var pad1 = new com.nesemu.io.NesController(inputCfg.getController(0));
+            var pad2 = new com.nesemu.io.NesController(inputCfg.getController(1));
+            emu.getBus().attachControllers(pad1, pad2);
+            // Defer key listener installation until GUI created (if any)
+            controllerPad1 = pad1;
+            controllerPad2 = pad2;
+        } catch (Exception ex) {
+            System.err.println("Falha ao carregar configuração de input: " + ex.getMessage());
+        }
         // Aplicar política de verbosidade
         if (quiet) {
             com.nesemu.ppu.Ppu2C02.setVerboseLogging(false);
@@ -264,6 +292,10 @@ public class Main {
         emu.getBus().cpuWrite(0x2001, 0x08);
         if (gui) {
             NesWindow window = new NesWindow("NESemu - " + p.getFileName(), 3);
+            // Install keyboard listener to feed controller state
+            if (controllerPad1 != null) {
+                window.installControllerKeyListener(controllerPad1, controllerPad2);
+            }
             window.show(emu.getPpu().getFrameBuffer());
             if (hud) {
                 var ppu = emu.getPpu();
@@ -274,13 +306,16 @@ public class Main {
                             ppu.getVramAddress() & 0x3FFF);
                     String l3 = String.format("MASK:%02X STAT:%02X fineX:%d", ppu.getMaskRegister(),
                             ppu.getStatusRegister(), ppu.getFineX());
-                    int boxH = 44;
+                    String btns = controllerPad1 != null ? controllerPad1.pressedButtonsString() : "-";
+                    String l4 = "Pad1: " + btns;
+                    int boxH = 56;
                     g2.setColor(new java.awt.Color(0, 0, 0, 160));
-                    g2.fillRect(0, 0, 210, boxH);
+                    g2.fillRect(0, 0, 260, boxH);
                     g2.setColor(java.awt.Color.WHITE);
                     g2.drawString(l1, pad, 12);
                     g2.drawString(l2, pad, 24);
                     g2.drawString(l3, pad, 36);
+                    g2.drawString(l4, pad, 48);
                 });
             }
             System.out.println("Iniciando loop de render em modo GUI (Ctrl+C para sair)...");

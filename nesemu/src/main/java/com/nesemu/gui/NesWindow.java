@@ -2,6 +2,8 @@ package com.nesemu.gui;
 
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.awt.Graphics2D;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -75,5 +77,75 @@ public class NesWindow {
 
     public double getLastFps() {
         return lastFps;
+    }
+
+    /** Install key listener mapping key pressed/released events to controllers. */
+    public void installControllerKeyListener(com.nesemu.io.NesController p1, com.nesemu.io.NesController p2) {
+        frame.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                handle(e, true);
+            }
+
+            @Override
+            public void keyReleased(KeyEvent e) {
+                handle(e, false);
+            }
+
+            private void handle(KeyEvent e, boolean down) {
+                String token = keyEventToToken(e);
+                if (token == null)
+                    return;
+                if (p1 != null)
+                    p1.setKeyTokenState(token, down);
+                if (p2 != null)
+                    p2.setKeyTokenState(token, down);
+            }
+
+            private String keyEventToToken(KeyEvent e) {
+                int code = e.getKeyCode();
+                switch (code) {
+                    case KeyEvent.VK_UP:
+                        return "up"; // arrow synonyms
+                    case KeyEvent.VK_DOWN:
+                        return "down";
+                    case KeyEvent.VK_LEFT:
+                        return "left";
+                    case KeyEvent.VK_RIGHT:
+                        return "right";
+                    case KeyEvent.VK_ENTER:
+                        return "enter";
+                    case KeyEvent.VK_BACK_SPACE:
+                        return "backspace";
+                    case KeyEvent.VK_SPACE:
+                        return "space";
+                    case KeyEvent.VK_ESCAPE:
+                        return "escape";
+                    case KeyEvent.VK_TAB:
+                        return "tab";
+                    case KeyEvent.VK_CONTROL: {
+                        int loc = e.getKeyLocation();
+                        if (loc == KeyEvent.KEY_LOCATION_LEFT)
+                            return "lcontrol";
+                        if (loc == KeyEvent.KEY_LOCATION_RIGHT)
+                            return "rcontrol";
+                        return "control";
+                    }
+                    case KeyEvent.VK_SHIFT: {
+                        int loc = e.getKeyLocation();
+                        if (loc == KeyEvent.KEY_LOCATION_LEFT)
+                            return "lshift";
+                        if (loc == KeyEvent.KEY_LOCATION_RIGHT)
+                            return "rshift";
+                        return "shift";
+                    }
+                    default:
+                        char ch = e.getKeyChar();
+                        if (Character.isLetterOrDigit(ch))
+                            return String.valueOf(Character.toLowerCase(ch));
+                        return null;
+                }
+            }
+        });
     }
 }
