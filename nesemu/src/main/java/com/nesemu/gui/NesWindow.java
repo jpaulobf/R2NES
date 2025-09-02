@@ -81,6 +81,13 @@ public class NesWindow {
 
     /** Install key listener mapping key pressed/released events to controllers. */
     public void installControllerKeyListener(com.nesemu.io.NesController p1, com.nesemu.io.NesController p2) {
+        installControllerKeyListener(p1, p2, null, null);
+    }
+
+    /** Extended variant allowing a special reset key token that fires a callback. */
+    public void installControllerKeyListener(com.nesemu.io.NesController p1, com.nesemu.io.NesController p2,
+            String resetToken, Runnable onReset) {
+        final String resetTok = resetToken == null ? null : resetToken.toLowerCase();
         frame.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -96,6 +103,10 @@ public class NesWindow {
                 String token = keyEventToToken(e);
                 if (token == null)
                     return;
+                if (down && resetTok != null && token.equals(resetTok) && onReset != null) {
+                    onReset.run();
+                    return; // do not forward reset key to controllers
+                }
                 if (p1 != null)
                     p1.setKeyTokenState(token, down);
                 if (p2 != null)
@@ -123,6 +134,30 @@ public class NesWindow {
                         return "escape";
                     case KeyEvent.VK_TAB:
                         return "tab";
+                    case KeyEvent.VK_F1:
+                        return "f1";
+                    case KeyEvent.VK_F2:
+                        return "f2";
+                    case KeyEvent.VK_F3:
+                        return "f3";
+                    case KeyEvent.VK_F4:
+                        return "f4";
+                    case KeyEvent.VK_F5:
+                        return "f5";
+                    case KeyEvent.VK_F6:
+                        return "f6";
+                    case KeyEvent.VK_F7:
+                        return "f7";
+                    case KeyEvent.VK_F8:
+                        return "f8";
+                    case KeyEvent.VK_F9:
+                        return "f9";
+                    case KeyEvent.VK_F10:
+                        return "f10";
+                    case KeyEvent.VK_F11:
+                        return "f11";
+                    case KeyEvent.VK_F12:
+                        return "f12";
                     case KeyEvent.VK_CONTROL: {
                         int loc = e.getKeyLocation();
                         if (loc == KeyEvent.KEY_LOCATION_LEFT)

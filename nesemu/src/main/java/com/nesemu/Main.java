@@ -57,6 +57,7 @@ public class Main {
         String logLevelOpt = null; // --log-level=TRACE|DEBUG|INFO|WARN|ERROR
         String logCatsOpt = null; // --log-cats=CPU,PPU,... or ALL
         boolean logTimestamps = false; // --log-ts
+    String resetKeyToken = null; // configurable reset key (from ini)
         for (String a : args) {
             if (a.equalsIgnoreCase("--gui"))
                 gui = true;
@@ -302,6 +303,9 @@ public class Main {
                     frames = Integer.parseInt(inputCfg.getOption("frames"));
                 } catch (Exception ignore) {
                 }
+            if (inputCfg.hasOption("reset")) {
+                resetKeyToken = inputCfg.getOption("reset");
+            }
             // Controllers
             var pad1 = new NesController(inputCfg.getController(0));
             var pad2 = new NesController(inputCfg.getController(1));
@@ -429,9 +433,12 @@ public class Main {
         emu.getBus().cpuWrite(0x2001, 0x08);
         if (gui) {
             NesWindow window = new NesWindow("NESemu - " + p.getFileName(), 3);
-            // Install keyboard listener to feed controller state
             if (controllerPad1 != null) {
-                window.installControllerKeyListener(controllerPad1, controllerPad2);
+                final String resetTok = resetKeyToken == null ? null : resetKeyToken.toLowerCase(Locale.ROOT).trim();
+                window.installControllerKeyListener(controllerPad1, controllerPad2, resetTok, () -> {
+                    Log.info(GENERAL, "RESET key pressed (%s)", resetTok);
+                    emu.reset();
+                });
             }
             window.show(emu.getPpu().getFrameBuffer());
             if (hud) {

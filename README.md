@@ -144,6 +144,8 @@ log-level=INFO
 log-cats=PPU,CPU
 # Show timestamps (true/false)
 log-ts=true
+# Reset key (GUI): press to reinitialize CPU+PPU (optional, default none)
+reset=F1
 # Dump nametable
 dump-nt=false
 ```
