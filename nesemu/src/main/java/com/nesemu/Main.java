@@ -13,7 +13,7 @@ import com.nesemu.input.InputConfig;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
 import com.nesemu.io.NesController;
-import com.nesemu.ppu.Ppu2C02;
+import com.nesemu.ppu.PPU;
 
 /**
  * Simple headless runner: loads a .nes ROM, executes a number of frames and
@@ -503,10 +503,10 @@ public class Main {
         }
         // Aplicar política de verbosidade
         if (quiet) {
-            Ppu2C02.setVerboseLogging(false);
+            com.nesemu.ppu.PPU.setVerboseLogging(false);
             Bus.setGlobalVerbose(false);
         } else if (verboseFlag != null && verboseFlag) {
-            Ppu2C02.setVerboseLogging(true);
+            com.nesemu.ppu.PPU.setVerboseLogging(true);
             Bus.setGlobalVerbose(true);
         }
         // Configurar nível de log se fornecido
@@ -661,7 +661,7 @@ public class Main {
                 Log.info(GENERAL, "Standalone test-pattern headless (sem GUI)");
             }
             // Modo puro de padrão: instância isolada de PPU
-            Ppu2C02 ppu = new Ppu2C02();
+            PPU ppu = new PPU();
             ppu.reset();
             ppu.setTestPatternMode(testPattern); // já validado não-nulo
             // Habilita background (bit 3) para permitir pipeline & render (necessário para

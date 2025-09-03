@@ -16,7 +16,7 @@ import static com.nesemu.util.Log.Cat.*;
  * advanced mappers with IRQ, no DMC/PCM audio, no extended palettes,
  * no PPU1.0 quirks, etc.).
  */
-public class Ppu2C02 implements NesPPU {
+public class PPU implements NesPPU {
 
     // Optional CPU callback for NMI (set by Bus/emulator)
     private NesCPU cpu;

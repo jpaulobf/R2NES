@@ -12,24 +12,24 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class PPUBackgroundFetchTest {
 
-    private Ppu2C02 newPPU() {
-        Ppu2C02 p = new Ppu2C02();
+    private PPU newPPU() {
+        PPU p = new PPU();
         p.reset();
         return p;
     }
 
-    private void enableBg(Ppu2C02 p) {
+    private void enableBg(PPU p) {
         p.writeRegister(1, 0x08);
     } // background enable
 
-    private void advanceTo(Ppu2C02 p, int scan, int cyc) {
+    private void advanceTo(PPU p, int scan, int cyc) {
         while (!(p.getScanline() == scan && p.getCycle() == cyc))
             p.clock();
     }
 
     @Test
     public void tileFetchSequence() {
-        Ppu2C02 p = newPPU();
+        PPU p = newPPU();
         // Put a tile index and attribute & pattern bytes into memory
         int coarseX = 0, coarseY = 0;
         int v = coarseX | (coarseY << 5);

@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Geração de NMI condicionada ao bit 7 de PPUCTRL e single-shot.
  */
 public class PPUTimingTest {
-    private Ppu2C02 ppu;
+    private PPU ppu;
     private CPU cpu;
     private Bus bus;
     private int nmiCount;
@@ -24,7 +24,7 @@ public class PPUTimingTest {
         bus = new Bus();
         cpu = new CPU(bus);
         bus.attachCPU(cpu);
-        ppu = new Ppu2C02();
+        ppu = new PPU();
         bus.attachPPU(ppu);
         ppu.attachCPU(cpu);
         ppu.setNmiCallback(() -> nmiCount++);

@@ -10,8 +10,8 @@ import com.nesemu.cpu.CPU;
 /** Verifica captura da secondary OAM construída no pipeline (linha seguinte). */
 public class PPUSecondaryOamTest {
 
-    private Ppu2C02 newPpu(Bus bus) {
-        Ppu2C02 p = new Ppu2C02();
+    private PPU newPpu(Bus bus) {
+        PPU p = new PPU();
         bus.attachPPU(p);
         return p;
     }
@@ -19,7 +19,7 @@ public class PPUSecondaryOamTest {
     @Test
     public void testSecondaryOamSnapshotForScanline() {
         Bus bus = new Bus();
-        Ppu2C02 ppu = newPpu(bus);
+        PPU ppu = newPpu(bus);
         CPU cpu = new CPU(bus);
         bus.attachCPU(cpu);
         ppu.reset();

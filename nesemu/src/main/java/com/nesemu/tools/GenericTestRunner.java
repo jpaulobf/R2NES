@@ -12,7 +12,7 @@ import com.nesemu.mapper.Mapper2;
 import com.nesemu.mapper.Mapper3;
 import com.nesemu.mapper.Mapper5;
 import com.nesemu.memory.Memory;
-import com.nesemu.ppu.Ppu2C02;
+import com.nesemu.ppu.PPU;
 import com.nesemu.ppu.interfaces.NesPPU;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
@@ -67,7 +67,7 @@ public class GenericTestRunner {
                 Log.warn(TEST, "Mapper %d not explicitly supported; using NROM fallback.", mapperNum);
                 mapper0 = new Mapper0(rom);
         }
-        Ppu2C02 ppu = new Ppu2C02();
+        PPU ppu = new PPU();
         ppu.reset();
         Bus bus = new Bus();
         bus.attachPPU(ppu);
@@ -287,10 +287,10 @@ public class GenericTestRunner {
         private int repeatCount = 0;
         private boolean loopDetected = false;
         private final StringBuilder firstOps = new StringBuilder();
-        private final Ppu2C02 ppu;
+        private final PPU ppu;
         private int statusReadLogCount = 0;
 
-        DebugTap(NesBus inner, int maxOps, Ppu2C02 ppu) {
+        DebugTap(NesBus inner, int maxOps, PPU ppu) {
             this.inner = inner;
             this.maxOps = maxOps;
             this.ppu = ppu;

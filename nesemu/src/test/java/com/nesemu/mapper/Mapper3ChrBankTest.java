@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
 
-import com.nesemu.ppu.Ppu2C02;
+import com.nesemu.ppu.PPU;
 import com.nesemu.rom.INesHeader;
 import com.nesemu.rom.INesRom;
 
@@ -18,9 +18,9 @@ public class Mapper3ChrBankTest {
 
     private static class Fixture {
         final Mapper3 mapper;
-        final Ppu2C02 ppu;
+        final PPU ppu;
 
-        Fixture(Mapper3 m, Ppu2C02 p) {
+        Fixture(Mapper3 m, PPU p) {
             this.mapper = m;
             this.ppu = p;
         }
@@ -48,13 +48,13 @@ public class Mapper3ChrBankTest {
         }
         INesRom rom = new INesRom(h, prg, chr, null);
         Mapper3 m3 = new Mapper3(rom);
-        Ppu2C02 ppu = new Ppu2C02();
+        PPU ppu = new PPU();
         ppu.reset();
         ppu.attachMapper(m3);
         return new Fixture(m3, ppu);
     }
 
-    private int ppuReadPattern(Ppu2C02 p, int addr) {
+    private int ppuReadPattern(PPU p, int addr) {
         // read via PPUADDR/PPUDATA sequence with buffering consideration
         p.writeRegister(6, (addr >> 8) & 0x3F);
         p.writeRegister(6, addr & 0xFF);

@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Test;
 /** Tests for sprite 0 hit (STATUS bit6) behavior. */
 public class PPUSpriteZeroHitTest {
 
-    private Ppu2C02 freshPpu() {
-        Ppu2C02 p = new Ppu2C02();
+    private PPU freshPpu() {
+        PPU p = new PPU();
         p.reset();
         return p;
     }
@@ -19,7 +19,7 @@ public class PPUSpriteZeroHitTest {
      */
     @Test
     public void testSpriteZeroHitOccurs() {
-        Ppu2C02 ppu = freshPpu();
+        PPU ppu = freshPpu();
         // Enable background + sprites fully (no left clipping disabled) bits: bg (3),
         // sprites (4), bg left (1), sprite left (2)
         ppu.writeRegister(1, 0x1E); // 0001 1110 -> bits 1,2,3,4 set
@@ -59,7 +59,7 @@ public class PPUSpriteZeroHitTest {
     /** (b) No hit if background pixel is transparent (BG pattern zero). */
     @Test
     public void testNoHitWithTransparentBackground() {
-        Ppu2C02 ppu = freshPpu();
+        PPU ppu = freshPpu();
         ppu.writeRegister(1, 0x1E);
         // Background: leave nametable default (tile 0 => pattern 0 -> transparent)
         // Sprite 0 at (20,20) opaque pattern
@@ -100,7 +100,7 @@ public class PPUSpriteZeroHitTest {
      */
     @Test
     public void testLeftClippingPreventsHit() {
-        Ppu2C02 ppu = freshPpu();
+        PPU ppu = freshPpu();
         // Enable BG+Sprites but disable left BG (bit1) and left sprite (bit2) => only
         // set bits 3,4
         ppu.writeRegister(1, 0x18); // 0001 1000

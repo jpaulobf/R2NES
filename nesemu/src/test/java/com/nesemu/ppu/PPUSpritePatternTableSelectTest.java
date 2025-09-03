@@ -23,7 +23,7 @@ public class PPUSpritePatternTableSelectTest {
      */
     @Test
     public void testSpritePatternTableBit3AffectsPixelsIn8x8Mode() {
-        Ppu2C02 ppu = new Ppu2C02();
+        PPU ppu = new PPU();
         ppu.reset();
         // Enable rendering: background off, sprites on (MASK bit4)
         ppu.writeRegister(1, 0x10); // PPUMASK enable sprites (bit4)
@@ -100,7 +100,7 @@ public class PPUSpritePatternTableSelectTest {
      */
     @Test
     public void testSprite8x16IgnoresBit3() {
-        Ppu2C02 ppu = new Ppu2C02();
+        PPU ppu = new PPU();
         ppu.reset();
         ppu.writeRegister(1, 0x10); // enable sprites
         for (int i = 0; i < 4; i++)

@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * (b) Um único NMI por entrada em vblank.
  */
 public class PPUNmiDebugTest {
-    private Ppu2C02 ppu;
+    private PPU ppu;
     private CPU cpu;
     private Bus bus;
     private int nmiCount;
@@ -25,7 +25,7 @@ public class PPUNmiDebugTest {
         bus = new Bus();
         cpu = new CPU(bus);
         bus.attachCPU(cpu);
-        ppu = new Ppu2C02();
+        ppu = new PPU();
         bus.attachPPU(ppu);
         ppu.attachCPU(cpu);
         ppu.setNmiCallback(() -> {

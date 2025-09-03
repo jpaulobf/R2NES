@@ -7,24 +7,24 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests point 4: pixel generation from shift registers into framebuffer.
  */
 public class PPUPixelGenerationTest {
-    private Ppu2C02 newPPU() {
-        Ppu2C02 p = new Ppu2C02();
+    private PPU newPPU() {
+        PPU p = new PPU();
         p.reset();
         return p;
     }
 
-    private void enableBg(Ppu2C02 p) {
+    private void enableBg(PPU p) {
         p.writeRegister(1, 0x08 | 0x02);
     } // background + left 8 enabled
 
-    private void advanceTo(Ppu2C02 p, int scan, int cyc) {
+    private void advanceTo(PPU p, int scan, int cyc) {
         while (!(p.getScanline() == scan && p.getCycle() == cyc))
             p.clock();
     }
 
     @Test
     public void firstTilePixelsRendered() {
-        Ppu2C02 p = newPPU();
+        PPU p = newPPU();
         // Setup tile index 1 at (0,0) with attribute bits = 2 (binary 10 -> attrHigh=1
         // attrLow=0)
         p.pokeNameTable(0, 0x01);
@@ -66,7 +66,7 @@ public class PPUPixelGenerationTest {
 
     @Test
     public void leftEdgeClippingClearsWhenDisabled() {
-        Ppu2C02 p = newPPU();
+        PPU p = newPPU();
         p.pokeNameTable(0, 0x02);
         p.pokePattern(0x02 * 16, 0xFF);
         p.pokePattern(0x02 * 16 + 8, 0x00);

@@ -15,7 +15,7 @@ public class PPUOamDmaTest {
     @Test
     public void testOamDmaCopies256BytesAndStallsCpu() {
         Bus bus = new Bus();
-        Ppu2C02 ppu = new Ppu2C02();
+        PPU ppu = new PPU();
         bus.attachPPU(ppu);
         CPU cpu = new CPU(bus);
         bus.attachCPU(cpu);

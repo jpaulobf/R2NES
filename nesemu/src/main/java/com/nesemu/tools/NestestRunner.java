@@ -4,7 +4,7 @@ import com.nesemu.cpu.CPU;
 import com.nesemu.cpu.Opcode;
 import com.nesemu.bus.Bus;
 import com.nesemu.bus.interfaces.NesBus;
-import com.nesemu.ppu.Ppu2C02;
+import com.nesemu.ppu.PPU;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
@@ -39,7 +39,7 @@ public class NestestRunner {
         }
         // Build components: Mapper0 -> Bus -> PPU -> CPU
         Mapper0 mapper0 = new Mapper0(rom);
-        Ppu2C02 ppu = new Ppu2C02();
+        PPU ppu = new PPU();
         ppu.reset();
         Bus bus = new Bus();
         bus.attachPPU(ppu);

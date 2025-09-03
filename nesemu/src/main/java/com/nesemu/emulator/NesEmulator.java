@@ -10,7 +10,7 @@ import com.nesemu.mapper.Mapper1;
 import com.nesemu.mapper.Mapper5;
 import com.nesemu.mapper.Mapper4;
 import com.nesemu.mapper.Mapper;
-import com.nesemu.ppu.Ppu2C02;
+import com.nesemu.ppu.PPU;
 import com.nesemu.rom.INesRom;
 
 /**
@@ -21,7 +21,7 @@ import com.nesemu.rom.INesRom;
 public class NesEmulator {
     private final CPU cpu;
     private final NesBus bus; // system bus (CPU visible view via iBus)
-    private final Ppu2C02 ppu; // minimal PPU skeleton
+    private final PPU ppu; // minimal PPU skeleton
     private final Mapper mapper; // current mapper (Mapper0 or Mapper3 for now)
 
     /**
@@ -50,7 +50,7 @@ public class NesEmulator {
             default ->
                 throw new IllegalArgumentException("Unsupported mapper " + mapperNum + " (only 0,1,2,3,4,5 implemented)");
         }
-        this.ppu = new Ppu2C02();
+        this.ppu = new PPU();
         this.ppu.reset();
         this.ppu.attachMapper(this.mapper);
         this.bus = new Bus();
@@ -80,7 +80,7 @@ public class NesEmulator {
      * Get the PPU instance (for direct control in tests or introspection).
      * @return
      */
-    public Ppu2C02 getPpu() {
+    public PPU getPpu() {
         return ppu;
     }
 

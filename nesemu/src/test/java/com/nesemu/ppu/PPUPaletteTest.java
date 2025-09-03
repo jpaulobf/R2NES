@@ -42,7 +42,7 @@ public class PPUPaletteTest {
 
     @Test
     public void testUniversalBackgroundAppliedWhenPatternZero() {
-        Ppu2C02 p = new Ppu2C02();
+        PPU p = new PPU();
         p.reset();
         p.pokeNameTable(0, 0x00); // tile 0
         p.pokeNameTable(0x3C0, 0b11); // attribute entry sets palette high bits

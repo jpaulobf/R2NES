@@ -10,8 +10,8 @@ import com.nesemu.cpu.CPU;
 /** Tests sprite overflow flag (bit5) and unlimited sprite mode toggle. */
 public class PPUSpriteOverflowAndUnlimitedTest {
 
-    private Ppu2C02 newPpu(Bus bus) {
-        Ppu2C02 p = new Ppu2C02();
+    private PPU newPpu(Bus bus) {
+        PPU p = new PPU();
         bus.attachPPU(p);
         return p;
     }
@@ -19,7 +19,7 @@ public class PPUSpriteOverflowAndUnlimitedTest {
     @Test
     public void testSpriteOverflowFlagSetWith9SpritesSameScanline() {
         Bus bus = new Bus();
-        Ppu2C02 ppu = newPpu(bus);
+        PPU ppu = newPpu(bus);
         CPU cpu = new CPU(bus); // attach CPU for completeness
         bus.attachCPU(cpu);
         ppu.reset();
@@ -51,7 +51,7 @@ public class PPUSpriteOverflowAndUnlimitedTest {
     @Test
     public void testNoOverflowWithExactly8Sprites() {
         Bus bus = new Bus();
-        Ppu2C02 ppu = newPpu(bus);
+        PPU ppu = newPpu(bus);
         CPU cpu = new CPU(bus);
         bus.attachCPU(cpu);
         ppu.reset();
@@ -86,7 +86,7 @@ public class PPUSpriteOverflowAndUnlimitedTest {
     @Test
     public void testUnlimitedSpritesModeDoesNotCapCount() {
         Bus bus = new Bus();
-        Ppu2C02 ppu = newPpu(bus);
+        PPU ppu = newPpu(bus);
         CPU cpu = new CPU(bus);
         bus.attachCPU(cpu);
         ppu.reset();

@@ -13,8 +13,8 @@ import com.nesemu.cpu.CPU;
  */
 public class PPUSpritePriorityTest {
 
-    private Ppu2C02 newPpu(Bus bus) {
-        Ppu2C02 p = new Ppu2C02();
+    private PPU newPpu(Bus bus) {
+        PPU p = new PPU();
         bus.attachPPU(p);
         return p;
     }
@@ -22,7 +22,7 @@ public class PPUSpritePriorityTest {
     @Test
     public void testBehindSpriteHiddenByOpaqueBackground() {
         Bus bus = new Bus();
-        Ppu2C02 p = newPpu(bus);
+        PPU p = newPpu(bus);
         CPU cpu = new CPU(bus);
         bus.attachCPU(cpu);
         p.reset();
@@ -68,7 +68,7 @@ public class PPUSpritePriorityTest {
     @Test
     public void testBehindSpriteShowsWhenBackgroundTransparent() {
         Bus bus = new Bus();
-        Ppu2C02 p = newPpu(bus);
+        PPU p = newPpu(bus);
         CPU cpu = new CPU(bus);
         bus.attachCPU(cpu);
         p.reset();

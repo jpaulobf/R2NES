@@ -27,7 +27,7 @@ import com.nesemu.rom.INesRom;
  */
 public class PPUMirroringTest {
 
-    private Ppu2C02 newPPUWithMapper(boolean vertical) {
+    private PPU newPPUWithMapper(boolean vertical) {
         // Build minimal header bytes (16) with mirroring bit set/cleared
         byte[] header = new byte[16];
         header[0] = 'N';
@@ -47,7 +47,7 @@ public class PPUMirroringTest {
         byte[] chr = new byte[0x2000]; // 8KB
         INesRom rom = new INesRom(h, prg, chr, null);
         Mapper0 mapper = new Mapper0(rom);
-        Ppu2C02 ppu = new Ppu2C02();
+        PPU ppu = new PPU();
         ppu.reset();
         ppu.attachMapper(mapper);
         return ppu;
@@ -57,7 +57,7 @@ public class PPUMirroringTest {
      * Write a byte to PPU logical address using registers: set address high, low
      * then write data.
      */
-    private void ppuWrite(Ppu2C02 p, int addr, int value) {
+    private void ppuWrite(PPU p, int addr, int value) {
         p.writeRegister(6, (addr >> 8) & 0x3F); // high (mask like real PPU)
         p.writeRegister(6, addr & 0xFF); // low
         p.writeRegister(7, value & 0xFF);
@@ -67,7 +67,7 @@ public class PPUMirroringTest {
      * Read a byte via buffered PPUDATA (simulate buffered read by performing a
      * dummy read first).
      */
-    private int ppuRead(Ppu2C02 p, int addr) {
+    private int ppuRead(PPU p, int addr) {
         p.writeRegister(6, (addr >> 8) & 0x3F);
         p.writeRegister(6, addr & 0xFF);
         p.readRegister(7); // dummy buffered read
@@ -81,7 +81,7 @@ public class PPUMirroringTest {
     class VerticalMirroring {
         @Test
         public void verticalSharesExpectedTables() {
-            Ppu2C02 p = newPPUWithMapper(true);
+            PPU p = newPPUWithMapper(true);
             // Distinct values across four logical tables
             ppuWrite(p, 0x2000, 0x11); // table0
             ppuWrite(p, 0x2400, 0x22); // table1
@@ -105,7 +105,7 @@ public class PPUMirroringTest {
 
         @Test
         public void verticalAttributeTablesShare() {
-            Ppu2C02 p = newPPUWithMapper(true);
+            PPU p = newPPUWithMapper(true);
             // Attribute addresses for logical tables: 0:$23C0 1:$27C0 2:$2BC0 3:$2FC0
             // Pair (0,2): write then overwrite via alias second
             ppuWrite(p, 0x23C0, 0xA1);
@@ -129,7 +129,7 @@ public class PPUMirroringTest {
     class HorizontalMirroring {
         @Test
         public void horizontalSharesExpectedTables() {
-            Ppu2C02 p = newPPUWithMapper(false);
+            PPU p = newPPUWithMapper(false);
             ppuWrite(p, 0x2000, 0x55); // table0
             ppuWrite(p, 0x2400, 0x66); // table1 (aliases table0)
             ppuWrite(p, 0x2800, 0x77); // table2
@@ -148,7 +148,7 @@ public class PPUMirroringTest {
 
         @Test
         public void horizontalAttributeTablesShare() {
-            Ppu2C02 p = newPPUWithMapper(false);
+            PPU p = newPPUWithMapper(false);
             // Pairs (0,1) and (2,3)
             ppuWrite(p, 0x23C0, 0xC1); // attr table0
             ppuWrite(p, 0x27C0, 0xC2); // overrides pair (0,1)

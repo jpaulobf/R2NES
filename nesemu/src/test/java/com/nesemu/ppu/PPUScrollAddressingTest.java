@@ -13,31 +13,31 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class PPUScrollAddressingTest {
 
-    private Ppu2C02 newPPU() {
-        Ppu2C02 p = new Ppu2C02();
+    private PPU newPPU() {
+        PPU p = new PPU();
         p.reset();
         return p;
     }
 
-    private void runCycles(Ppu2C02 p, int cycles) {
+    private void runCycles(PPU p, int cycles) {
         for (int i = 0; i < cycles; i++)
             p.clock();
     }
 
-    private void advanceTo(int targetScanline, int targetCycle, Ppu2C02 p) {
+    private void advanceTo(int targetScanline, int targetCycle, PPU p) {
         while (!(p.getScanline() == targetScanline && p.getCycle() == targetCycle)) {
             p.clock();
         }
     }
 
-    private void enableBackground(Ppu2C02 p) {
+    private void enableBackground(PPU p) {
         // Write to $2001 (PPUMASK) to enable background rendering (bit3)
         p.writeRegister(1, 0x08);
     }
 
     @Test
     public void coarseXWrapsAndFlipsNametable() {
-        Ppu2C02 p = newPPU();
+        PPU p = newPPU();
         // Set v with coarse X = 31 and horizontal NT bit = 0 while rendering disabled
         p.setVramAddressForTest((0x20 << 8) | 0x1F); // coarseX=31
         advanceTo(0, 0, p); // reach start of visible scanline
@@ -50,7 +50,7 @@ public class PPUScrollAddressingTest {
 
     @Test
     public void incrementYFineAndCoarseLogic() {
-        Ppu2C02 p = newPPU();
+        PPU p = newPPU();
         int v = (7 << 12) | (29 << 5); // fineY=7 coarseY=29
         p.setVramAddressForTest(v);
         advanceTo(0, 0, p);
@@ -64,7 +64,7 @@ public class PPUScrollAddressingTest {
 
     @Test
     public void copyHorizontalAt257() {
-        Ppu2C02 p = newPPU();
+        PPU p = newPPU();
         int t = (1 << 10) | 10; // desired horizontal bits in t
         p.setTempAddressForTest(t); // set t
         p.setVramAddressForTest(3); // disturb v horizontal bits
@@ -77,7 +77,7 @@ public class PPUScrollAddressingTest {
 
     @Test
     public void copyVerticalDuringPreRender() {
-        Ppu2C02 p = newPPU();
+        PPU p = newPPU();
         int t = (5 << 12) | (1 << 11) | (17 << 5);
         p.setTempAddressForTest(t);
         p.setVramAddressForTest((0 << 12) | (0 << 11) | (2 << 5) | (t & 0x1F));
@@ -93,7 +93,7 @@ public class PPUScrollAddressingTest {
 
     @Test
     public void noAutoIncrementsWhenRenderingDisabled() {
-        Ppu2C02 p = newPPU();
+        PPU p = newPPU();
         // Ensure mask is zero (already after reset) and set a distinctive v
         int v = (7 << 12) | (31) | (29 << 5) | (1 << 10) | (1 << 11);
         p.setVramAddressForTest(v);

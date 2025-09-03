@@ -15,7 +15,7 @@ import com.nesemu.rom.INesRom;
  */
 public class PPUChrRamTest {
 
-    private Ppu2C02 newChrRamPPU() {
+    private PPU newChrRamPPU() {
         byte[] header = new byte[16];
         header[0] = 'N'; header[1] = 'E'; header[2] = 'S'; header[3] = 0x1A;
         header[4] = 1; // 1 x 16KB PRG
@@ -27,19 +27,19 @@ public class PPUChrRamTest {
         byte[] chr = new byte[0]; // empty CHR -> RAM path
         INesRom rom = new INesRom(h, prg, chr, null);
         Mapper0 mapper = new Mapper0(rom);
-        Ppu2C02 ppu = new Ppu2C02();
+        PPU ppu = new PPU();
         ppu.reset();
         ppu.attachMapper(mapper);
         return ppu;
     }
 
-    private void ppuWrite(Ppu2C02 p, int addr, int value) {
+    private void ppuWrite(PPU p, int addr, int value) {
         p.writeRegister(6, (addr >> 8) & 0x3F);
         p.writeRegister(6, addr & 0xFF);
         p.writeRegister(7, value & 0xFF);
     }
 
-    private int ppuReadBuffered(Ppu2C02 p, int addr) {
+    private int ppuReadBuffered(PPU p, int addr) {
         // Perform dummy read to populate buffer then actual read
         p.writeRegister(6, (addr >> 8) & 0x3F);
         p.writeRegister(6, addr & 0xFF);
@@ -51,7 +51,7 @@ public class PPUChrRamTest {
 
     @Test
     public void chrRamReadWriteReflectsValues() {
-        Ppu2C02 p = newChrRamPPU();
+        PPU p = newChrRamPPU();
         int[] addrs = {0x0000, 0x07FF, 0x0ABC, 0x1FFF};
         int[] vals  = {0x12,   0x34,   0x5A,   0xFF};
         for (int i = 0; i < addrs.length; i++) {
