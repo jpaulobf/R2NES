@@ -40,6 +40,7 @@ public class Mapper5 implements Mapper {
     private int regChrMode = 3; // $5101 low 2 bits
     private int regPrgRamProt1 = 0; // $5102
     private int regPrgRamProt2 = 0; // $5103
+    @SuppressWarnings("unused")
     private int regExRamMode = 0; // $5104 (ignored for now except for value storage)
     private int regNtMapping = 0x50; // $5105 default horizontal example; store raw
     @SuppressWarnings("unused")

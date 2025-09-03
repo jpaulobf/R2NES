@@ -265,7 +265,7 @@ public class Mapper4 implements Mapper {
             irqCounter = (irqCounter - 1) & 0xFF;
         }
         if (irqCounter == 0) {
-            // TODO: Signal IRQ line to CPU (requires bus/cpu integration path)
+            // ...: Signal IRQ line to CPU (requires bus/cpu integration path)
         }
     }
 }

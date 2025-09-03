@@ -6,9 +6,9 @@ package com.nesemu.apu;
  */
 public class Apu2A03 implements APU {
     @Override
-    public void reset() { /* TODO */ }
+    public void reset() {  }
 
     @Override
-    public void clock() { /* TODO */ }
+    public void clock() {  }
 
 }
