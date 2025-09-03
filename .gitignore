@@ -12,3 +12,4 @@ background.ppm
 nesemu/roms/**
 nesemu/roms/popeye.nes
 nesemu/roms/smb.nes
+.vscode/TODO.md
