@@ -11,30 +11,39 @@ package com.nesemu.mapper;
  */
 public interface Mapper {
     /**
-     * CPU read from mapped PRG/CHR/extra space. Only addresses >= $8000 (and mapper specific ranges like $6000-$7FFF for PRG RAM) are typically serviced here; others handled by bus.
+     * CPU read from mapped PRG/CHR/extra space. Only addresses >= $8000 (and mapper
+     * specific ranges like $6000-$7FFF for PRG RAM) are typically serviced here;
+     * others handled by bus.
+     * 
      * @param address 16-bit CPU address
      * @return unsigned byte (0-255)
      */
     int cpuRead(int address);
 
     /**
-     * CPU write to mapper-controlled region (bank select registers, PRG RAM, IRQ registers, etc.).
+     * CPU write to mapper-controlled region (bank select registers, PRG RAM, IRQ
+     * registers, etc.).
+     * 
      * @param address 16-bit CPU address
-     * @param value byte value (only low 8 bits used)
+     * @param value   byte value (only low 8 bits used)
      */
     void cpuWrite(int address, int value);
 
     /**
-     * PPU pattern table / CHR space read (addresses < $2000). Mapper translates bank registers to physical CHR ROM/RAM.
+     * PPU pattern table / CHR space read (addresses < $2000). Mapper translates
+     * bank registers to physical CHR ROM/RAM.
+     * 
      * @param address 14-bit PPU address
      * @return unsigned byte (0-255)
      */
     int ppuRead(int address);
 
     /**
-     * PPU write into CHR RAM (if present) or mapper special areas (ExRAM, etc.). Ignored for pure CHR ROM mappers.
+     * PPU write into CHR RAM (if present) or mapper special areas (ExRAM, etc.).
+     * Ignored for pure CHR ROM mappers.
+     * 
      * @param address 14-bit PPU address
-     * @param value byte value
+     * @param value   byte value
      */
     void ppuWrite(int address, int value);
 
@@ -46,26 +55,51 @@ public interface Mapper {
     }
 
     enum MirrorType {
-    /** Nametable layout: [A A | B B] horizontally. */
-    HORIZONTAL,
-    /** Nametable layout: [A B | A B] vertically. */
-    VERTICAL,
-    /** Single-screen using CIRAM page 0. */
-    SINGLE0,
-    /** Single-screen using CIRAM page 1. */
-    SINGLE1
+        /** Nametable layout: [A A | B B] horizontally. */
+        HORIZONTAL,
+        /** Nametable layout: [A B | A B] vertically. */
+        VERTICAL,
+        /** Single-screen using CIRAM page 0. */
+        SINGLE0,
+        /** Single-screen using CIRAM page 1. */
+        SINGLE1
     }
 
     /**
-     * Optional direct access to battery-backed PRG RAM (WRAM) underlying bytes for save persistence.
-     * Implementations with PRG RAM should return a live reference (do NOT copy) so emulator can serialize/deserialize.
+     * Optional direct access to battery-backed PRG RAM (WRAM) underlying bytes for
+     * save persistence.
+     * Implementations with PRG RAM should return a live reference (do NOT copy) so
+     * emulator can serialize/deserialize.
      * Return null if mapper has no PRG RAM.
      */
-    default byte[] getPrgRam() { return null; }
+    default byte[] getPrgRam() {
+        return null;
+    }
 
     /**
-     * Optional hook invoked after PRG RAM has been externally loaded (deserialized) so mapper can refresh any checksums/protection.
+     * Optional hook invoked after PRG RAM has been externally loaded (deserialized)
+     * so mapper can refresh any checksums/protection.
      * Default no-op.
      */
-    default void onPrgRamLoaded() {}
+    default void onPrgRamLoaded() {
+    }
+
+    /**
+     * Optional opaque mapper state serialization (bank registers, CHR RAM, IRQ
+     * counters, etc.).
+     * Return a byte array containing ONLY mapper-specific data (do NOT include PRG
+     * ROM).
+     * Default: no state (null) meaning mapper is stateless.
+     */
+    default byte[] saveState() {
+        return null;
+    }
+
+    /**
+     * Counterpart to {@link #saveState()} restoring mapper internal registers / CHR
+     * RAM.
+     * Implementations must tolerate unknown / null data (ignore gracefully).
+     */
+    default void loadState(byte[] data) {
+    }
 }

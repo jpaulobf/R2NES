@@ -99,6 +99,26 @@ public class Mapper0 implements Mapper {
     }
 
     @Override
+    public byte[] saveState() {
+        // Only dynamic state is CHR RAM (if present)
+        if (chr.length == 0 && chrRam != null) {
+            byte[] out = new byte[chrRam.length];
+            System.arraycopy(chrRam, 0, out, 0, chrRam.length);
+            return out;
+        }
+        return null; // purely ROM / stateless
+    }
+
+    @Override
+    public void loadState(byte[] data) {
+        if (data == null)
+            return;
+        if (chr.length == 0 && chrRam != null && data.length == chrRam.length) {
+            System.arraycopy(data, 0, chrRam, 0, chrRam.length);
+        }
+    }
+
+    @Override
     public MirrorType getMirrorType() {
         // Derive from iNES header flag6 bit0 via stored page counts; need header. We
         // don't keep header here, so assume vertical if chrPageCount even not helpful.

@@ -41,28 +41,28 @@ public class PPU implements NesPPU {
     private static final int EXTENDED_SPRITE_DRAW_LIMIT = 64; // extended debug: allow drawing all sprites on a scanline
     private final int[] spriteIndices = new int[EXTENDED_SPRITE_DRAW_LIMIT];
     private int spriteCountThisLine = 0;
-    
+
     // Debug/feature flag: allow disabling the hardware 8-sprite-per-scanline limit
     private boolean unlimitedSprites = false;
-    
+
     // Cached sprite vertical ranges (top/bottom) to avoid recomputing each scanline
     private final int[] spriteTop = new int[64];
     private final int[] spriteBottom = new int[64];
     private boolean spriteRangesDirty = true;
     private int cachedSpriteHeight = -1;
-    
+
     // Sprite Y semantics flag: false = test-friendly (OAM Y is top), true =
     // hardware (OAM Y = top-1)
     private boolean spriteYHardware = false;
-    
+
     // Secondary OAM simulation and prepared sprite list for next scanline
     private final byte[] secondaryOam = new byte[32]; // 8 sprites * 4 bytes
     private final int[] preparedSpriteIndices = new int[EXTENDED_SPRITE_DRAW_LIMIT];
     private int preparedSpriteCount = 0;
-    private int preparedLine = -2;  // which scanline the prepared list corresponds to
-                                    // $2005 PPUSCROLL (x,y latch)
-                                    // $2006 PPUADDR (VRAM address latch)
-                                    // $2007 PPUDATA
+    private int preparedLine = -2; // which scanline the prepared list corresponds to
+                                   // $2005 PPUSCROLL (x,y latch)
+                                   // $2006 PPUADDR (VRAM address latch)
+                                   // $2007 PPUDATA
 
     // VRAM address latch / toggle
     private boolean addrLatchHigh = true; // true -> next write is high byte
@@ -128,10 +128,9 @@ public class PPU implements NesPPU {
 
     // Força habilitar sprites independentemente do valor escrito em $2001
     private boolean forceSpriteEnable = false;
-    
+
     // Força habilitar NMI mesmo se bit não setado pelo jogo
     private boolean forceNmiEnable = false;
-
 
     @Override
     public void attachCPU(NesCPU cpu) {
@@ -418,7 +417,7 @@ public class PPU implements NesPPU {
     public int dmaOamRead(int index) {
         return oam[index & 0xFF] & 0xFF;
     }
-    
+
     @Override
     public void enablePipelineLog(int limit) {
         this.pipelineLogEnabled = true;
@@ -950,6 +949,60 @@ public class PPU implements NesPPU {
         return c;
     }
 
+    // --- Save state helpers (formal accessors) ---
+    /** Snapshot of full nametable memory (0x800 bytes after mirroring). */
+    public byte[] getNameTableCopy() {
+        byte[] c = new byte[nameTables.length];
+        System.arraycopy(nameTables, 0, c, 0, nameTables.length);
+        return c;
+    }
+
+    /** Snapshot of palette internal RAM (32 bytes expanded) */
+    public byte[] getPaletteCopy() {
+        return palette.copyRaw();
+    }
+
+    /** Load OAM from snapshot (length must be 256). */
+    public void loadOam(byte[] data) {
+        if (data != null && data.length == oam.length) {
+            System.arraycopy(data, 0, oam, 0, oam.length);
+            spriteRangesDirty = true;
+        }
+    }
+
+    /** Load nametables from snapshot (length must be 0x800). */
+    public void loadNameTable(byte[] data) {
+        if (data != null && data.length == nameTables.length) {
+            System.arraycopy(data, 0, nameTables, 0, nameTables.length);
+        }
+    }
+
+    /** Load palette raw bytes (expects 32) */
+    public void loadPalette(byte[] data) {
+        if (data != null)
+            palette.loadRaw(data);
+    }
+
+    /** Expose CTRL register for save-state */
+    public int getCtrl() {
+        return regCTRL & 0xFF;
+    }
+
+    /** Force core timing/state (used by save-state load). */
+    public void forceCoreState(int mask, int status, int ctrl, int scan, int cyc, int vram, int tAddr, int fineXVal,
+            int frameVal) {
+        this.regMASK = mask & 0xFF;
+        this.regSTATUS = status & 0xFF;
+        this.regCTRL = ctrl & 0xFF;
+        this.scanline = scan;
+        this.cycle = cyc;
+        this.vramAddress = vram & 0x3FFF;
+        this.tempAddress = tAddr & 0x3FFF;
+        this.fineX = fineXVal & 0x07;
+        this.frame = frameVal & 0xFFFFFFFFL;
+        this.nmiFiredThisVblank = false; // reset latch to allow NMI logic to resync
+    }
+
     @Override
     public int getOamByte(int index) {
         return oam[index & 0xFF] & 0xFF;
@@ -971,9 +1024,11 @@ public class PPU implements NesPPU {
 
     /**
      * Internal PPU memory read abstraction.
-     * Resolves CHR via mapper (if attached), applies nametable mirroring and palette
+     * Resolves CHR via mapper (if attached), applies nametable mirroring and
+     * palette
      * mirroring rules. Only addresses within $0000-$3FFF are valid; higher bits are
-     * mirrored by masking. Palette range ($3F00-$3FFF) is handled by Palette helper.
+     * mirrored by masking. Palette range ($3F00-$3FFF) is handled by Palette
+     * helper.
      */
     private int ppuMemoryRead(int addr) {
         addr &= 0x3FFF;
@@ -1067,8 +1122,10 @@ public class PPU implements NesPPU {
     }
 
     /**
-     * Build sprite list for a target scanline (next visible line or fallback if late).
-     * Implements simplified secondary OAM evaluation: determines which sprites overlap
+     * Build sprite list for a target scanline (next visible line or fallback if
+     * late).
+     * Implements simplified secondary OAM evaluation: determines which sprites
+     * overlap
      * the line, copies first 8 (or all if unlimitedSprites) into secondaryOam and
      * records indices for rendering. Also computes sprite overflow flag when ninth
      * sprite is found (unless unlimited mode).
@@ -1150,7 +1207,8 @@ public class PPU implements NesPPU {
      * Per-pixel sprite overlay logic executed after background pixel is produced.
      * Iterates prepared sprites in front-to-back order (OAM priority) applying
      * horizontal/vertical flips, fetches pattern row bytes, resolves palette index,
-     * handles transparency and priority bits, sets sprite zero hit flag, and updates
+     * handles transparency and priority bits, sets sprite zero hit flag, and
+     * updates
      * framebuffer only if sprite pixel is opaque and has priority over background.
      */
     private void overlaySpritePixel() {
@@ -1245,8 +1303,10 @@ public class PPU implements NesPPU {
     }
 
     /**
-     * Conditional register write logger for the first few early writes (or unlimited
-     * if LOG_EXTENDED). Aids debugging initialisation sequences without flooding logs.
+     * Conditional register write logger for the first few early writes (or
+     * unlimited
+     * if LOG_EXTENDED). Aids debugging initialisation sequences without flooding
+     * logs.
      */
     private void logEarlyWrite(int reg, int val) {
         if (LOG_EXTENDED || earlyWriteLogCount < EARLY_WRITE_LOG_LIMIT) {
@@ -1288,7 +1348,8 @@ public class PPU implements NesPPU {
     }
 
     /**
-     * Increment vertical scroll portion (fine Y then coarse Y) with correct wrapping
+     * Increment vertical scroll portion (fine Y then coarse Y) with correct
+     * wrapping
      * and vertical nametable toggling as defined by loopy's algorithm.
      */
     private void incrementY() {
@@ -1313,7 +1374,8 @@ public class PPU implements NesPPU {
     }
 
     /**
-     * Copy horizontal scroll components (coarse X and horizontal nametable bit) from
+     * Copy horizontal scroll components (coarse X and horizontal nametable bit)
+     * from
      * temp address 't' into current VRAM address 'v' at cycle 257 of each scanline.
      */
     private void copyHorizontalBits() {
@@ -1322,7 +1384,8 @@ public class PPU implements NesPPU {
     }
 
     /**
-     * Copy vertical scroll components (fine Y, coarse Y, vertical nametable bit) from
+     * Copy vertical scroll components (fine Y, coarse Y, vertical nametable bit)
+     * from
      * temp address 't' into 'v' during pre-render line cycles 280-304.
      */
     private void copyVerticalBits() {
@@ -1513,7 +1576,8 @@ public class PPU implements NesPPU {
 
     /**
      * Transfer freshly fetched tile pattern and attribute bits into the low byte of
-     * the dual 16-bit shift registers; upper bytes retain prior tile data. Attribute
+     * the dual 16-bit shift registers; upper bytes retain prior tile data.
+     * Attribute
      * bits are expanded to 0x00 or 0xFF masks for easier per-bit extraction during
      * pixel generation.
      */
@@ -1562,7 +1626,7 @@ public class PPU implements NesPPU {
         attributeHighShift = ((attributeHighShift << 1) & 0xFFFF);
     }
 
-    //------------------- Helpers -------------------
+    // ------------------- Helpers -------------------
 
     // Global verbose logging toggle (covers internal debug/instrumentation prints)
     private static volatile boolean verboseLogging = true;
@@ -1614,6 +1678,7 @@ public class PPU implements NesPPU {
 
     /**
      * Verbose logging helper.
+     * 
      * @param fmt
      * @param args
      */

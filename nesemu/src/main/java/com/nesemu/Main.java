@@ -70,6 +70,9 @@ public class Main {
         Integer initialMaskOverride = null; // --initial-mask=HEX (ppumask value to write early)
         Boolean borderlessFullscreen = null; // --borderless-fullscreen / INI borderless-fullscreen
         String savePathOverride = null; // INI: save-path (diretório para arquivos .sav)
+        String saveStatePath = null; // INI: save-state-path (dir for .state snapshots)
+        String saveStateKey = null; // INI: save-state (hotkey token e.g. f5)
+        String loadStateKey = null; // INI: load-state (hotkey token e.g. f7)
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         boolean patternStandalone = false; // modo especial: renderiza apenas padrão sintético sem ROM/CPU
@@ -460,6 +463,20 @@ public class Main {
                 } catch (Exception ignore) {
                 }
             }
+            if (inputCfg.hasOption("save-state-path")) {
+                try {
+                    String sp = inputCfg.getOption("save-state-path").trim();
+                    if (!sp.isEmpty())
+                        saveStatePath = sp;
+                } catch (Exception ignore) {
+                }
+            }
+            if (inputCfg.hasOption("save-state")) {
+                saveStateKey = inputCfg.getOption("save-state");
+            }
+            if (inputCfg.hasOption("load-state")) {
+                loadStateKey = inputCfg.getOption("load-state");
+            }
             // (Adia attach de controllers até após criação do emu)
         } catch (Exception ex) {
             Log.warn(CONTROLLER, "Falha ao carregar configuração de input: %s", ex.getMessage());
@@ -722,6 +739,8 @@ public class Main {
         Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (initialMaskOverride != null ? " (override)" : ""));
         if (gui) {
             NesWindow window = new NesWindow("R2-NES - " + romFilePath.getFileName(), 3);
+            final Path[] romFilePathHolder = new Path[] { romFilePath }; // for inner classes
+            final String[] saveStatePathHolder = new String[] { saveStatePath }; // mutable wrapper for closures
             if (borderlessFullscreen != null && borderlessFullscreen) {
                 window.setBorderlessFullscreen(true);
                 Log.info(GENERAL, "Borderless fullscreen: ON");
@@ -751,6 +770,8 @@ public class Main {
                 Log.warn(GENERAL, "Falha ao registrar autosave window listener: %s", ex.getMessage());
             }
             final long[] resetMsgExpireNs = new long[] { 0L };
+            final long[] stateMsgExpireNs = new long[] { 0L };
+            final String[] stateMsg = new String[] { null };
             if (controllerPad1 != null) {
                 final String resetTok = resetKeyToken == null ? null : resetKeyToken.toLowerCase(Locale.ROOT).trim();
                 window.installControllerKeyListener(controllerPad1, controllerPad2, resetTok, () -> {
@@ -762,11 +783,14 @@ public class Main {
             // Runtime toggles (fullscreen/HUD) via additional key listener
             // Mutable HUD state wrapper for inner classes
             final boolean[] hudState = new boolean[] { hud };
-            if (toggleFullscreenKey != null || toggleHudKey != null || toggleFullscreenProportionKey != null) {
+            if (toggleFullscreenKey != null || toggleHudKey != null || toggleFullscreenProportionKey != null
+                    || saveStateKey != null || loadStateKey != null) {
                 String fsKey = toggleFullscreenKey == null ? null : toggleFullscreenKey.toLowerCase(Locale.ROOT).trim();
                 String hudKey = toggleHudKey == null ? null : toggleHudKey.toLowerCase(Locale.ROOT).trim();
                 String propKey = toggleFullscreenProportionKey == null ? null
                         : toggleFullscreenProportionKey.toLowerCase(Locale.ROOT).trim();
+                String saveKey = saveStateKey == null ? null : saveStateKey.toLowerCase(Locale.ROOT).trim();
+                String loadKey = loadStateKey == null ? null : loadStateKey.toLowerCase(Locale.ROOT).trim();
                 java.awt.event.KeyAdapter adapter = new java.awt.event.KeyAdapter() {
                     @Override
                     public void keyPressed(java.awt.event.KeyEvent e) {
@@ -792,6 +816,59 @@ public class Main {
                                 default -> String.valueOf(mode);
                             };
                             Log.info(GENERAL, "Proportion mode -> %s", label);
+                        }
+                        if (saveKey != null && tok.equals(saveKey)) {
+                            // Build state filename (ROM base + .state) in save-state-path or ROM directory
+                            try {
+                                Path dir;
+                                if (saveStatePathHolder[0] != null)
+                                    dir = Path.of(saveStatePathHolder[0]);
+                                else
+                                    dir = Path.of(".");
+                                try {
+                                    Files.createDirectories(dir);
+                                } catch (Exception ignore) {
+                                }
+                                String base = romFilePathHolder[0].getFileName().toString();
+                                int dot = base.lastIndexOf('.');
+                                if (dot > 0)
+                                    base = base.substring(0, dot);
+                                Path target = dir.resolve(base + ".state");
+                                emuRef[0].saveState(target);
+                                Log.info(GENERAL, "SaveState salvo: %s", target.toAbsolutePath());
+                                stateMsg[0] = "SAVING";
+                                stateMsgExpireNs[0] = System.nanoTime() + 1_500_000_000L; // 1.5s
+                            } catch (Exception ex) {
+                                Log.warn(GENERAL, "Falha save-state: %s", ex.getMessage());
+                                stateMsg[0] = "SAVE ERR";
+                                stateMsgExpireNs[0] = System.nanoTime() + 1_500_000_000L;
+                            }
+                        }
+                        if (loadKey != null && tok.equals(loadKey)) {
+                            try {
+                                Path dir;
+                                if (saveStatePathHolder[0] != null)
+                                    dir = Path.of(saveStatePathHolder[0]);
+                                else
+                                    dir = Path.of(".");
+                                String base = romFilePathHolder[0].getFileName().toString();
+                                int dot = base.lastIndexOf('.');
+                                if (dot > 0)
+                                    base = base.substring(0, dot);
+                                Path target = dir.resolve(base + ".state");
+                                boolean ok = emuRef[0].loadState(target);
+                                if (ok) {
+                                    Log.info(GENERAL, "SaveState carregado: %s", target.toAbsolutePath());
+                                    stateMsg[0] = "LOADING";
+                                } else {
+                                    stateMsg[0] = "NO STATE";
+                                }
+                                stateMsgExpireNs[0] = System.nanoTime() + 1_500_000_000L;
+                            } catch (Exception ex) {
+                                Log.warn(GENERAL, "Falha load-state: %s", ex.getMessage());
+                                stateMsg[0] = "LOAD ERR";
+                                stateMsgExpireNs[0] = System.nanoTime() + 1_500_000_000L;
+                            }
                         }
                     }
 
@@ -894,6 +971,13 @@ public class Main {
                     g2.fillRect(90, 80, 100, 24);
                     g2.setColor(java.awt.Color.YELLOW);
                     g2.drawString(msg, 100, 96);
+                }
+                if (System.nanoTime() < stateMsgExpireNs[0] && stateMsg[0] != null) {
+                    String msg = stateMsg[0];
+                    g2.setColor(new java.awt.Color(0, 0, 0, 170));
+                    g2.fillRect(80, 110, 120, 24);
+                    g2.setColor(java.awt.Color.CYAN);
+                    g2.drawString(msg, 92, 126);
                 }
             });
             window.show(emuRef[0].getPpu().getFrameBuffer());

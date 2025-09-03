@@ -253,4 +253,55 @@ public class Mapper1 implements Mapper {
     public byte[] getPrgRam() {
         return prgRam; // direct reference for save/load
     }
+
+    @Override
+    public byte[] saveState() {
+        // Serialize: control, chr0, chr1, prg, shift, verticalFromHeader flag,
+        // registers + prgRam + chrRam(if any)
+        int prgRamLen = prgRam != null ? prgRam.length : 0;
+        int chrRamLen = chrRam != null ? chrRam.length : 0;
+        int headerLen = 8; // 8 bytes of register/meta
+        byte[] out = new byte[headerLen + prgRamLen + chrRamLen];
+        int p = 0;
+        out[p++] = (byte) (regControl & 0xFF);
+        out[p++] = (byte) (regChrBank0 & 0xFF);
+        out[p++] = (byte) (regChrBank1 & 0xFF);
+        out[p++] = (byte) (regPrgBank & 0xFF);
+        out[p++] = (byte) (shift & 0xFF);
+        out[p++] = (byte) (verticalFromHeader ? 1 : 0);
+        out[p++] = (byte) (prgRamLen & 0xFF);
+        out[p++] = (byte) (chrRamLen & 0xFF);
+        if (prgRamLen > 0) {
+            System.arraycopy(prgRam, 0, out, p, prgRamLen);
+            p += prgRamLen;
+        }
+        if (chrRamLen > 0) {
+            System.arraycopy(chrRam, 0, out, p, chrRamLen);
+            p += chrRamLen;
+        }
+        return out;
+    }
+
+    @Override
+    public void loadState(byte[] data) {
+        if (data == null || data.length < 8)
+            return;
+        int p = 0;
+        regControl = data[p++] & 0x1F;
+        regChrBank0 = data[p++] & 0x1F;
+        regChrBank1 = data[p++] & 0x1F;
+        regPrgBank = data[p++] & 0x1F;
+        shift = data[p++] & 0xFF;
+        verticalFromHeader = (data[p++] & 1) != 0;
+        int prgRamLen = data[p++] & 0xFF;
+        int chrRamLen = data[p++] & 0xFF;
+        if (prgRam != null && prgRamLen == prgRam.length && p + prgRamLen <= data.length) {
+            System.arraycopy(data, p, prgRam, 0, prgRamLen);
+            p += prgRamLen;
+        }
+        if (chrRam != null && chrRamLen == chrRam.length && p + chrRamLen <= data.length) {
+            System.arraycopy(data, p, chrRam, 0, chrRamLen);
+            p += chrRamLen;
+        }
+    }
 }

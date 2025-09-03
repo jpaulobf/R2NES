@@ -32,6 +32,9 @@ public class NesEmulator {
     private boolean autoSaveEnabled = true;
     private long autoSaveIntervalFrames = 600; // ~10s @60fps
     private long lastAutoSaveFrame = 0;
+    // Save state constants
+    private static final int STATE_MAGIC = 0x4E455353; // 'NESS'
+    private static final int STATE_VERSION = 1;
 
     /**
      * Legacy path: build minimal stack with no PPU or mapper (for CPU unit tests).
@@ -299,5 +302,158 @@ public class NesEmulator {
             loadSram(autoSavePath);
         } catch (IOException ignored) {
         }
+    }
+
+    // -------- Save State (snapshot) --------
+    /**
+     * Serialize full emulator state (CPU registers, internal RAM, PPU core
+     * registers, VRAM/OAM/palettes, mapper + CHR RAM, PRG RAM)
+     */
+    public void saveState(Path path) throws IOException {
+        if (cpu == null || bus == null || ppu == null)
+            return;
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream(1024 * 64);
+        java.io.DataOutputStream dos = new java.io.DataOutputStream(baos);
+        // Header
+        dos.writeInt(STATE_MAGIC);
+        dos.writeInt(STATE_VERSION);
+        // CPU core
+        dos.writeInt(cpu.getPC());
+        dos.writeByte(cpu.getA());
+        dos.writeByte(cpu.getX());
+        dos.writeByte(cpu.getY());
+        dos.writeByte(cpu.getSP());
+        dos.writeByte(cpu.getStatusByte());
+        // Internal RAM (2KB)
+        var mem = bus.getMemory();
+        for (int i = 0; i < 0x800; i++)
+            dos.writeByte(mem.readInternalRam(i));
+        // PPU core registers/state (direct accessors)
+        dos.writeInt((int) (ppu.getFrame() & 0x7FFFFFFF));
+        dos.writeInt(ppu.getScanline());
+        dos.writeInt(ppu.getCycle());
+        dos.writeByte(ppu.getMaskRegister());
+        dos.writeByte(ppu.getStatusRegister());
+        dos.writeByte(ppu.getCtrl());
+        dos.writeShort(ppu.getVramAddress() & 0x3FFF);
+        dos.writeShort(ppu.getTempAddress() & 0x3FFF);
+        dos.writeByte(ppu.getFineX() & 0x07);
+        // PPU memory copies
+        byte[] oam = ppu.getOamCopy();
+        dos.writeInt(oam.length);
+        dos.write(oam);
+        byte[] nt = ppu.getNameTableCopy();
+        dos.writeInt(nt.length);
+        dos.write(nt);
+        byte[] pal = ppu.getPaletteCopy();
+        dos.writeInt(pal.length);
+        dos.write(pal);
+        // Mapper specific
+        byte[] mapperData = mapper != null ? mapper.saveState() : null;
+        if (mapperData != null) {
+            dos.writeInt(mapperData.length);
+            dos.write(mapperData);
+        } else {
+            dos.writeInt(0);
+        }
+        // PRG RAM (battery) embed for completeness
+        byte[] prgRam = mapper != null ? mapper.getPrgRam() : null;
+        if (prgRam != null) {
+            dos.writeInt(prgRam.length);
+            dos.write(prgRam);
+        } else {
+            dos.writeInt(0);
+        }
+        dos.flush();
+        byte[] blob = baos.toByteArray();
+        Path tmp = path.resolveSibling(path.getFileName().toString() + ".tmp");
+        Files.write(tmp, blob);
+        Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+    }
+
+    /** Restore emulator state from saveState file. */
+    public boolean loadState(Path path) throws IOException {
+        if (!Files.exists(path))
+            return false;
+        if (cpu == null || bus == null || ppu == null)
+            return false;
+        byte[] data = Files.readAllBytes(path);
+        java.io.DataInputStream dis = new java.io.DataInputStream(new java.io.ByteArrayInputStream(data));
+        int magic = dis.readInt();
+        if (magic != STATE_MAGIC)
+            return false;
+        int ver = dis.readInt();
+        if (ver != STATE_VERSION)
+            return false; // future compatibility gate
+        int pc = dis.readInt();
+        int a = dis.readUnsignedByte();
+        int x = dis.readUnsignedByte();
+        int y = dis.readUnsignedByte();
+        int sp = dis.readUnsignedByte();
+        int p = dis.readUnsignedByte();
+        // Restore RAM
+        var mem = bus.getMemory();
+        for (int i = 0; i < 0x800; i++) {
+            int val = dis.readUnsignedByte();
+            mem.writeInternalRam(i, val);
+        }
+        // PPU subset
+        long frameVal = dis.readInt() & 0xFFFFFFFFL; // may ignore
+        int scanline = dis.readInt();
+        int cyc = dis.readInt();
+        int mask = dis.readUnsignedByte();
+        int status = dis.readUnsignedByte();
+        int ctrl = dis.readUnsignedByte();
+        int vram = dis.readUnsignedShort();
+        int tAddr = dis.readUnsignedShort();
+        int fineX = dis.readUnsignedByte();
+        // Reconstruct CPU core
+        cpu.forceState(pc, a, x, y, p, sp);
+        // Attempt reflective setters for PPU internals (lenient)
+        ppu.forceCoreState(mask, status, ctrl, scanline, cyc, vram, tAddr, fineX, (int) (frameVal & 0xFFFFFFFFL));
+        // Variable sections
+        int oamLen = dis.readInt();
+        if (oamLen > 0 && oamLen <= 4096) {
+            byte[] oamR = new byte[oamLen];
+            dis.readFully(oamR);
+            ppu.loadOam(oamR);
+        } else if (oamLen > 0) {
+            dis.skipBytes(oamLen);
+        }
+        int ntLen = dis.readInt();
+        if (ntLen > 0 && ntLen <= 0x2000) {
+            byte[] ntR = new byte[ntLen];
+            dis.readFully(ntR);
+            ppu.loadNameTable(ntR);
+        } else if (ntLen > 0) {
+            dis.skipBytes(ntLen);
+        }
+        int palLen = dis.readInt();
+        if (palLen > 0 && palLen <= 256) {
+            byte[] palR = new byte[palLen];
+            dis.readFully(palR);
+            ppu.loadPalette(palR);
+        } else if (palLen > 0) {
+            dis.skipBytes(palLen);
+        }
+        int mapperLen = dis.readInt();
+        if (mapperLen > 0 && mapperLen < 1_000_000) {
+            byte[] mdat = new byte[mapperLen];
+            dis.readFully(mdat);
+            if (mapper != null)
+                mapper.loadState(mdat);
+        } else if (mapperLen > 0) {
+            dis.skipBytes(mapperLen);
+        }
+        int prgRamLen = dis.readInt();
+        if (prgRamLen > 0) {
+            byte[] prg = new byte[prgRamLen];
+            dis.readFully(prg);
+            if (mapper != null && mapper.getPrgRam() != null && mapper.getPrgRam().length == prgRamLen) {
+                System.arraycopy(prg, 0, mapper.getPrgRam(), 0, prgRamLen);
+                mapper.onPrgRamLoaded();
+            }
+        }
+        return true;
     }
 }

@@ -25,6 +25,7 @@ public class Palette {
 
     /**
      * Write to palette RAM (after mirroring normalization).
+     * 
      * @param addr
      * @param value
      */
@@ -45,6 +46,7 @@ public class Palette {
 
     /**
      * Read from palette RAM (after mirroring normalization).
+     * 
      * @param addr
      * @return
      */
@@ -54,7 +56,9 @@ public class Palette {
     }
 
     /**
-     * Decode address $3F00-$3FFF to palette RAM index 0..31 applying mirroring rules.
+     * Decode address $3F00-$3FFF to palette RAM index 0..31 applying mirroring
+     * rules.
+     * 
      * @param addr
      * @return
      */
@@ -70,7 +74,9 @@ public class Palette {
     }
 
     /**
-     * Get ARGB color for given palette color index (0..63) applying PPUMASK effects.
+     * Get ARGB color for given palette color index (0..63) applying PPUMASK
+     * effects.
+     * 
      * @param paletteColorIndex
      * @param mask
      * @return
@@ -114,6 +120,7 @@ public class Palette {
 
     /**
      * Get universal background color (palette RAM index 0).
+     * 
      * @return
      */
     public int getUniversalBackgroundColor() {
@@ -122,6 +129,7 @@ public class Palette {
 
     /**
      * Debug: read raw palette RAM value (0..63) at given index (0..31).
+     * 
      * @param index
      * @return
      */
@@ -131,10 +139,27 @@ public class Palette {
 
     /**
      * Debug: write raw palette RAM value (0..63) at given index (0..31).
+     * 
      * @param index
      * @param value
      */
     void debugWriteRaw(int index, int value) {
         paletteRam[index & 0x1F] = value & 0x3F;
+    }
+
+    // --- Save-state helpers ---
+    byte[] copyRaw() {
+        byte[] out = new byte[paletteRam.length];
+        for (int i = 0; i < paletteRam.length; i++)
+            out[i] = (byte) (paletteRam[i] & 0x3F);
+        return out;
+    }
+
+    void loadRaw(byte[] data) {
+        if (data == null)
+            return;
+        int len = Math.min(data.length, paletteRam.length);
+        for (int i = 0; i < len; i++)
+            paletteRam[i] = data[i] & 0x3F;
     }
 }
