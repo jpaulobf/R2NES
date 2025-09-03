@@ -8,14 +8,22 @@ import java.awt.Graphics2D;
 import java.util.function.Consumer;
 import javax.swing.JPanel;
 
-/** Simple panel that draws a 256x240 framebuffer (int ARGB array). */
+/** 
+ * Simple panel that draws a 256x240 framebuffer (int ARGB array). 
+ */
 public class VideoRenderer extends JPanel {
+    
+    // Backing image and data
     private final BufferedImage image;
     private final int[] imageData; // direct reference to underlying INT ARGB buffer
     private volatile int[] source; // reference to emulator ARGB buffer (PPU frameBuffer)
     private final int scale;
     private volatile Consumer<Graphics2D> overlay;
 
+    /**
+     * Create renderer with given scale factor (1 = native 256x240).
+     * @param scale
+     */
     public VideoRenderer(int scale) {
         this.scale = Math.max(1, scale);
         this.image = new BufferedImage(256, 240, BufferedImage.TYPE_INT_ARGB);
@@ -23,6 +31,10 @@ public class VideoRenderer extends JPanel {
         setPreferredSize(new Dimension(256 * this.scale, 240 * this.scale));
     }
 
+    /**
+     * Set source framebuffer (must be 256*240 length).
+     * @param argb
+     */
     public void setFrameBuffer(int[] argb) {
         this.source = argb;
     }
@@ -59,18 +71,34 @@ public class VideoRenderer extends JPanel {
         }
     }
 
+    /**
+     * Set overlay drawing function (can be null to disable).
+     * @param overlay
+     */
     public void setOverlay(Consumer<Graphics2D> overlay) {
         this.overlay = overlay;
     }
 
+    /**
+     * Get current scale factor.
+     * @return
+     */
     public int getScale() {
         return scale;
     }
 
+    /**
+     * Get the backing image (for direct drawing or saving).
+     * @return
+     */
     public BufferedImage getImage() {
         return image;
     }
 
+    /**
+     * Get the overlay drawing function (can be null).
+     * @return
+     */
     public Consumer<Graphics2D> getOverlay() {
         return overlay;
     }

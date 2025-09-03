@@ -4,7 +4,6 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-
 import com.nesemu.input.ControllerButton;
 import com.nesemu.input.ControllerConfig;
 
@@ -17,20 +16,28 @@ import com.nesemu.input.ControllerConfig;
  * reading button presses, and managing the controller's internal state.
  */
 public class NesController implements Controller {
+    
+    // Configuration mapping buttons to key tokens
     private final ControllerConfig config;
+    
     // Live key token pressed state
     private final Set<String> pressed = ConcurrentHashMap.newKeySet();
     private boolean strobe = false; // current strobe line (bit0 of last write)
     private int readBitIndex = 0; // 0..8 (#bits already returned in current snapshot)
     private int latchedValue = 0; // snapshot of buttons (A..Right bits 0..7)
+    
     // Direct logical button overrides (for programmatic tests)
     private final Map<ControllerButton, Boolean> logicalState = new EnumMap<>(ControllerButton.class);
 
+    /**
+     * Constructor for NesController.
+     * @param config
+     */
     public NesController(ControllerConfig config) {
         this.config = config;
     }
 
-    /** Update a key token (from GUI) */
+    @Override
     public void setKeyTokenState(String token, boolean down) {
         if (token == null)
             return;
@@ -43,32 +50,11 @@ public class NesController implements Controller {
             latch();
     }
 
-    /** Programmatic set of a logical button (test convenience). */
+    @Override
     public void setLogical(ControllerButton btn, boolean down) {
         logicalState.put(btn, down);
         if (strobe)
             latch();
-    }
-
-    private boolean isButtonActive(ControllerButton btn) {
-        // If logical override present, use it; else check any token pressed
-        Boolean ov = logicalState.get(btn);
-        if (ov != null)
-            return ov.booleanValue();
-        for (String token : config.getTokens(btn)) {
-            if (pressed.contains(token))
-                return true;
-        }
-        return false;
-    }
-
-    private void latch() {
-        int v = 0;
-        for (ControllerButton b : ControllerButton.values()) {
-            if (isButtonActive(b))
-                v |= (1 << b.bitIndex());
-        }
-        latchedValue = v;
     }
 
     @Override
@@ -110,17 +96,12 @@ public class NesController implements Controller {
         return ret;
     }
 
-    /**
-     * Returns true if logical button currently active (live state, not latched).
-     */
+    @Override
     public boolean isPressed(ControllerButton b) {
         return isButtonActive(b);
     }
 
-    /**
-     * Build a compact string of currently pressed NES buttons
-     * (A,B,Sel,Start,U,D,L,R).
-     */
+    @Override
     public String pressedButtonsString() {
         StringBuilder sb = new StringBuilder();
         appendIf(sb, ControllerButton.A, "A");
@@ -134,27 +115,63 @@ public class NesController implements Controller {
         return sb.length() == 0 ? "(none)" : sb.toString();
     }
 
-    private void appendIf(StringBuilder sb, ControllerButton b, String label) {
-        if (isPressed(b)) {
-            if (sb.length() > 0)
-                sb.append(' ');
-            sb.append(label);
-        }
-    }
-
+    @Override
     public int getReadBitIndexDebug() {
         return readBitIndex;
     }
 
+    @Override
     public int getLatchedValueDebug() {
         return latchedValue;
     }
 
+    @Override
     public String getLatchedBitsString() {
         int v = latchedValue;
         StringBuilder sb = new StringBuilder(8);
         for (int i = 0; i < 8; i++)
             sb.append(((v >> i) & 1)); // LSB first A..Right
         return sb.toString();
+    }
+
+    /**
+     * Clear any logical override (back to token/key state).
+     */
+    private boolean isButtonActive(ControllerButton btn) {
+        // If logical override present, use it; else check any token pressed
+        Boolean ov = logicalState.get(btn);
+        if (ov != null)
+            return ov.booleanValue();
+        for (String token : config.getTokens(btn)) {
+            if (pressed.contains(token))
+                return true;
+        }
+        return false;
+    }
+
+    /**
+     * Latch current button states into latchedValue.
+     */
+    private void latch() {
+        int v = 0;
+        for (ControllerButton b : ControllerButton.values()) {
+            if (isButtonActive(b))
+                v |= (1 << b.bitIndex());
+        }
+        latchedValue = v;
+    }
+
+    /**
+     * Helper to append button label if pressed.
+     * @param sb
+     * @param b
+     * @param label
+     */
+    private void appendIf(StringBuilder sb, ControllerButton b, String label) {
+        if (isPressed(b)) {
+            if (sb.length() > 0)
+                sb.append(' ');
+            sb.append(label);
+        }
     }
 }

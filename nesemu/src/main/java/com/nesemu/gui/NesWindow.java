@@ -6,32 +6,49 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.Color;
 import java.awt.Canvas;
 import java.awt.image.BufferStrategy;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Basic Swing window that displays the current NES framebuffer. */
+/**
+ * NES window with integrated rendering loop.
+ * Supports two rendering paths:
+ * - Active rendering with Canvas + BufferStrategy (default, better performance)
+ * - Passive rendering with JPanel + repaint (fallback, more compatible)
+ */
 public class NesWindow {
+    // GUI components
     private final JFrame frame;
     private final VideoRenderer renderer; // Swing path
     private final Canvas canvas; // Active rendering path
-    private volatile boolean useBufferStrategy = true; // default to active BS
+    private Rectangle windowedBounds = null;
+
+    // Active rendering state
     private BufferStrategy bufferStrategy;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private volatile boolean useBufferStrategy = true; // default to active BS
     private boolean borderless = false;
-    private java.awt.Rectangle windowedBounds = null;
+    
     // When true render thread skips presenting (during fullscreen transitions)
     private volatile boolean suspendRendering = false;
+
     // Proportion modes: 0 = normal (fixed scale centered), 1 = aspect (fit height),
     // 2 = stretch fill window
     private volatile int proportionMode = 0;
+
     // FPS tracking
     private volatile double lastFps = 0.0;
     private long fpsWindowStart = 0L;
     private int fpsFrames = 0;
 
+    /**
+     * Constructor, default scale=2.
+     * @param title
+     * @param scale
+     */
     public NesWindow(String title, int scale) {
         renderer = new VideoRenderer(scale);
         canvas = new Canvas();
@@ -41,14 +58,16 @@ public class NesWindow {
         frame = new JFrame(title);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.getContentPane().setBackground(Color.BLACK);
-        frame.getRootPane().setDoubleBuffered(false); // we'll manage buffering
-        // Adiciona inicialmente o canvas (path ativo). Se usuário desabilitar depois,
-        // faremos swap.
+        frame.getRootPane().setDoubleBuffered(false);
         frame.getContentPane().add(canvas);
         frame.pack();
         frame.setLocationRelativeTo(null);
     }
 
+    /**
+     * Show the window (must be called from Swing thread).
+     * @param framebuffer
+     */
     public void show(int[] framebuffer) {
         renderer.setFrameBuffer(framebuffer);
         SwingUtilities.invokeLater(() -> frame.setVisible(true));
@@ -74,8 +93,9 @@ public class NesWindow {
     }
 
     /**
-     * Enable/disable borderless fullscreen (undecorated + maximized). Calling this
-     * after the window is visible will dispose/re-show to apply decoration change.
+     * Set or unset borderless fullscreen mode. If the window is already visible, it
+     * will dispose/re-show to apply decoration change.
+     * @param enabled
      */
     public void setBorderlessFullscreen(boolean enabled) {
         SwingUtilities.invokeLater(() -> {
@@ -153,12 +173,18 @@ public class NesWindow {
         });
     }
 
+    /**
+     * Return whether borderless fullscreen mode is active.
+     * @return
+     */
     public boolean isBorderlessFullscreen() {
         return borderless;
     }
 
-    /** Expose underlying JFrame for advanced integrations (limited use). */
-    public javax.swing.JFrame getFrame() {
+    /** 
+     * Expose underlying JFrame for advanced integrations (limited use). 
+     */
+    public JFrame getFrame() {
         return frame;
     }
 
@@ -171,23 +197,37 @@ public class NesWindow {
         canvas.addKeyListener(l);
     }
 
+    /**
+     * 
+     * @param overlay
+     */
     public void setOverlay(Consumer<Graphics2D> overlay) {
         renderer.setOverlay(overlay);
     }
 
+    /**
+     * Request the window to close (stop render loop and dispose frame).
+     */
     public void requestClose() {
         running.set(false);
         SwingUtilities.invokeLater(frame::dispose);
     }
 
-    public enum PacerMode {
-        LEGACY, HR
-    }
-
+    /**
+     * Start the rendering loop in a separate thread. If already running, does nothing.
+     * @param perFrame
+     * @param targetFps
+     */
     public void startRenderLoop(Runnable perFrame, int targetFps) {
         startRenderLoop(perFrame, targetFps, PacerMode.HR);
     }
 
+    /**
+     * Start the rendering loop in a separate thread. If already running, does nothing.
+     * @param perFrame
+     * @param targetFps
+     * @param mode
+     */
     public void startRenderLoop(Runnable perFrame, int targetFps, PacerMode mode) {
         if (running.getAndSet(true))
             return;
@@ -201,6 +241,11 @@ public class NesWindow {
         t.start();
     }
 
+    /**
+     * Runs Legacy render loop with simple sleep pacing.
+     * @param perFrame
+     * @param targetFps
+     */
     private void runLegacyLoop(Runnable perFrame, int targetFps) {
         final long frameDurationNanos = targetFps > 0 ? 1_000_000_000L / targetFps : 0L;
         fpsWindowStart = System.nanoTime();
@@ -229,6 +274,11 @@ public class NesWindow {
         }
     }
 
+    /**
+     * Runs High-Res render loop with busy-wait pacing.
+     * @param perFrame
+     * @param targetFps
+     */
     private void runHighResLoop(Runnable perFrame, int targetFps) {
         final long frameDur = targetFps > 0 ? 1_000_000_000L / targetFps : 0L;
         if (frameDur == 0L) {
@@ -278,6 +328,9 @@ public class NesWindow {
         }
     }
 
+    /**
+     * Verify and perform blit + present according to current mode.
+     */
     private void blitAndPresent() {
         if (suspendRendering) {
             return; // skip while transitioning
@@ -376,10 +429,17 @@ public class NesWindow {
         restoreFocus();
     }
 
+    /**
+     * Get current proportion mode.
+     * @return
+     */
     public int getProportionMode() {
         return proportionMode;
     }
 
+    /**
+     * Ensure focus is on canvas (if displayable) or frame (otherwise).
+     */
     private void restoreFocus() {
         SwingUtilities.invokeLater(() -> {
             if (canvas.isDisplayable()) {
@@ -394,6 +454,14 @@ public class NesWindow {
         });
     }
 
+    /**
+     * Enable or disable use of BufferStrategy (active rendering). If disabled, the
+     * window will use Swing repaint path. This can be toggled at runtime, but
+     * requires temporarily suspending rendering while the component hierarchy is
+     * reconfigured. This method is safe to call from any thread, but the actual
+     * change will be applied asynchronously on the Swing thread.
+     * @param enable
+     */
     public void setUseBufferStrategy(boolean enable) {
         if (this.useBufferStrategy == enable)
             return;
@@ -438,6 +506,10 @@ public class NesWindow {
         });
     }
 
+    /**
+     * Get last measured FPS (updated about once per second).
+     * @return
+     */
     public double getLastFps() {
         return lastFps;
     }
@@ -549,5 +621,15 @@ public class NesWindow {
         };
         frame.addKeyListener(adapter);
         canvas.addKeyListener(adapter);
+    }
+
+
+    //----------------------------------- Helper ---------------------------------
+
+    /**
+     * Helper Enum
+     */
+    public enum PacerMode {
+        LEGACY, HR
     }
 }

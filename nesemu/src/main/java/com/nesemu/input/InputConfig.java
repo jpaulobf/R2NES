@@ -13,29 +13,54 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Parser for emulator.ini controller mapping. */
+/** 
+ * Parser for emulator.ini controller mapping. 
+ */
 public class InputConfig {
+
+    // 1-based controller list
     private final List<ControllerConfig> controllers = new ArrayList<>();
     private final Map<String, String> options = new HashMap<>();
 
+    /**
+     * Get (and create if needed) controller config for given 0-based index.
+     * @param index
+     * @return
+     */
     public ControllerConfig getController(int index) {
         while (controllers.size() <= index)
             controllers.add(new ControllerConfig());
         return controllers.get(index);
     }
 
+    /**
+     * Get number of configured controllers.
+     * @param key
+     * @return
+     */
     public String getOption(String key) {
         if (key == null)
             return null;
         return options.get(key.toLowerCase(Locale.ROOT));
     }
 
+    /**
+     * Check if given option is present.
+     * @param key
+     * @return
+     */
     public boolean hasOption(String key) {
         if (key == null)
             return false;
         return options.containsKey(key.toLowerCase(Locale.ROOT));
     }
 
+    /**
+     * Load input config from given path (if file missing, return empty config).
+     * @param path
+     * @return
+     * @throws IOException
+     */
     public static InputConfig load(Path path) throws IOException {
         InputConfig cfg = new InputConfig();
         if (!Files.exists(path))
