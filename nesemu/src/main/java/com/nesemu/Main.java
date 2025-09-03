@@ -69,6 +69,7 @@ public class Main {
         Boolean bufferStrategyOpt = null; // --buffer-strategy[=true|false]
         Integer initialMaskOverride = null; // --initial-mask=HEX (ppumask value to write early)
         Boolean borderlessFullscreen = null; // --borderless-fullscreen / INI borderless-fullscreen
+        String savePathOverride = null; // INI: save-path (diretório para arquivos .sav)
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         boolean patternStandalone = false; // modo especial: renderiza apenas padrão sintético sem ROM/CPU
@@ -451,6 +452,14 @@ public class Main {
                 } catch (Exception ignore) {
                 }
             }
+            if (inputCfg.hasOption("save-path")) { // permite diretório alternativo para .sav
+                try {
+                    String sp = inputCfg.getOption("save-path").trim();
+                    if (!sp.isEmpty())
+                        savePathOverride = sp;
+                } catch (Exception ignore) {
+                }
+            }
             // (Adia attach de controllers até após criação do emu)
         } catch (Exception ex) {
             Log.warn(CONTROLLER, "Falha ao carregar configuração de input: %s", ex.getMessage());
@@ -475,7 +484,19 @@ public class Main {
             }
             Log.info(ROM, "Carregando ROM: %s", romFilePath.toAbsolutePath());
             romRef[0] = RomLoader.load(romFilePath);
-            emuRef[0] = new NesEmulator(romRef[0]);
+            Path saveDir = null;
+            if (savePathOverride != null) {
+                try {
+                    saveDir = Path.of(savePathOverride);
+                } catch (Exception ignore) {
+                }
+            }
+            if (saveDir != null) {
+                emuRef[0] = new NesEmulator(romRef[0], romFilePath, saveDir); // construtor com save-dir explícito
+                Log.info(GENERAL, "save-path override: %s", saveDir.toAbsolutePath());
+            } else {
+                emuRef[0] = new NesEmulator(romRef[0], romFilePath); // fallback: ROM directory
+            }
         }
 
         if (!patternStandalone) {
@@ -706,6 +727,28 @@ public class Main {
                 Log.info(GENERAL, "Borderless fullscreen: ON");
             } else if (borderlessFullscreen != null) {
                 Log.info(GENERAL, "Borderless fullscreen: OFF");
+            }
+            // Autosave hook: attach window listener to save SRAM on close
+            try {
+                java.awt.event.WindowListener wl = new java.awt.event.WindowAdapter() {
+                    @Override
+                    public void windowClosing(java.awt.event.WindowEvent e) {
+                        if (emuRef[0] != null) {
+                            emuRef[0].forceAutoSave();
+                            Log.info(GENERAL, "AutoSave (.sav) disparado no fechamento da janela");
+                        }
+                    }
+
+                    @Override
+                    public void windowClosed(java.awt.event.WindowEvent e) {
+                        if (emuRef[0] != null) {
+                            emuRef[0].forceAutoSave();
+                        }
+                    }
+                };
+                window.getFrame().addWindowListener(wl);
+            } catch (Exception ex) {
+                Log.warn(GENERAL, "Falha ao registrar autosave window listener: %s", ex.getMessage());
             }
             final long[] resetMsgExpireNs = new long[] { 0L };
             if (controllerPad1 != null) {

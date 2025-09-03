@@ -268,4 +268,9 @@ public class Mapper4 implements Mapper {
             // ...: Signal IRQ line to CPU (requires bus/cpu integration path)
         }
     }
+
+    @Override
+    public byte[] getPrgRam() {
+        return prgRam; // allow persistence layer to save/load
+    }
 }

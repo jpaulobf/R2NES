@@ -5,7 +5,8 @@ import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
 
 /**
- * MMC1 (Mapper 1) - Simplified implementation (no SRAM persistence yet).
+ * MMC1 (Mapper 1) - Simplified implementation with PRG RAM exposure for
+ * persistence.
  * Implements serial 5-bit shift register writes (bit7 reset) at $8000-$FFFF.
  * Control register bits (after load):
  * 0-1: Mirroring (0=Single0,1=Single1,2=Vertical,3=Horizontal)
