@@ -1,6 +1,30 @@
 Changelog - R2NES
 ===================
 
+Version 0.3.8 – Save State System (Version 2 Format) (2025-09-04)
+------------------------
+
+Added
+- Configurable save/load state system.
+- INI keys: `save-state-path`, `save-state`, `load-state`.
+- Default hotkeys F5 (save) / F7 (load) with on-screen overlay feedback.
+- Atomic snapshot write (temp + move) and backward compatibility (v1 -> normalized frame start).
+- PPU internal latch persistence (addrLatchHigh, OAMADDR, PPUDATA read buffer) for stability.
+
+Changed
+- Bumped project version to 0.3.8.
+- README updated (EN/PT) with Save State section.
+
+Known Limitations
+- APU state not yet included.
+- Mappers 2/3/4/5 partial: only base runtime, snapshot serialization pending.
+- Mid-scanline loads resume at pre-render if exact pipeline not yet serialized (minor visual discontinuity acceptable).
+
+Planned (See TODO)
+- Version 3 snapshot: full shift registers / latches, prepared sprite set, mapper IRQ counters.
+- Integrity checksum + optional compression.
+
+
 Version 0.3 (2025-09-03)
 ------------------------
 Summary: Core consolidation (CPU + PPU + Bus), multi-mapper support (including MMC1, partial MMC3, partial MMC5), battery-backed SRAM (PRG RAM) persistence with periodic autosave and window-close flush, richer debugging/logging, configurable INI-driven runtime, and an extensive regression test base.

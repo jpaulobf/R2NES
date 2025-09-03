@@ -208,3 +208,37 @@ Objetivo: elevar precisão visual/temporal, compatibilidade com mappers (MMC3 IR
 - Fácil isolamento de unidades (SpriteUnit / BackgroundUnit) em testes headless.
 
 ---
+## Save State / Snapshot Roadmap (Novos Itens)
+
+Objetivo: robustez total, zero travamentos raros ao carregar mid-frame, compatibilidade futura.
+
+### Entregas Planejadas
+- [ ] Versão 3 do formato: incluir shifters (patternLow/HighShift, attributeLow/HighShift), latches (ntLatch, atLatch, pattern latches) para retomada pixel-exata do frame.
+- [ ] Persistir prepared sprite list (preparedSpriteIndices + count + linha) para evitar pequeno pop no primeiro scanline pós-load.
+- [ ] Serializar fine pipeline prefetch (prefetchHadFirstTile + bytes A) se em pré-render.
+- [ ] APU state skeleton (frame sequencer, pulse/triangle/noise regs) – placeholder até implementação completa.
+- [ ] Mapper 2/3/4/5 registros internos e CHR/PRG RAM específicos (incl. MMC3 IRQ counters, MMC1 shift reg já incluso).
+- [ ] Compressão opcional (LZ4) via flag INI `save-state-compress=true` (fallback descompr.)
+- [ ] Hash/checksum por seção (header + CRC32) para detecção de corrupção.
+- [ ] Modo multi-slot: `save-state-slot=N` ciclo entre `slot0..slot9`.
+- [ ] CLI: `--save-state=path.state` para dump imediato headless.
+- [ ] Auto-recovery watchdog: se frame não avança X ms após load -> normalizar timing novamente.
+- [ ] Teste de estresse automatizado: salvar/carregar N vezes em offsets pseudo-aleatórios dentro do frame (gera relatório). 
+
+### Melhorias de UX
+- [ ] Mensagem overlay “STATE CORRUPT” diferenciada se checksum inválido.
+- [ ] Timestamp e mapper info no nome: `gamename-m001-f12345.state`.
+- [ ] Exibir versão do state e mapper no HUD debug (toggle).
+
+### Técnicas de Segurança
+- [ ] Escrita dupla (temp + .bak + swap) para cenários de FS instável.
+- [ ] Ignorar gracefully campos extras de versões futuras (forward compatible parser).
+
+### Documentação
+- [ ] Especificação formal do formato (docs/STATE_FORMAT.md) com tabela de offsets.
+- [ ] Seção no README descrevendo limites e política de versionamento de snapshots.
+
+### Métrica de Qualidade
+- 0 travamentos em 10.000 ciclos de load repetido (script de estresse).
+- Carregamento < 5 ms para states < 128 KB (desktop médio).
+- Nenhum frame congelado após load (detecção por watchdog). 
