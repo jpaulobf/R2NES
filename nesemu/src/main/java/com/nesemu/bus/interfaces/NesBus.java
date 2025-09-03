@@ -36,76 +36,84 @@ public interface NesBus {
      * Attach the CPU instance so the bus can raise signals (NMI/IRQ in future) or
      * access CPU helpers.
      */
-    void attachCPU(NesCPU cpu);
+    default void attachCPU(NesCPU cpu) {}
 
     /**
      * Current active mapper (generic interface) handling PRG / CHR banking.
      */
-    Mapper getMapper();
+    default Mapper getMapper() {
+        return null;
+    }
 
     /**
      * Convenience accessor specifically for Mapper0 (legacy tests) – returns null
      * if different mapper.
      */
-    Mapper0 getMapper0();
+    default Mapper0 getMapper0() {
+        return null;
+    }
 
     /**
      * Underlying main memory / RAM abstraction (legacy path / direct tests).
      */
-    Memory getMemory();
+    default Memory getMemory() {
+        return null;
+    }
 
     /**
      * Clear system RAM to power-on state (often 0 or pattern depending on emulator
      * policy).
      */
-    void clearRam();
+    default void clearRam() {}
 
     /**
      * Attach and initialize a mapper for the loaded iNES ROM (sets PRG/CHR
      * pointers, mirroring, etc.).
      */
-    void attachMapper(Mapper mapper, INesRom rom);
+    default void attachMapper(Mapper mapper, INesRom rom) {}
 
     /**
      * Connect player 1 and player 2 controllers to the bus for input polling.
      */
-    void attachControllers(Controller p1, Controller p2);
+    default void attachControllers(Controller p1, Controller p2) {}
 
     /**
      * Attach Audio Processing Unit instance so reads/writes to APU registers are
      * routed correctly.
      */
-    void attachAPU(APU apu);
+    default void attachAPU(APU apu) {}
 
     /**
      * Attach PPU (Picture Processing Unit) for register access and future interrupt
      * signalling.
      */
-    void attachPPU(NesPPU ppu);
+    default void attachPPU(NesPPU ppu) {}
 
     /**
      * Clear an active watch/read breakpoint trigger flag (used by debugging
      * helpers).
      */
-    void clearWatchTrigger();
+    default void clearWatchTrigger() {}
 
     /**
      * Whether a configured watch/read breakpoint has been triggered since last
      * clear.
      */
-    boolean isWatchTriggered();
+    default boolean isWatchTriggered() {
+        return false;
+    }
 
     /**
      * Configure a watch (read breakpoint) at an address; 'limit' may define how
      * many hits before trigger.
      */
-    void setWatchReadAddress(int address, int limit);
+    default void setWatchReadAddress(int address, int limit) {}
 
     /**
      * Enable logging of PPU register accesses for a limited number of events
      * (useful for diagnostics).
      */
-    void enablePpuRegLogging(int limit);
+    default void enablePpuRegLogging(int limit) {}
 
     public static void enableQuietControllerDebug(boolean enable) {
         /* no-op (legacy) */

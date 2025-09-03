@@ -1,19 +1,14 @@
 package com.nesemu.debbuger;
 
-import com.nesemu.apu.APU;
 import com.nesemu.bus.Bus;
 import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.cpu.CPU;
 import com.nesemu.cpu.interfaces.NesCPU;
-import com.nesemu.io.Controller;
-import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.mapper.Mapper2;
 import com.nesemu.mapper.Mapper3;
 import com.nesemu.mapper.Mapper5;
-import com.nesemu.memory.Memory;
 import com.nesemu.ppu.PPU;
-import com.nesemu.ppu.interfaces.NesPPU;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
 
@@ -349,71 +344,6 @@ public class GenericTestRunner {
                 }
             }
             Log.info(TEST, "First ops sample:\n%s", firstOps.toString());
-        }
-
-        @Override
-        public void attachCPU(NesCPU cpu) {
-            throw new UnsupportedOperationException("Unimplemented method 'attachCPU'");
-        }
-
-        @Override
-        public Mapper getMapper() {
-            throw new UnsupportedOperationException("Unimplemented method 'getMapper'");
-        }
-
-        @Override
-        public Mapper0 getMapper0() {
-            throw new UnsupportedOperationException("Unimplemented method 'getMapper0'");
-        }
-
-        @Override
-        public Memory getMemory() {
-            throw new UnsupportedOperationException("Unimplemented method 'getMemory'");
-        }
-
-        @Override
-        public void clearRam() {
-            throw new UnsupportedOperationException("Unimplemented method 'clearRam'");
-        }
-
-        @Override
-        public void attachMapper(Mapper mapper, INesRom rom) {
-            throw new UnsupportedOperationException("Unimplemented method 'attachMapper'");
-        }
-
-        @Override
-        public void attachControllers(Controller p1, Controller p2) {
-            throw new UnsupportedOperationException("Unimplemented method 'attachControllers'");
-        }
-
-        @Override
-        public void attachAPU(APU apu) {
-            throw new UnsupportedOperationException("Unimplemented method 'attachAPU'");
-        }
-
-        @Override
-        public void attachPPU(NesPPU ppu) {
-            throw new UnsupportedOperationException("Unimplemented method 'attachPPU'");
-        }
-
-        @Override
-        public void clearWatchTrigger() {
-            throw new UnsupportedOperationException("Unimplemented method 'clearWatchTrigger'");
-        }
-
-        @Override
-        public boolean isWatchTriggered() {
-            throw new UnsupportedOperationException("Unimplemented method 'isWatchTriggered'");
-        }
-
-        @Override
-        public void setWatchReadAddress(int address, int limit) {
-            throw new UnsupportedOperationException("Unimplemented method 'setWatchReadAddress'");
-        }
-
-        @Override
-        public void enablePpuRegLogging(int limit) {
-            throw new UnsupportedOperationException("Unimplemented method 'enablePpuRegLogging'");
         }
     }
 }
