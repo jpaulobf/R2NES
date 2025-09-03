@@ -23,7 +23,9 @@ Artifact: `target/R2NES-X.X.jar`.
 ROM precedence:
 1. First CLI arg not starting with `--`.
 2. `rom=` in `emulator.ini`.
-Example:
+
+### Example:
+
 ```powershell
 java -cp target/R2NES-X.X.jar --frames=60
 ```
@@ -138,7 +140,9 @@ Artefato: `target/R2NES-X.X.jar`.
 Precedência:
 1. Primeiro argumento CLI não iniciado por `--`.
 2. `rom=` no `emulator.ini`.
-Exemplo:
+
+### Exemplo:
+
 ```powershell
 java -cp target/R2NES-X.X.jar --frames=60
 ```
