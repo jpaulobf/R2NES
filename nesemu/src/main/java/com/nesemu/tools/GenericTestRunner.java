@@ -4,6 +4,7 @@ import com.nesemu.apu.APU;
 import com.nesemu.bus.Bus;
 import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.cpu.CPU;
+import com.nesemu.cpu.interfaces.NesCPU;
 import com.nesemu.io.Controller;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper0;
@@ -11,8 +12,8 @@ import com.nesemu.mapper.Mapper2;
 import com.nesemu.mapper.Mapper3;
 import com.nesemu.mapper.Mapper5;
 import com.nesemu.memory.Memory;
-import com.nesemu.ppu.PPU;
 import com.nesemu.ppu.Ppu2C02;
+import com.nesemu.ppu.interfaces.PPU;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
 
@@ -86,7 +87,7 @@ public class GenericTestRunner {
             tap = new DebugTap(baseBus, 50_000, ppu); // capture first 50k ops
             cpuBus = tap;
         }
-        CPU cpu = new CPU(cpuBus);
+        NesCPU cpu = new CPU(cpuBus);
         // Allow PPU->CPU NMI wiring
         bus.attachCPU(cpu);
 
@@ -351,7 +352,7 @@ public class GenericTestRunner {
         }
 
         @Override
-        public void attachCPU(CPU cpu) {
+        public void attachCPU(NesCPU cpu) {
             throw new UnsupportedOperationException("Unimplemented method 'attachCPU'");
         }
 

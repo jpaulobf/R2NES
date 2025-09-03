@@ -1,6 +1,6 @@
-package com.nesemu.ppu;
+package com.nesemu.ppu.interfaces;
 
-import com.nesemu.cpu.CPU;
+import com.nesemu.cpu.interfaces.NesCPU;
 import com.nesemu.emulator.Clockable;
 import com.nesemu.mapper.Mapper;
 
@@ -12,7 +12,7 @@ import com.nesemu.mapper.Mapper;
 public interface PPU extends Clockable {
 
     /** Link CPU so PPU can raise NMI (and future IRQ) signals. */
-    void attachCPU(CPU cpu);
+    void attachCPU(NesCPU cpu);
 
     /** Attach mapper to resolve CHR / nametable mirroring. */
     void attachMapper(Mapper mapper);

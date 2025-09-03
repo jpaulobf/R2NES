@@ -1,12 +1,12 @@
 package com.nesemu.bus.interfaces;
 
 import com.nesemu.apu.APU;
-import com.nesemu.cpu.CPU;
+import com.nesemu.cpu.interfaces.NesCPU;
 import com.nesemu.io.Controller;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.memory.Memory;
-import com.nesemu.ppu.PPU;
+import com.nesemu.ppu.interfaces.PPU;
 import com.nesemu.rom.INesRom;
 
 /**
@@ -36,7 +36,7 @@ public interface NesBus {
      * Attach the CPU instance so the bus can raise signals (NMI/IRQ in future) or
      * access CPU helpers.
      */
-    void attachCPU(CPU cpu);
+    void attachCPU(NesCPU cpu);
 
     /**
      * Current active mapper (generic interface) handling PRG / CHR banking.

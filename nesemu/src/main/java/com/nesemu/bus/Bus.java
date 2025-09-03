@@ -3,11 +3,12 @@ package com.nesemu.bus;
 import com.nesemu.apu.APU;
 import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.cpu.CPU;
+import com.nesemu.cpu.interfaces.NesCPU;
 import com.nesemu.io.Controller;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.memory.Memory;
-import com.nesemu.ppu.PPU;
+import com.nesemu.ppu.interfaces.PPU;
 import com.nesemu.rom.INesRom;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
@@ -36,7 +37,7 @@ public class Bus implements NesBus {
     private final Memory memory = new Memory();
 
     // --- Connected devices ---
-    private CPU cpuRef;
+    private NesCPU cpuRef;
     private PPU ppu; // PPU (register interface via $2000-$2007)
     @SuppressWarnings("unused")
     private APU apu; // APU ($4000-$4017 subset) placeholder until APU implemented
@@ -128,7 +129,7 @@ public class Bus implements NesBus {
     }
 
     @Override
-    public void attachCPU(CPU cpu) {
+    public void attachCPU(NesCPU cpu) {
         this.cpuRef = cpu;
         tryLinkCpuToPpu();
     }

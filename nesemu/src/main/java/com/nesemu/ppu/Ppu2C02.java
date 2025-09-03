@@ -1,8 +1,9 @@
 package com.nesemu.ppu;
 
-import com.nesemu.cpu.CPU;
+import com.nesemu.cpu.interfaces.NesCPU;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper.MirrorType;
+import com.nesemu.ppu.interfaces.PPU;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
 
@@ -18,7 +19,7 @@ import static com.nesemu.util.Log.Cat.*;
 public class Ppu2C02 implements PPU {
 
     // Optional CPU callback for NMI (set by Bus/emulator)
-    private CPU cpu;
+    private NesCPU cpu;
 
     // Optional mapper reference (for CHR access + mirroring metadata)
     private Mapper mapper;
@@ -133,7 +134,7 @@ public class Ppu2C02 implements PPU {
 
 
     @Override
-    public void attachCPU(CPU cpu) {
+    public void attachCPU(NesCPU cpu) {
         this.cpu = cpu;
     }
 
