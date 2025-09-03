@@ -1,12 +1,10 @@
 package com.nesemu.ppu;
 
 import com.nesemu.cpu.CPU;
-import com.nesemu.emulator.Clockable;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper.MirrorType;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
-import com.nesemu.ppu.PpuRegs;
 
 /**
  * Minimal 2C02 PPU skeleton: implements core registers and a basic
@@ -24,8 +22,8 @@ import com.nesemu.ppu.PpuRegs;
  * Missing (future): pattern fetch pipeline, nametable/palette storage,
  * mirroring, sprite system.
  */
-@SuppressWarnings("unused") // Allow defining full bit mask set even if some not yet referenced
-public class Ppu2C02 implements PPU, Clockable {
+
+public class Ppu2C02 implements PPU {
     // Global verbose logging toggle (covers internal debug/instrumentation prints)
     private static volatile boolean verboseLogging = true;
 

@@ -1,11 +1,14 @@
 package com.nesemu.ppu;
 
+import com.nesemu.emulator.Clockable;
+
 /**
  * Interface for the NES Picture Processing Unit (PPU).
  * This interface defines methods for resetting the PPU,
  * clocking the PPU, and handling the rendering process.
  */
-public interface PPU {
+public interface PPU extends Clockable {
+    
     void reset();
 
     void clock();
