@@ -6,7 +6,7 @@
 
     <groupId>com.nesemu</groupId>
     <artifactId>R2-Nes</artifactId>
-    <version>0.2.1</version>
+    <version>0.3</version>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

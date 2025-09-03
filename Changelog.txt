@@ -1,0 +1,90 @@
+Changelog - R2NES
+===================
+
+Version 0.3 (2025-09-03)
+------------------------
+Summary: Core consolidation (CPU + PPU + Bus), multi-mapper support (including MMC1, partial MMC3, partial MMC5), battery-backed SRAM (PRG RAM) persistence with periodic autosave and window-close flush, richer debugging/logging, configurable INI-driven runtime, and an extensive regression test base.
+
+Highlights
+- 6502 CPU
+  - Full implementation of official opcodes, addressing modes, and flags.
+  - Reset, basic NMI hook (from PPU) and per-instruction / per-cycle stepping.
+  - Trace hooks (--trace-cpu, PC breakpoints, memory read watch).
+- Memory / Bus
+  - Central bus unifying CPU, PPU, Mapper, and internal RAM.
+  - Configurable read watch (debug helper).
+  - PPU register mapping ($2000-$2007) plus relevant DMA/OAM ranges.
+- PPU (2C02) – background pipeline
+  - Background rendering with sequential nametable / attribute / pattern fetch (simulated scanlines & cycles).
+  - Fine X scroll and internal VRAM address logic reproduced.
+  - Nametable mirroring (horizontal / vertical) via mapper configuration.
+  - Selective logging: attribute writes, nametable writes, fetch pipeline, palette writes.
+  - Standalone test-pattern modes (h / v / checker) without ROM/CPU.
+  - Forced PPUMASK bits (e.g. FORCE-BG) for diagnostics.
+  - Sprite pipeline: preliminary evaluation, priority, sprite zero hit, overflow (accuracy still evolving).
+  - Optional simplified timing mode for quicker debug loops.
+- Sprites
+  - Secondary OAM evaluation, overflow testing, background priority handling.
+  - Experimental unlimited-sprites mode (disables hardware 8-per-scanline limit).
+  - Alternate Y semantics mode (hardware vs test) for test compatibility.
+- Persistence / SRAM (PRG RAM)
+  - Battery-backed PRG RAM supported for mappers exposing it (MMC1, MMC3).
+  - Internal save logic reused by autosave.
+  - Periodic autosave (configurable frame interval) and forced save on window close.
+  - Atomic write (.tmp + move) minimizing corruption risk.
+  - Auto-load if .sav exists (respecting configured directory).
+  - Configurable save-path (separate from ROM folder) in emulator.ini.
+- Implemented Mappers
+  - Mapper 0 (NROM) – baseline.
+  - Mapper 1 (MMC1) – PRG/CHR banking + battery PRG RAM.
+  - Mapper 2 (UxROM) – simple PRG banking.
+  - Mapper 3 (CNROM) – CHR banking.
+  - Mapper 4 (MMC3) – partial (main bank switching; IRQ not yet implemented).
+  - Mapper 5 (MMC5) – minimal / partial (foundation for future work).
+  - Mapper interface extended with getPrgRam() and onPrgRamLoaded() for persistence.
+- Autosave / Directories
+  - Automatic .sav naming (ROM base name) when no save-path override.
+  - Clean override constructor with explicit saveDir prevents unintended ROM-folder saves.
+- Configuration (emulator.ini)
+  - Keys: reset, toggle-fullscreen, toggle-hud, proportion cycle.
+  - Logging: level, categories, timestamps, quiet/verbose.
+  - PPU options: tile-matrix, force-bg, nt-baseline, pipe-log, log-attr, log-nt, log-palette.
+  - Special modes: test-pattern, until-vblank, timing-simple, unlimited-sprites, sprite-y mode, pacer.
+  - save-path key directs persistence output.
+  - Precedence: CLI > INI > defaults.
+- GUI
+  - Swing window with optional BufferStrategy triple buffering (default ON).
+  - Borderless fullscreen with runtime toggle.
+  - Optional HUD (FPS, scanline, cycle, VRAM, Mask/Status, fineX, controller state).
+  - Proportion modes (normal / proportional-height / stretch) with hotkey cycling.
+  - Standalone test-pattern render loop.
+- Loop / Performance
+  - High-resolution (HR) pacer and legacy pacing mode.
+  - Frame stepping (stepFrame) synchronized with internal PPU frame counter.
+- Debug / Dump Tools
+  - Background dump to PPM (background.ppm).
+  - Tile dumps: single or lists (--dump-pattern / --dump-patterns).
+  - ASCII tile first-pixel matrix, histograms, per-column stats.
+  - PPU pipeline fetch log (bounded) for introspection.
+  - Breakpoints: PC and address read with hit counts.
+- Tests
+  - Broad suite covering CPU, PPU (scroll, background fetch, mirroring, timing, OAM, sprite zero hit, priority, overflow), mappers, and integration paths.
+  - Ensures minimal regression after persistence & autosave additions.
+- Structure / Code
+  - Extensive Javadoc on core interfaces and PPU internals.
+  - Detailed comments for rendering pipeline stages and design decisions.
+  - Clear separation between stack construction (CPU/PPU/Mapper/Bus) and façade (NesEmulator).
+
+Planned / Not in 0.3
+- MMC3 IRQ implementation.
+- Full APU (audio).
+- Full save states (snapshot of CPU/PPU/Mapper state beyond SRAM).
+- Higher timing accuracy (cycle-exact refinements).
+- Enhanced sprite emulation accuracy (overflow & fine timing edge cases).
+
+Historical Summary
+- 0.1: Initial core CPU + Memory + Mapper0 + rudimentary PPU + basic dumps.
+- 0.2: PPU expansion (fine scroll, pipeline, logs), more mappers (2,3,4 partial,5 partial), improved GUI, debug modes.
+- 0.3: PRG RAM persistence (MMC1/MMC3), safe autosave, configurable save-path, Mapper1/4 RAM exposure, logging & HUD refinements.
+
+End of changelog 0.3.
