@@ -34,7 +34,7 @@ public class NesEmulator {
     private long lastAutoSaveFrame = 0;
     // Save state constants
     private static final int STATE_MAGIC = 0x4E455353; // 'NESS'
-    private static final int STATE_VERSION = 1;
+    private static final int STATE_VERSION = 2;
 
     /**
      * Legacy path: build minimal stack with no PPU or mapper (for CPU unit tests).
@@ -332,9 +332,15 @@ public class NesEmulator {
         dos.writeInt((int) (ppu.getFrame() & 0x7FFFFFFF));
         dos.writeInt(ppu.getScanline());
         dos.writeInt(ppu.getCycle());
-        dos.writeByte(ppu.getMaskRegister());
-        dos.writeByte(ppu.getStatusRegister());
-        dos.writeByte(ppu.getCtrl());
+        dos.writeByte(ppu.getMaskRegister()); // 0
+        dos.writeByte(ppu.getStatusRegister()); // 1
+        dos.writeByte(ppu.getCtrl()); // 2
+        if (STATE_VERSION >= 2) {
+            // Extra internal latch state (addrLatchHigh, oamAddr, readBuffer)
+            dos.writeBoolean(ppu.isAddrLatchHigh()); // 3
+            dos.writeByte(ppu.getOamAddr()); // 4
+            dos.writeByte(ppu.getReadBuffer()); // 5
+        }
         dos.writeShort(ppu.getVramAddress() & 0x3FFF);
         dos.writeShort(ppu.getTempAddress() & 0x3FFF);
         dos.writeByte(ppu.getFineX() & 0x07);
@@ -383,8 +389,8 @@ public class NesEmulator {
         if (magic != STATE_MAGIC)
             return false;
         int ver = dis.readInt();
-        if (ver != STATE_VERSION)
-            return false; // future compatibility gate
+        if (ver > STATE_VERSION)
+            return false; // unknown future version
         int pc = dis.readInt();
         int a = dis.readUnsignedByte();
         int x = dis.readUnsignedByte();
@@ -404,13 +410,29 @@ public class NesEmulator {
         int mask = dis.readUnsignedByte();
         int status = dis.readUnsignedByte();
         int ctrl = dis.readUnsignedByte();
+        boolean latchHigh = true;
+        int oamAddrVal = 0;
+        int readBuf = 0;
+        if (ver >= 2) {
+            latchHigh = dis.readBoolean();
+            oamAddrVal = dis.readUnsignedByte();
+            readBuf = dis.readUnsignedByte();
+        }
         int vram = dis.readUnsignedShort();
         int tAddr = dis.readUnsignedShort();
         int fineX = dis.readUnsignedByte();
         // Reconstruct CPU core
         cpu.forceState(pc, a, x, y, p, sp);
-        // Attempt reflective setters for PPU internals (lenient)
+        // Normalize potentially unsafe scanline/cycle values (defensive for older
+        // states)
+        if (scanline < -1 || scanline > 260)
+            scanline = -1;
+        if (cyc < 0 || cyc > 340)
+            cyc = 0;
         ppu.forceCoreState(mask, status, ctrl, scanline, cyc, vram, tAddr, fineX, (int) (frameVal & 0xFFFFFFFFL));
+        if (ver >= 2) {
+            ppu.loadMiscInternalState(latchHigh, oamAddrVal, readBuf);
+        }
         // Variable sections
         int oamLen = dis.readInt();
         if (oamLen > 0 && oamLen <= 4096) {
@@ -453,6 +475,12 @@ public class NesEmulator {
                 System.arraycopy(prg, 0, mapper.getPrgRam(), 0, prgRamLen);
                 mapper.onPrgRamLoaded();
             }
+        }
+        // If we restored mid-frame (cycle!=0 or scanline not at boundary), normalize
+        // timing
+        if (cyc != 0 || (scanline >= 0 && scanline <= 239)) {
+            // This avoids frozen frame due to missing transient pipeline contents
+            ppu.normalizeTimingAfterLoad();
         }
         return true;
     }

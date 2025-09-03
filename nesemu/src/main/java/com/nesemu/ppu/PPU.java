@@ -994,13 +994,63 @@ public class PPU implements NesPPU {
         this.regMASK = mask & 0xFF;
         this.regSTATUS = status & 0xFF;
         this.regCTRL = ctrl & 0xFF;
+        // Clamp incoming scanline/cycle to valid ranges to avoid negative/overflow
+        // indices
         this.scanline = scan;
         this.cycle = cyc;
+        if (this.scanline < -1 || this.scanline > 260) {
+            this.scanline = -1; // pre-render baseline
+        }
+        if (this.cycle < 0 || this.cycle > 340) {
+            this.cycle = 0;
+        }
         this.vramAddress = vram & 0x3FFF;
         this.tempAddress = tAddr & 0x3FFF;
         this.fineX = fineXVal & 0x07;
         this.frame = frameVal & 0xFFFFFFFFL;
         this.nmiFiredThisVblank = false; // reset latch to allow NMI logic to resync
+        // Invalidate cached sprite prep so evaluation restarts clean next scanline
+        this.preparedLine = -2;
+        this.preparedSpriteCount = 0;
+        this.spriteRangesDirty = true; // force recalc in case OAM restored
+    }
+
+    /**
+     * After loading a save-state captured mid-frame we lack the transient fetch
+     * pipeline (shift registers / latches). To avoid visual freeze or inconsistent
+     * background, normalize PPU timing to the start of a new pre-render scanline
+     * and clear transient state. Keeps persistent VRAM/OAM/palette intact.
+     */
+    public void normalizeTimingAfterLoad() {
+        this.scanline = -1; // pre-render
+        this.cycle = 0;
+        this.prefetchHadFirstTile = false;
+        this.patternLowShift = this.patternHighShift = 0;
+        this.attributeLowShift = this.attributeHighShift = 0;
+        this.ntLatch = this.atLatch = this.patternLowLatch = this.patternHighLatch = 0;
+        this.preparedLine = -2;
+        this.preparedSpriteCount = 0;
+        // Do not touch frame counter, VRAM addresses, registers, OAM, nametables,
+        // palette.
+    }
+
+    // --- Extended internal state helpers (save-state v2) ---
+    public boolean isAddrLatchHigh() {
+        return addrLatchHigh;
+    }
+
+    public int getOamAddr() {
+        return oamAddr & 0xFF;
+    }
+
+    public int getReadBuffer() {
+        return readBuffer & 0xFF;
+    }
+
+    public void loadMiscInternalState(boolean latchHigh, int oamAddrVal, int readBuf) {
+        this.addrLatchHigh = latchHigh;
+        this.oamAddr = oamAddrVal & 0xFF;
+        this.readBuffer = readBuf & 0xFF;
     }
 
     @Override
@@ -1214,6 +1264,14 @@ public class PPU implements NesPPU {
     private void overlaySpritePixel() {
         int xPixel = cycle - 1;
         int sl = scanline;
+        // Defensive guard: after a save-state load the clock position may point to
+        // pre-render or out-of-range cycle; ensure we don't index negative.
+        if (sl < 0 || sl >= 240) {
+            return;
+        }
+        if (xPixel < 0 || xPixel >= 256) {
+            return;
+        }
         int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
         if (xPixel < 8 && (regMASK & PpuRegs.MASK_SPR_LEFT) == 0)
             return;
