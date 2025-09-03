@@ -43,7 +43,7 @@ public class PPUNmiDebugTest {
     @Test
     public void vblankFlagPrecedesOrMatchesNmi() {
         // Enable NMI generation
-        bus.cpuWrite(0x2000, 0x80);
+        bus.write(0x2000, 0x80);
         // Run until first NMI arrives (via callback increment)
         long safety = 100000; // generous PPU cycles
         while (nmiCount == 0 && safety-- > 0) {
@@ -55,7 +55,7 @@ public class PPUNmiDebugTest {
 
     @Test
     public void singleNmiPerVblank() {
-        bus.cpuWrite(0x2000, 0x80); // habilita NMI
+        bus.write(0x2000, 0x80); // habilita NMI
         int framesToObserve = 3; // ignore frame 0 partial (power-on) when counting
         long startFrame = ppu.getFrame();
         int[] nmiPerFrame = new int[framesToObserve + 1]; // include frame0 slot

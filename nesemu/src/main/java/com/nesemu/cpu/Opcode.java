@@ -38,6 +38,43 @@ public enum Opcode {
         return OPCODE_TABLE[opcodeByte];
     }
 
+    /**
+     * Determines if the opcode is a store instruction (which do not require a final
+     * read during operand fetch).
+     * @param opcodeByte
+     * @return
+     */
+    static boolean isStoreOpcode(int opcodeByte) {
+        switch (opcodeByte & 0xFF) {
+            case 0x85:
+            case 0x95:
+            case 0x8D:
+            case 0x9D:
+            case 0x99:
+            case 0x81:
+            case 0x91: // STA variants
+            case 0x86:
+            case 0x96:
+            case 0x8E: // STX
+            case 0x84:
+            case 0x94:
+            case 0x8C: // STY
+            case 0x87:
+            case 0x97:
+            case 0x8F: // SAX/AAX
+            case 0x9E:
+            case 0x9C: // SHX/SHY
+            case 0x9A: // TXS (not memory store but does not need operand read; harmless)
+            case 0x9B:
+            case 0x9F:
+            case 0x93: // SHS/TAS, AHX, AHX (zp),Y
+            case 0x83: // SAX (zp,X)
+                return true;
+            default:
+                return false;
+        }
+    }
+
     private static final Opcode[] OPCODE_TABLE = new Opcode[256];
     static {
         for (int i = 0; i < 256; i++)

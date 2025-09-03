@@ -614,11 +614,11 @@ public class Main {
         if (!patternStandalone) {
             if (initScroll) {
                 // Configura scroll e VRAM address iniciais (coarse/fine = 0, nametable 0)
-                emuRef[0].getBus().cpuWrite(0x2000, 0x10); // background pattern table = $1000
-                emuRef[0].getBus().cpuWrite(0x2005, 0x00); // X scroll
-                emuRef[0].getBus().cpuWrite(0x2005, 0x00); // Y scroll
-                emuRef[0].getBus().cpuWrite(0x2006, 0x20); // high byte (0x2000)
-                emuRef[0].getBus().cpuWrite(0x2006, 0x00); // low byte
+                emuRef[0].getBus().write(0x2000, 0x10); // background pattern table = $1000
+                emuRef[0].getBus().write(0x2005, 0x00); // X scroll
+                emuRef[0].getBus().write(0x2005, 0x00); // Y scroll
+                emuRef[0].getBus().write(0x2006, 0x20); // high byte (0x2000)
+                emuRef[0].getBus().write(0x2006, 0x00); // low byte
                 Log.debug(PPU, "INIT-SCROLL VRAM inicializada nametable0 pattern $1000");
             }
         }
@@ -697,7 +697,7 @@ public class Main {
         // Escreve PPUMASK inicial para acelerar primeiros frames (BG + coluna esquerda
         // por padrão)
         int initMask = (initialMaskOverride != null) ? initialMaskOverride : 0x0A; // 0x08 BG | 0x02 BG_LEFT
-        emuRef[0].getBus().cpuWrite(0x2001, initMask);
+        emuRef[0].getBus().write(0x2001, initMask);
         Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (initialMaskOverride != null ? " (override)" : ""));
         if (gui) {
             NesWindow window = new NesWindow("R2-NES - " + romFilePath.getFileName(), 3);

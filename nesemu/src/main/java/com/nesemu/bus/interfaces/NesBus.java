@@ -1,6 +1,13 @@
 package com.nesemu.bus.interfaces;
 
+import com.nesemu.apu.APU;
 import com.nesemu.cpu.CPU;
+import com.nesemu.io.Controller;
+import com.nesemu.mapper.Mapper;
+import com.nesemu.mapper.Mapper0;
+import com.nesemu.memory.Memory;
+import com.nesemu.ppu.PPU;
+import com.nesemu.rom.INesRom;
 
 /**
  * Minimal CPU-facing bus interface.
@@ -8,9 +15,99 @@ import com.nesemu.cpu.CPU;
  * Additional signalling lines (IRQ/NMI/RDY) can be added later if needed.
  */
 public interface NesBus {
+    /**
+     * Read a byte from the CPU address space (delegates to mapper / RAM / PPU / APU
+     * as appropriate).
+     * 
+     * @param address 16-bit CPU address
+     * @return unsigned byte (0-255)
+     */
     int read(int address);
 
+    /**
+     * Write a byte to the CPU address space.
+     * 
+     * @param address 16-bit CPU address
+     * @param value   byte value (low 8 bits used)
+     */
     void write(int address, int value);
 
+    /**
+     * Attach the CPU instance so the bus can raise signals (NMI/IRQ in future) or
+     * access CPU helpers.
+     */
     void attachCPU(CPU cpu);
+
+    /**
+     * Current active mapper (generic interface) handling PRG / CHR banking.
+     */
+    Mapper getMapper();
+
+    /**
+     * Convenience accessor specifically for Mapper0 (legacy tests) – returns null
+     * if different mapper.
+     */
+    Mapper0 getMapper0();
+
+    /**
+     * Underlying main memory / RAM abstraction (legacy path / direct tests).
+     */
+    Memory getMemory();
+
+    /**
+     * Clear system RAM to power-on state (often 0 or pattern depending on emulator
+     * policy).
+     */
+    void clearRam();
+
+    /**
+     * Attach and initialize a mapper for the loaded iNES ROM (sets PRG/CHR
+     * pointers, mirroring, etc.).
+     */
+    void attachMapper(Mapper mapper, INesRom rom);
+
+    /**
+     * Connect player 1 and player 2 controllers to the bus for input polling.
+     */
+    void attachControllers(Controller p1, Controller p2);
+
+    /**
+     * Attach Audio Processing Unit instance so reads/writes to APU registers are
+     * routed correctly.
+     */
+    void attachAPU(APU apu);
+
+    /**
+     * Attach PPU (Picture Processing Unit) for register access and future interrupt
+     * signalling.
+     */
+    void attachPPU(PPU ppu);
+
+    /**
+     * Clear an active watch/read breakpoint trigger flag (used by debugging
+     * helpers).
+     */
+    void clearWatchTrigger();
+
+    /**
+     * Whether a configured watch/read breakpoint has been triggered since last
+     * clear.
+     */
+    boolean isWatchTriggered();
+
+    /**
+     * Configure a watch (read breakpoint) at an address; 'limit' may define how
+     * many hits before trigger.
+     */
+    void setWatchReadAddress(int address, int limit);
+
+    /**
+     * Enable logging of PPU register accesses for a limited number of events
+     * (useful for diagnostics).
+     */
+    void enablePpuRegLogging(int limit);
+
+    public static void enableQuietControllerDebug(boolean enable) {
+        /* no-op (legacy) */
+    }
 }

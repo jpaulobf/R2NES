@@ -36,9 +36,9 @@ public class PPUFineXScrollTest {
     }
 
     private void write(NesEmulator emu, int addr, int value) {
-        emu.getBus().cpuWrite(0x2006, (addr >> 8) & 0x3F);
-        emu.getBus().cpuWrite(0x2006, addr & 0xFF);
-        emu.getBus().cpuWrite(0x2007, value & 0xFF);
+        emu.getBus().write(0x2006, (addr >> 8) & 0x3F);
+        emu.getBus().write(0x2006, addr & 0xFF);
+        emu.getBus().write(0x2007, value & 0xFF);
     }
 
     // Retorna primeiro x onde muda de opaco (!=0) para transparente (0) após ter
@@ -69,11 +69,11 @@ public class PPUFineXScrollTest {
         for (int fineX = 0; fineX < 8; fineX++) {
             NesEmulator emu = new NesEmulator(rom);
             // Habilita BG e mostra coluna esquerda (bits: BG enable + BG left)
-            emu.getBus().cpuWrite(0x2001, 0x0A); // 00001010
+            emu.getBus().write(0x2001, 0x0A); // 00001010
             // Scroll: primeira escrita define coarseX=0 + fineX; segunda vertical =0
             // Sempre escreve PPUSCROLL para garantir coarseX=0 e fineX pré-definido
-            emu.getBus().cpuWrite(0x2005, fineX & 0x07);
-            emu.getBus().cpuWrite(0x2005, 0x00);
+            emu.getBus().write(0x2005, fineX & 0x07);
+            emu.getBus().write(0x2005, 0x00);
             // Nametable primeira linha: tile0, tile1, tile0, tile1
             write(emu, 0x2000, 0x00);
             write(emu, 0x2001, 0x01);
@@ -82,8 +82,8 @@ public class PPUFineXScrollTest {
             // Após usar PPUADDR para escrever tiles, tempAddress foi alterado (coarseX=3).
             // Reescreve PPUSCROLL para restaurar coarseX=0 e fineX desejado antes do início
             // da linha visível.
-            emu.getBus().cpuWrite(0x2005, fineX & 0x07);
-            emu.getBus().cpuWrite(0x2005, 0x00);
+            emu.getBus().write(0x2005, fineX & 0x07);
+            emu.getBus().write(0x2005, 0x00);
             emu.stepFrame();
             int[] idx = emu.getPpu().getBackgroundIndexBufferCopy();
             int boundary = opaqueToTransparentBoundary(idx);

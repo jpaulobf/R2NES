@@ -5,6 +5,7 @@ import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.cpu.CPU;
 import com.nesemu.io.Controller;
 import com.nesemu.mapper.Mapper;
+import com.nesemu.mapper.Mapper0;
 import com.nesemu.memory.Memory;
 import com.nesemu.ppu.PPU;
 import com.nesemu.rom.INesRom;
@@ -42,8 +43,7 @@ public class Bus implements NesBus {
     private Controller pad1; // Controller 1 ($4016)
     private Controller pad2; // Controller 2 ($4017, read side when not APU)
     private Mapper mapper; // Cartridge mapper for PRG / CHR
-    @SuppressWarnings("unused")
-    private INesRom rom; // Raw iNES ROM (for potential direct CHR access later)
+    private INesRom rom;
 
     // --- Test shadow for unmapped regions (0x2000-0x5FFF) ---
     // Many unit tests write/read arbitrary addresses in these ranges as if they
@@ -73,33 +73,14 @@ public class Bus implements NesBus {
     private int watchTriggerCount = 0;
     private int watchReadLimit = 1;
 
-    // Global verbose logging toggle (shared concept with PPU) to silence bus
-    // diagnostics
-    private static volatile boolean globalVerbose = true;
-    // (Controller debug logging removido)
-
-    public static void setGlobalVerbose(boolean enable) {
-        globalVerbose = enable;
-    }
-
-    public static boolean isGlobalVerbose() {
-        return globalVerbose;
-    }
-
-    public static void enableQuietControllerDebug(boolean enable) {
-        /* no-op (legacy) */ }
-
-    private static void vprintf(String fmt, Object... args) {
-        if (globalVerbose)
-            Log.debug(BUS, fmt, args);
-    }
-
+    @Override
     public void enablePpuRegLogging(int limit) {
         this.logPpuRegs = true;
         if (limit > 0)
             this.ppuRegLogLimit = limit;
     }
 
+    @Override
     public void setWatchReadAddress(int address, int limit) {
         this.watchReadAddress = address & 0xFFFF;
         this.watchTriggered = false;
@@ -108,29 +89,35 @@ public class Bus implements NesBus {
             this.watchReadLimit = limit;
     }
 
+    @Override
     public boolean isWatchTriggered() {
         return watchTriggered;
     }
 
+    @Override
     public void clearWatchTrigger() {
         watchTriggered = false;
     }
 
+    @Override
     public void attachPPU(PPU ppu) {
         this.ppu = ppu;
         // If CPU already attached through some pathway, attempt to link for NMI
         tryLinkCpuToPpu();
     }
 
+    @Override
     public void attachAPU(APU apu) {
         this.apu = apu;
     }
 
+    @Override
     public void attachControllers(Controller p1, Controller p2) {
         this.pad1 = p1;
         this.pad2 = p2;
     }
 
+    @Override
     public void attachMapper(Mapper mapper, INesRom rom) {
         this.mapper = mapper;
         this.rom = rom;
@@ -140,23 +127,14 @@ public class Bus implements NesBus {
         }
     }
 
+    @Override
     public void attachCPU(CPU cpu) {
         this.cpuRef = cpu;
         tryLinkCpuToPpu();
     }
 
-    private void tryLinkCpuToPpu() {
-        if (ppu != null && cpuRef != null) {
-            try {
-                // Call Ppu2C02.attachCPU if exists
-                ppu.getClass().getMethod("attachCPU", CPU.class).invoke(ppu, cpuRef);
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    /** CPU read (8-bit). */
-    public int cpuRead(int address) {
+    @Override
+    public int read(int address) {
         address &= 0xFFFF;
         int value;
         if (address < 0x2000) { // 2KB internal RAM mirrored each 0x800
@@ -212,8 +190,8 @@ public class Bus implements NesBus {
         return value & 0xFF;
     }
 
-    /** CPU write (8-bit). */
-    public void cpuWrite(int address, int value) {
+    @Override
+    public void write(int address, int value) {
         address &= 0xFFFF;
         value &= 0xFF;
         if (address < 0x2000) {
@@ -287,18 +265,53 @@ public class Bus implements NesBus {
         }
     }
 
-    // CpuBus implementation (delegate to cpuRead/cpuWrite)
-    @Override
-    public int read(int address) {
-        return cpuRead(address);
+    /**
+     * Test helper: clear internal RAM and SRAM (does not affect mapper state).
+     */
+    public void clearRam() {
+        memory.clearRAM();
     }
 
-    @Override
-    public void write(int address, int value) {
-        cpuWrite(address, value);
+    /**
+     * Current loaded ROM (if any).
+     */
+    public Memory getMemory() {
+        return memory;
     }
 
-    /** Perform OAM DMA immediately (blocking copy of 256 bytes). */
+    /**
+     * Generic mapper accessor (read-only)
+     */
+    public Mapper getMapper() {
+        return mapper;
+    }
+
+    /**
+     * Debug: return mapper concrete if Mapper0, else null.
+     */
+    public Mapper0 getMapper0() {
+        if (mapper instanceof Mapper0) {
+            return (Mapper0) mapper;
+        }
+        return null;
+    }
+
+    /**
+     * Get current PPU frame (if connected), else -1.
+     */
+    private void tryLinkCpuToPpu() {
+        if (ppu != null && cpuRef != null) {
+            try {
+                // Call Ppu2C02.attachCPU if exists
+                ppu.getClass().getMethod("attachCPU", CPU.class).invoke(ppu, cpuRef);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** 
+     * Perform OAM DMA immediately (blocking copy of 256 bytes). 
+     */
     private void performOamDma() {
         if (pendingDmaPage < 0) {
             return; // nothing queued
@@ -318,7 +331,7 @@ public class Bus implements NesBus {
         // Copy 256 bytes from CPU memory space (using cpuRead for mapper/RAM
         // visibility)
         for (int i = 0; i < 256; i++) {
-            int val = cpuRead(base + i);
+            int val = read(base + i);
             if (i < firstBytes.length)
                 firstBytes[i] = val & 0xFF;
             try {
@@ -374,6 +387,12 @@ public class Bus implements NesBus {
     }
 
     // --- PPU register access stubs ---
+
+    /**
+     * Read PPU register via reflection.
+     * @param reg
+     * @return
+     */
     private int readPpuRegister(int reg) {
         try {
             // Use reflection only if PPU concrete exposes methods; else adapt design later.
@@ -384,6 +403,11 @@ public class Bus implements NesBus {
         }
     }
 
+    /**
+     * Write PPU register via reflection.
+     * @param reg
+     * @param value
+     */
     private void writePpuRegister(int reg, int value) {
         try {
             ppu.getClass().getMethod("writeRegister", int.class, int.class).invoke(ppu, reg, value);
@@ -391,31 +415,11 @@ public class Bus implements NesBus {
             // ignore
         }
     }
-
-    // Convenience for tests
-    public void clearRam() {
-        memory.clearRAM();
-    }
-
-    // Test helper: expose minimal write for loading code without mapper
-    public Memory getMemory() {
-        return memory;
-    }
-
-    // Debug: retornar mapper concreto se for Mapper0
-    public com.nesemu.mapper.Mapper0 getMapper0() {
-        if (mapper instanceof com.nesemu.mapper.Mapper0) {
-            return (com.nesemu.mapper.Mapper0) mapper;
-        }
-        return null;
-    }
-
-    // Generic mapper accessor (read-only)
-    public Mapper getMapper() {
-        return mapper;
-    }
-
-    // PPU state helpers for logging
+    
+    /**
+     * Get current PPU frame (if connected), else -1.
+     * @return
+     */
     private long getPpuFrame() {
         try {
             return (long) ppu.getClass().getMethod("getFrame").invoke(ppu);
@@ -424,6 +428,10 @@ public class Bus implements NesBus {
         }
     }
 
+    /**
+     * Get current PPU scanline (if connected), else -1.
+     * @return
+     */
     private int getPpuScanline() {
         try {
             return (int) ppu.getClass().getMethod("getScanline").invoke(ppu);
@@ -432,11 +440,34 @@ public class Bus implements NesBus {
         }
     }
 
+    /**
+     * Get current PPU cycle (if connected), else -1.
+     * @return
+     */
     private int getPpuCycle() {
         try {
             return (int) ppu.getClass().getMethod("getCycle").invoke(ppu);
         } catch (Exception e) {
             return -1;
         }
+    }
+
+    /// --------------------------------------------------------------------------------
+
+    // Global verbose logging toggle (shared concept with PPU) to silence bus
+    // diagnostics
+    private static volatile boolean globalVerbose = true;
+
+    public static void setGlobalVerbose(boolean enable) {
+        globalVerbose = enable;
+    }
+
+    public static boolean isGlobalVerbose() {
+        return globalVerbose;
+    }
+
+    private static void vprintf(String fmt, Object... args) {
+        if (globalVerbose)
+            Log.debug(BUS, fmt, args);
     }
 }

@@ -1,12 +1,17 @@
 package com.nesemu.tools;
 
+import com.nesemu.apu.APU;
 import com.nesemu.bus.Bus;
 import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.cpu.CPU;
+import com.nesemu.io.Controller;
+import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.mapper.Mapper2;
 import com.nesemu.mapper.Mapper3;
 import com.nesemu.mapper.Mapper5;
+import com.nesemu.memory.Memory;
+import com.nesemu.ppu.PPU;
 import com.nesemu.ppu.Ppu2C02;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
@@ -348,6 +353,78 @@ public class GenericTestRunner {
         @Override
         public void attachCPU(CPU cpu) {
             throw new UnsupportedOperationException("Unimplemented method 'attachCPU'");
+        }
+
+        @Override
+        public Mapper getMapper() {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'getMapper'");
+        }
+
+        @Override
+        public Mapper0 getMapper0() {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'getMapper0'");
+        }
+
+        @Override
+        public Memory getMemory() {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'getMemory'");
+        }
+
+        @Override
+        public void clearRam() {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'clearRam'");
+        }
+
+        @Override
+        public void attachMapper(Mapper mapper, INesRom rom) {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'attachMapper'");
+        }
+
+        @Override
+        public void attachControllers(Controller p1, Controller p2) {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'attachControllers'");
+        }
+
+        @Override
+        public void attachAPU(APU apu) {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'attachAPU'");
+        }
+
+        @Override
+        public void attachPPU(PPU ppu) {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'attachPPU'");
+        }
+
+        @Override
+        public void clearWatchTrigger() {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'clearWatchTrigger'");
+        }
+
+        @Override
+        public boolean isWatchTriggered() {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'isWatchTriggered'");
+        }
+
+        @Override
+        public void setWatchReadAddress(int address, int limit) {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'setWatchReadAddress'");
+        }
+
+        @Override
+        public void enablePpuRegLogging(int limit) {
+            // TODO Auto-generated method stub
+            throw new UnsupportedOperationException("Unimplemented method 'enablePpuRegLogging'");
         }
     }
 }

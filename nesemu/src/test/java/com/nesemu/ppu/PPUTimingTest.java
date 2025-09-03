@@ -56,7 +56,7 @@ public class PPUTimingTest {
     @Test
     public void nmiFiresOncePerVBlankWhenEnabled() {
         // Enable NMI (PPUCTRL bit7) via bus write ($2000)
-        bus.cpuWrite(0x2000, 0x80);
+        bus.write(0x2000, 0x80);
         int targetFrames = 2;
         long startFrame = ppu.getFrame();
         long endFrame = startFrame + targetFrames;
@@ -74,7 +74,7 @@ public class PPUTimingTest {
             ppu.clock();
         int countBefore = nmiCount;
         // Now enable NMI bit mid-vblank
-        bus.cpuWrite(0x2000, 0x80);
+        bus.write(0x2000, 0x80);
         // A few cycles should trigger a late NMI
         for (int i = 0; i < 50; i++)
             ppu.clock();

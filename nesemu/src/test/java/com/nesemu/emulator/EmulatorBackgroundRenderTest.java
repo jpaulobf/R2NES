@@ -42,16 +42,16 @@ public class EmulatorBackgroundRenderTest {
 
     private void ppuWrite(NesEmulator emu, int addr, int value) {
         // $2006 high (mask to 6 bits), $2006 low, then $2007
-        emu.getBus().cpuWrite(0x2006, (addr >> 8) & 0x3F);
-        emu.getBus().cpuWrite(0x2006, addr & 0xFF);
-        emu.getBus().cpuWrite(0x2007, value & 0xFF);
+        emu.getBus().write(0x2006, (addr >> 8) & 0x3F);
+        emu.getBus().write(0x2006, addr & 0xFF);
+        emu.getBus().write(0x2007, value & 0xFF);
     }
 
     @Test
     public void firstTwoTilesProduceDifferentPixelBands() {
         NesEmulator emu = new NesEmulator(buildRomWithTwoTiles());
         // Enable background rendering (PPUMASK bit3)
-        emu.getBus().cpuWrite(0x2001, 0x08);
+        emu.getBus().write(0x2001, 0x08);
         // Initialize palette universal color + next entry to distinct values
         ppuWrite(emu, 0x3F00, 0x01); // universal background color index (some palette entry)
         ppuWrite(emu, 0x3F01, 0x21); // second color (must differ)
@@ -86,20 +86,20 @@ public class EmulatorBackgroundRenderTest {
         INesRom rom = buildRomWithTwoTiles();
         NesEmulator emu = new NesEmulator(rom);
         // Select background pattern table 0 (already default) and ensure NMI off
-        emu.getBus().cpuWrite(0x2000, 0x00);
-        emu.getBus().cpuWrite(0x2001, 0x0A); // enable bg + show left 8 background
+        emu.getBus().write(0x2000, 0x00);
+        emu.getBus().write(0x2001, 0x0A); // enable bg + show left 8 background
         // Palette universal + entry for pattern (tile1 uses pattern index 1)
         ppuWrite(emu, 0x3F00, 0x01);
         ppuWrite(emu, 0x3F01, 0x21);
         // Ensure background pattern table bit selects 0x0000 (bit4=0)
-        emu.getBus().cpuWrite(0x2000, 0x00);
+        emu.getBus().write(0x2000, 0x00);
         // Write first 16 nametable entries alternating 0,1
         for (int i = 0; i < 16; i++) {
             ppuWrite(emu, 0x2000 + i, (i & 1));
         }
         // Reset VRAM address to start of nametable so rendering begins at tile 0
-        emu.getBus().cpuWrite(0x2006, 0x20);
-        emu.getBus().cpuWrite(0x2006, 0x00);
+        emu.getBus().write(0x2006, 0x20);
+        emu.getBus().write(0x2006, 0x00);
         emu.stepFrame();
         int[] idx = emu.getPpu().getBackgroundIndexBufferCopy();
         int y = 0;
@@ -137,7 +137,7 @@ public class EmulatorBackgroundRenderTest {
             chr[0x10 + r] = (byte) 0xFF;
         INesRom rom = new INesRom(h, prg, chr, null);
         NesEmulator emu = new NesEmulator(rom);
-        emu.getBus().cpuWrite(0x2001, 0x0A); // enable bg + show left 8 columns
+        emu.getBus().write(0x2001, 0x0A); // enable bg + show left 8 columns
         // Define palette entries for four BG palettes (indices 1,5,9,13)
         ppuWrite(emu, 0x3F00, 0x00); // universal (unused for opaque pixels)
         ppuWrite(emu, 0x3F01, 0x01); // palette 0 color 1 (distinct hue)
@@ -159,8 +159,8 @@ public class EmulatorBackgroundRenderTest {
         ppuWrite(emu, 0x23C0, 0xE4);
         // Reset VRAM address to start of nametable (tile (0,0)) so first fetch is tile
         // index, not attribute byte
-        emu.getBus().cpuWrite(0x2006, 0x20); // high byte of 0x2000
-        emu.getBus().cpuWrite(0x2006, 0x00); // low byte
+        emu.getBus().write(0x2006, 0x20); // high byte of 0x2000
+        emu.getBus().write(0x2006, 0x00); // low byte
         emu.stepFrame();
         emu.stepFrame(); // segunda frame para garantir preenchimento após latência inicial
         int[] idx = emu.getPpu().getBackgroundIndexBufferCopy();
