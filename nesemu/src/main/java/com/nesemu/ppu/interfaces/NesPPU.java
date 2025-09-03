@@ -9,7 +9,7 @@ import com.nesemu.mapper.Mapper;
  * This interface defines methods for resetting the PPU,
  * clocking the PPU, and handling the rendering process.
  */
-public interface PPU extends Clockable {
+public interface NesPPU extends Clockable {
 
     /** Link CPU so PPU can raise NMI (and future IRQ) signals. */
     void attachCPU(NesCPU cpu);

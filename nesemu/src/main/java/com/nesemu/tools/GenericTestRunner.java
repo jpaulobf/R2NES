@@ -13,7 +13,7 @@ import com.nesemu.mapper.Mapper3;
 import com.nesemu.mapper.Mapper5;
 import com.nesemu.memory.Memory;
 import com.nesemu.ppu.Ppu2C02;
-import com.nesemu.ppu.interfaces.PPU;
+import com.nesemu.ppu.interfaces.NesPPU;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
 
@@ -392,7 +392,7 @@ public class GenericTestRunner {
         }
 
         @Override
-        public void attachPPU(PPU ppu) {
+        public void attachPPU(NesPPU ppu) {
             throw new UnsupportedOperationException("Unimplemented method 'attachPPU'");
         }
 

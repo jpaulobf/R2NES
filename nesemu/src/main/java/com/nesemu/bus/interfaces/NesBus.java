@@ -6,7 +6,7 @@ import com.nesemu.io.Controller;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.memory.Memory;
-import com.nesemu.ppu.interfaces.PPU;
+import com.nesemu.ppu.interfaces.NesPPU;
 import com.nesemu.rom.INesRom;
 
 /**
@@ -81,7 +81,7 @@ public interface NesBus {
      * Attach PPU (Picture Processing Unit) for register access and future interrupt
      * signalling.
      */
-    void attachPPU(PPU ppu);
+    void attachPPU(NesPPU ppu);
 
     /**
      * Clear an active watch/read breakpoint trigger flag (used by debugging

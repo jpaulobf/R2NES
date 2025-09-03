@@ -8,7 +8,7 @@ import com.nesemu.io.Controller;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.memory.Memory;
-import com.nesemu.ppu.interfaces.PPU;
+import com.nesemu.ppu.interfaces.NesPPU;
 import com.nesemu.rom.INesRom;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
@@ -38,7 +38,7 @@ public class Bus implements NesBus {
 
     // --- Connected devices ---
     private NesCPU cpuRef;
-    private PPU ppu; // PPU (register interface via $2000-$2007)
+    private NesPPU ppu; // PPU (register interface via $2000-$2007)
     @SuppressWarnings("unused")
     private APU apu; // APU ($4000-$4017 subset) placeholder until APU implemented
     private Controller pad1; // Controller 1 ($4016)
@@ -101,7 +101,7 @@ public class Bus implements NesBus {
     }
 
     @Override
-    public void attachPPU(PPU ppu) {
+    public void attachPPU(NesPPU ppu) {
         this.ppu = ppu;
         // If CPU already attached through some pathway, attempt to link for NMI
         tryLinkCpuToPpu();

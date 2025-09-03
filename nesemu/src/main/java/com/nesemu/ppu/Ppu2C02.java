@@ -3,7 +3,7 @@ package com.nesemu.ppu;
 import com.nesemu.cpu.interfaces.NesCPU;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.mapper.Mapper.MirrorType;
-import com.nesemu.ppu.interfaces.PPU;
+import com.nesemu.ppu.interfaces.NesPPU;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
 
@@ -16,7 +16,7 @@ import static com.nesemu.util.Log.Cat.*;
  * advanced mappers with IRQ, no DMC/PCM audio, no extended palettes,
  * no PPU1.0 quirks, etc.).
  */
-public class Ppu2C02 implements PPU {
+public class Ppu2C02 implements NesPPU {
 
     // Optional CPU callback for NMI (set by Bus/emulator)
     private NesCPU cpu;
