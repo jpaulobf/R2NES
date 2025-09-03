@@ -189,7 +189,6 @@ public class Ppu2C02 implements PPU {
 
     @Override
     public void clock() {
-        int prevScanline = scanline;
         // Advance one PPU cycle (3x CPU speed in real hardware, handled externally).
         cycle++;
         if (cycle > 340) {

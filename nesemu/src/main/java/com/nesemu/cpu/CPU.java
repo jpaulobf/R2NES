@@ -1198,7 +1198,7 @@ public class CPU implements NesCPU {
      * 
      * @param value
      */
-    void setStatusByte(int value) {
+    private void setStatusByte(int value) {
         carry = (value & 0x01) != 0;
         zero = (value & 0x02) != 0;
         interruptDisable = (value & 0x04) != 0;
@@ -1209,142 +1209,173 @@ public class CPU implements NesCPU {
         negative = (value & 0x80) != 0;
     }
 
-    // Getters and Setters
+    @Override
     public int getCycles() {
         return cycles;
     }
 
+    @Override
     public boolean isCarry() {
         return carry;
     }
 
+    @Override
     public boolean isZero() {
         return zero;
     }
 
+    @Override
     public boolean isInterruptDisable() {
         return interruptDisable;
     }
 
+    @Override
     public boolean isDecimal() {
         return decimal;
     }
 
+    @Override
     public boolean isBreakFlag() {
         return breakFlag;
     }
 
+    @Override
     public boolean isUnused() {
         return unused;
     }
 
+    @Override
     public boolean isOverflow() {
         return overflow;
     }
 
+    @Override
     public boolean isNegative() {
         return negative;
     }
 
+    @Override
     public int getLastOpcodeByte() {
         return lastOpcodeByte;
     }
 
+    @Override
     public int getLastBaseCycles() {
         return lastBaseCycles;
     }
 
+    @Override
     public int getLastExtraCycles() {
         return lastExtraCycles;
     }
 
+    @Override
     public int getLastRmwModified() {
         return rmwModified;
     }
 
+    @Override
     public boolean wasLastBranchTaken() {
         return lastBranchTaken;
     }
 
+    @Override
     public boolean wasLastBranchPageCross() {
         return lastBranchPageCross;
     }
 
+    @Override
     public long getTotalCycles() {
         return totalCycles;
     }
 
+    @Override
     public void setTotalCycles(long cycles) {
         this.totalCycles = cycles;
     }
 
-    // --- DMA stall API (used by Bus when $4014 written) ---
+    @Override
     public void addDmaStall(int cycles) {
         if (cycles <= 0)
             return;
         dmaStallCycles += cycles;
     }
 
+    @Override
     public int getDmaStallCycles() {
         return dmaStallCycles;
     }
 
+    @Override
     public boolean isDmaStalling() {
         return dmaStallCycles > 0;
     }
 
+    @Override
     public void setA(int a) {
         this.registers.A = a & 0xFF;
         setZeroAndNegative(this.registers.A);
     }
 
+    @Override
     public void setX(int x) {
         this.registers.X = x & 0xFF;
         setZeroAndNegative(this.registers.X);
     }
 
+    @Override
     public void setY(int y) {
         this.registers.Y = y & 0xFF;
         setZeroAndNegative(this.registers.Y);
     }
 
+    @Override
     public void setSP(int sp) {
         this.registers.SP = sp & 0xFF;
         setZeroAndNegative(this.registers.SP);
     }
 
+    @Override
     public void setPC(int pc) {
         this.registers.PC = pc & 0xFFFF;
     }
 
+    @Override
     public void setCarry(boolean carry) {
         this.carry = carry;
     }
 
+    @Override
     public void setZero(boolean zero) {
         this.zero = zero;
     }
 
+    @Override
     public void setInterruptDisable(boolean interruptDisable) {
         this.interruptDisable = interruptDisable;
     }
 
+    @Override
     public void setDecimal(boolean decimal) {
         this.decimal = decimal;
     }
 
+    @Override
     public void setBreakFlag(boolean breakFlag) {
         this.breakFlag = breakFlag;
     }
 
+    @Override
     public void setUnused(boolean unused) {
         this.unused = unused;
     }
 
+    @Override
     public void setOverflow(boolean overflow) {
         this.overflow = overflow;
     }
 
+    @Override
     public void setNegative(boolean negative) {
         this.negative = negative;
     }

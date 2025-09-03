@@ -20,11 +20,13 @@ import com.nesemu.rom.INesRom;
  */
 public class NesEmulator {
     private final CPU cpu;
-    private final Bus bus; // system bus (CPU visible view via iBus)
+    private final NesBus bus; // system bus (CPU visible view via iBus)
     private final Ppu2C02 ppu; // minimal PPU skeleton
     private final Mapper mapper; // current mapper (Mapper0 or Mapper3 for now)
 
-    // Legacy path (kept for existing tests using Memory directly)
+    /**
+     * Legacy path: build minimal stack with no PPU or mapper (for CPU unit tests).
+     */
     public NesEmulator() {
         this.bus = new Bus();
         this.ppu = null;
@@ -32,7 +34,10 @@ public class NesEmulator {
         this.cpu = new CPU(bus);
     }
 
-    // New path: build full stack from ROM (mapper 0 only for now)
+    /**
+     * New path: build full stack from ROM
+     * @param rom
+     */
     public NesEmulator(INesRom rom) {
         int mapperNum = rom.getHeader().getMapper();
         switch (mapperNum) {
@@ -51,32 +56,46 @@ public class NesEmulator {
         this.bus = new Bus();
         bus.attachPPU(ppu);
         bus.attachMapper(mapper, rom);
-        NesBus cpuBus = bus;
-        this.cpu = new CPU(cpuBus);
-        // Wire PPU -> CPU callback path for NMI generation
+        this.cpu = new CPU(bus);
         this.ppu.attachCPU(this.cpu);
-        // After CPU reset, PC set from reset vector.
     }
 
+    /**
+     * Get the CPU instance (for direct control in tests or introspection).
+     * @return
+     */
     public CPU getCpu() {
         return cpu;
     }
 
-    public Bus getBus() {
+    /**
+     * Get the Bus instance (for direct memory access in tests or introspection).
+     * @return
+     */
+    public NesBus getBus() {
         return bus;
     }
 
+    /**
+     * Get the PPU instance (for direct control in tests or introspection).
+     * @return
+     */
     public Ppu2C02 getPpu() {
         return ppu;
     }
 
+    /**
+     * Reset CPU and PPU to power-on state (PC from reset vector).
+     */
     public void reset() {
         cpu.reset();
         if (ppu != null)
             ppu.reset();
     }
 
-    /** Run N CPU cycles (each CPU cycle advances PPU 3 cycles). */
+    /**
+     * Run N CPU cycles (each CPU cycle advances PPU 3 cycles). 
+     */
     public void runCycles(long cpuCycles) {
         if (bus == null) {
             // Legacy mode: no PPU stepping
