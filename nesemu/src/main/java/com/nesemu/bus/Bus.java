@@ -121,9 +121,9 @@ public class Bus implements NesBus {
     public void attachMapper(Mapper mapper, INesRom rom) {
         this.mapper = mapper;
         this.rom = rom;
-        if (rom != null && mapper == null) {
+        if (this.rom != null && mapper == null) {
             // Load ROM PRG into backing memory for fallback CPU tests without mapper logic.
-            memory.loadCartridge(rom);
+            memory.loadCartridge(this.rom);
         }
     }
 
