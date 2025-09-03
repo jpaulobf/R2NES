@@ -55,4 +55,17 @@ public interface Mapper {
     /** Single-screen using CIRAM page 1. */
     SINGLE1
     }
+
+    /**
+     * Optional direct access to battery-backed PRG RAM (WRAM) underlying bytes for save persistence.
+     * Implementations with PRG RAM should return a live reference (do NOT copy) so emulator can serialize/deserialize.
+     * Return null if mapper has no PRG RAM.
+     */
+    default byte[] getPrgRam() { return null; }
+
+    /**
+     * Optional hook invoked after PRG RAM has been externally loaded (deserialized) so mapper can refresh any checksums/protection.
+     * Default no-op.
+     */
+    default void onPrgRamLoaded() {}
 }

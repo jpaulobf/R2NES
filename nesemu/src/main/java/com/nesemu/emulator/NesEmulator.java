@@ -12,6 +12,9 @@ import com.nesemu.mapper.Mapper4;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.ppu.PPU;
 import com.nesemu.rom.INesRom;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * NES emulator façade. Now builds a proper Bus + Mapper0 + PPU stack.
@@ -136,5 +139,36 @@ public class NesEmulator {
     /** Expose current rendered frame index (proxy to PPU). */
     public long getFrame() {
         return ppu.getFrame();
+    }
+
+    /**
+     * Persist battery-backed PRG RAM (if mapper exposes) to a .sav file.
+     * @param path target path (e.g., romFile.withExtension(".sav"))
+     * @throws IOException if IO fails
+     */
+    public void saveSram(Path path) throws IOException {
+        if (mapper == null) return;
+        byte[] prgRam = mapper.getPrgRam();
+        if (prgRam == null) return; // nothing to save
+        Files.write(path, prgRam);
+    }
+
+    /**
+     * Load battery-backed PRG RAM from a .sav file if present.
+     * Size mismatch larger than existing buffer is truncated; smaller fills prefix.
+     * @param path path to .sav
+     * @return true if loaded, false if file missing or mapper has no PRG RAM
+     * @throws IOException on IO error
+     */
+    public boolean loadSram(Path path) throws IOException {
+        if (mapper == null) return false;
+        byte[] buf = mapper.getPrgRam();
+        if (buf == null) return false;
+        if (!Files.exists(path)) return false;
+        byte[] data = Files.readAllBytes(path);
+        int len = Math.min(buf.length, data.length);
+        System.arraycopy(data, 0, buf, 0, len);
+        mapper.onPrgRamLoaded();
+        return true;
     }
 }

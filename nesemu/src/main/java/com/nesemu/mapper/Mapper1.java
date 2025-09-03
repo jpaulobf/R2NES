@@ -25,6 +25,11 @@ public class Mapper1 implements Mapper {
     private final byte[] prg;
     private final byte[] chr; // may be length 0 => CHR RAM allocated
     private final byte[] chrRam;
+    /**
+     * Optional 8KB battery backed PRG RAM (WRAM) at $6000-$7FFF. Many MMC1 games
+     * (e.g. Zelda) rely on this.
+     */
+    private final byte[] prgRam; // null if not allocated
     private final int prg16kBanks; // number of 16KB banks
     // (chr4kBanks not currently needed for logic; computed implicitly when mapping)
 
@@ -50,6 +55,11 @@ public class Mapper1 implements Mapper {
         this.prg16kBanks = rom.getHeader().getPrgRomPages(); // 16KB units
         this.chrRam = (chr.length == 0) ? new byte[0x2000] : null; // 8KB RAM
         this.verticalFromHeader = rom.getHeader().isVerticalMirroring();
+        // Battery flag available via rom.getHeader().isBatteryBacked(); not yet used
+        // for conditional persistence.
+        // Allocate PRG RAM unconditionally for now (some non-battery MMC1 carts also
+        // have WRAM). Could gate on header if desired.
+        this.prgRam = new byte[0x2000];
     }
 
     private void log(String fmt, Object... args) {
@@ -62,8 +72,15 @@ public class Mapper1 implements Mapper {
     @Override
     public int cpuRead(int address) {
         address &= 0xFFFF;
+        // $6000-$7FFF: PRG RAM (battery backed)
+        if (address >= 0x6000 && address < 0x8000) {
+            if (prgRam != null) {
+                return prgRam[address - 0x6000] & 0xFF;
+            }
+            return 0; // no RAM allocated
+        }
         if (address < 0x8000)
-            return 0;
+            return 0; // other lower regions handled by Bus (internal RAM / IO)
         int mode = (regControl >> 2) & 0x03; // PRG mode
         if (mode <= 1) { // 32KB switch (ignore low bit of regPrgBank)
             int bank32 = (regPrgBank & 0x0E) >> 1; // 32KB bank index
@@ -105,8 +122,16 @@ public class Mapper1 implements Mapper {
 
     @Override
     public void cpuWrite(int address, int value) {
-        if ((address & 0x8000) == 0)
+        address &= 0xFFFF;
+        // Handle PRG RAM writes ($6000-$7FFF)
+        if (address >= 0x6000 && address < 0x8000) {
+            if (prgRam != null) {
+                prgRam[address - 0x6000] = (byte) (value & 0xFF);
+            }
             return;
+        }
+        if ((address & 0x8000) == 0)
+            return; // ignore writes outside mapper control range
         value &= 0xFF;
         if ((value & 0x80) != 0) { // reset shift
             shift = 0x10;
@@ -221,5 +246,10 @@ public class Mapper1 implements Mapper {
 
     public int getPrgBank() {
         return regPrgBank & 0x1F;
+    }
+
+    @Override
+    public byte[] getPrgRam() {
+        return prgRam; // direct reference for save/load
     }
 }
