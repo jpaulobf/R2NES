@@ -25,15 +25,15 @@ ROM precedence:
 2. `rom=` in `emulator.ini`.
 Example:
 ```powershell
-java -cp target/R2NES-X.X.jar com.nesemu.Main --frames=60
+java -cp target/R2NES-X.X.jar --frames=60
 ```
 GUI + HUD:
 ```powershell
-java -cp target/R2NES-X.X.jar com.nesemu.Main --gui --hud
+java -cp target/R2NES-X.X.jar --gui --hud
 ```
 Explicit override:
 ```powershell
-java -cp target/R2NES-X.X.jar com.nesemu.Main D:\path\game.nes --gui --hud
+java -cp target/R2NES-X.X.jar D:\path\game.nes --gui --hud
 ```
 
 ### Synthetic Background Test Modes
@@ -43,7 +43,7 @@ java -cp target/R2NES-X.X.jar com.nesemu.Main D:\path\game.nes --gui --hud
 | `--test-bands-v` | 5 vertical bands (~51 px each) |
 | `--test-checker` | 8x8 checkerboard (4 colors) |
 ```powershell
-java -cp target/R2NES-X.X.jar com.nesemu.Main --gui --test-bands-h --hud
+java -cp target/R2NES-X.X.jar --gui --test-bands-h --hud
 ```
 Notes: forced palette indices 1..5, grayscale bit ignored, HUD shows frame/scanline/cycle/fineX.
 
@@ -140,15 +140,15 @@ Precedência:
 2. `rom=` no `emulator.ini`.
 Exemplo:
 ```powershell
-java -cp target/R2NES-X.X.jar com.nesemu.Main --frames=60
+java -cp target/R2NES-X.X.jar --frames=60
 ```
 GUI + HUD:
 ```powershell
-java -cp target/R2NES-X.X.jar com.nesemu.Main --gui --hud
+java -cp target/R2NES-X.X.jar --gui --hud
 ```
 Override:
 ```powershell
-java -cp target/R2NES-X.X.jar com.nesemu.Main D:\caminho\jogo.nes --gui --hud
+java -cp target/R2NES-X.X.jar D:\caminho\jogo.nes --gui --hud
 ```
 
 ### Modos Sintéticos
