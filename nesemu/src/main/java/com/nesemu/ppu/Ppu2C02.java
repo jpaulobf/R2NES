@@ -7,85 +7,61 @@ import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
 
 /**
- * Minimal 2C02 PPU skeleton: implements core registers and a basic
- * cycle/scanline counter.
- *
- * Exposed behaviour right now:
- * - write/read $2000-$2007 via Bus (Bus will call readRegister/writeRegister
- * when integrated)
- * - status ($2002) vblank bit set at scanline 241, cleared at pre-render (-1)
- * - simple VRAM address latch (PPUADDR) and increment logic (PPUDATA increments
- * by 1 or 32)
- * - internal buffer for PPUDATA read delay emulation (return buffered & fill
- * new)
- *
- * Missing (future): pattern fetch pipeline, nametable/palette storage,
- * mirroring, sprite system.
+ * 2C02 PPU implementation (NTSC variant).
+ * Partial implementation focused on basic background and sprite rendering
+ * sufficient to run simple test ROMs and homebrew.
+ * Does not implement all PPU quirks or modes (no scrolling,
+ * no sprite zero hit, no sprite overflow, no
+ * advanced mappers with IRQ, no DMC/PCM audio, no extended palettes,
+ * no PPU1.0 quirks, etc.).
  */
-
 public class Ppu2C02 implements PPU {
-    // Global verbose logging toggle (covers internal debug/instrumentation prints)
-    private static volatile boolean verboseLogging = true;
-
-    public static void setVerboseLogging(boolean enable) {
-        verboseLogging = enable;
-    }
-
-    public static boolean isVerboseLogging() {
-        return verboseLogging;
-    }
-
-    private static void vprintf(String fmt, Object... args) {
-        if (verboseLogging)
-            Log.debug(PPU, fmt, args);
-    }
 
     // Optional CPU callback for NMI (set by Bus/emulator)
     private CPU cpu;
+
     // Optional mapper reference (for CHR access + mirroring metadata)
     private Mapper mapper;
-
-    public void attachCPU(CPU cpu) {
-        this.cpu = cpu;
-    }
-
-    public void attachMapper(Mapper mapper) {
-        this.mapper = mapper;
-    }
 
     // Registers
     private int regCTRL; // $2000
     private int regMASK; // $2001
     private int regSTATUS; // $2002
     private int oamAddr; // $2003
+
     // $2004 OAMDATA (not implemented yet)
     // Object Attribute Memory (64 sprites * 4 bytes)
     private final byte[] oam = new byte[256];
+
     // Sprite evaluation buffer: hardware draws max 8, but in extended (unlimited)
-    // mode we allow drawing up to 40 for debugging/visualization. Buffer sized for
-    // 40.
+    // mode we allow drawing up to 64 for debugging/visualization. Buffer sized for
+    // 64.
     private static final int HW_SPRITE_LIMIT = 8;
     private static final int EXTENDED_SPRITE_DRAW_LIMIT = 64; // extended debug: allow drawing all sprites on a scanline
     private final int[] spriteIndices = new int[EXTENDED_SPRITE_DRAW_LIMIT];
     private int spriteCountThisLine = 0;
+    
     // Debug/feature flag: allow disabling the hardware 8-sprite-per-scanline limit
     private boolean unlimitedSprites = false;
+    
     // Cached sprite vertical ranges (top/bottom) to avoid recomputing each scanline
     private final int[] spriteTop = new int[64];
     private final int[] spriteBottom = new int[64];
     private boolean spriteRangesDirty = true;
     private int cachedSpriteHeight = -1;
+    
     // Sprite Y semantics flag: false = test-friendly (OAM Y is top), true =
     // hardware (OAM Y = top-1)
     private boolean spriteYHardware = false;
+    
     // Secondary OAM simulation and prepared sprite list for next scanline
     private final byte[] secondaryOam = new byte[32]; // 8 sprites * 4 bytes
     private final int[] preparedSpriteIndices = new int[EXTENDED_SPRITE_DRAW_LIMIT];
     private int preparedSpriteCount = 0;
-    private int preparedLine = -2; // which scanline the prepared list corresponds to
-    // $2005 PPUSCROLL (x,y latch)
-    // $2006 PPUADDR (VRAM address latch)
-    // $2007 PPUDATA
+    private int preparedLine = -2;  // which scanline the prepared list corresponds to
+                                    // $2005 PPUSCROLL (x,y latch)
+                                    // $2006 PPUADDR (VRAM address latch)
+                                    // $2007 PPUDATA
 
     // VRAM address latch / toggle
     private boolean addrLatchHigh = true; // true -> next write is high byte
@@ -103,6 +79,7 @@ public class Ppu2C02 implements PPU {
 
     // Single-shot NMI latch (prevent multiple nmi() calls inside same vblank entry)
     private boolean nmiFiredThisVblank = false;
+
     // Debug instrumentation for NMI vs VBlank timing
     private boolean debugNmiLog = false;
     private int debugNmiLogLimit = 200;
@@ -116,25 +93,8 @@ public class Ppu2C02 implements PPU {
     private final int[] frameIndexBuffer = new int[256 * 240]; // composite (background then sprites)
     private final int[] bgBaseIndexBuffer = new int[256 * 240]; // original background only (pre-sprite)
 
-    // Synthetic test patterns
-    private static final int TEST_NONE = 0;
-    private static final int TEST_BANDS_H = 1;
-    private static final int TEST_BANDS_V = 2;
-    private static final int TEST_CHECKER = 3;
-    private int testPatternMode = TEST_NONE;
-    // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
-    private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
-    // Extended attribute writes log
-    private static final boolean LOG_ATTR = Boolean.getBoolean("nes.ppu.logAttr");
-    // If true, don't cap register write logs
-    private static final boolean LOG_EXTENDED = Boolean.getBoolean("nes.ppu.logExtended");
-
     // Palette subsystem
     private final Palette palette = new Palette();
-    // Palette write logging
-    private boolean paletteWriteLog = false;
-    private int paletteWriteLogLimit = 0;
-    private int paletteWriteLogCount = 0;
 
     // --- Background rendering simplified ---
     // Pattern tables + nametables (2x1KB) temporary internal storage
@@ -147,13 +107,42 @@ public class Ppu2C02 implements PPU {
 
     // Latches
     private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
-    // Left-shift mode: fineX used as tap offset (no pre-shift flag needed)
-    // Raw background palette index per pixel (0..15) stored for tests (pattern 0 ->
-    // 0)
-    // Already used internally in produceBackgroundPixel; accessor added below.
-    // Removed hack fields (firstTileReady, scanlinePixelCounter) in favour of
-    // direct cycle-based x computation
 
+    // Pre-render prefetch promotion state
+    private boolean prefetchHadFirstTile = false;
+    private int prefetchPatternLowA = 0;
+    private int prefetchPatternHighA = 0;
+    private int prefetchAttrLowA = 0;
+    private int prefetchAttrHighA = 0;
+
+    // --- Early register write logging (first few only to avoid spam) ---
+    private static final int EARLY_WRITE_LOG_LIMIT = 40; // cap (unless LOG_EXTENDED)
+    private int earlyWriteLogCount = 0;
+
+    // Tile matrix sampling mode (default "first")
+    private String tileMatrixMode = "first";
+
+    // Força habilitar background independentemente do valor escrito em $2001
+    private boolean forceBgEnable = false;
+
+    // Força habilitar sprites independentemente do valor escrito em $2001
+    private boolean forceSpriteEnable = false;
+    
+    // Força habilitar NMI mesmo se bit não setado pelo jogo
+    private boolean forceNmiEnable = false;
+
+
+    @Override
+    public void attachCPU(CPU cpu) {
+        this.cpu = cpu;
+    }
+
+    @Override
+    public void attachMapper(Mapper mapper) {
+        this.mapper = mapper;
+    }
+
+    @Override
     public void setNmiCallback(Runnable cb) {
         this.nmiCallback = cb;
     }
@@ -292,27 +281,7 @@ public class Ppu2C02 implements PPU {
         }
     }
 
-    // Pre-render prefetch promotion state
-    private boolean prefetchHadFirstTile = false;
-    private int prefetchPatternLowA = 0;
-    private int prefetchPatternHighA = 0;
-    private int prefetchAttrLowA = 0;
-    private int prefetchAttrHighA = 0;
-
-    private void fireNmi() {
-        nmiFiredThisVblank = true;
-        if (cpu != null) {
-            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
-                Log.debug(PPU, "[PPU NMI->CPU] frame=%d scan=%d cyc=%d", frame, scanline, cycle);
-                debugNmiLogCount++;
-            }
-            cpu.nmi();
-        }
-        if (nmiCallback != null)
-            nmiCallback.run();
-    }
-
-    // --- Register access (to be wired by Bus) ---
+    @Override
     public int readRegister(int reg) {
         switch (reg & 0x7) {
             case 2: { // $2002 PPUSTATUS
@@ -344,6 +313,7 @@ public class Ppu2C02 implements PPU {
         }
     }
 
+    @Override
     public void writeRegister(int reg, int value) {
         value &= 0xFF;
         switch (reg & 0x7) {
@@ -436,25 +406,818 @@ public class Ppu2C02 implements PPU {
         }
     }
 
-    // --- DMA support (Bus copies 256 bytes here) ---
-    /**
-     * Write a single OAM byte at the given index (0-255) used by DMA copy.
-     * Does not affect OAMADDR auto-increment (DMA writes are independent of $2003).
-     */
+    @Override
     public void dmaOamWrite(int index, int value) {
         oam[index & 0xFF] = (byte) (value & 0xFF);
         spriteRangesDirty = true;
         preparedLine = -2;
     }
 
-    /** Direct OAM byte read (test/debug). */
+    @Override
     public int dmaOamRead(int index) {
         return oam[index & 0xFF] & 0xFF;
     }
+    
+    @Override
+    public void enablePipelineLog(int limit) {
+        this.pipelineLogEnabled = true;
+        if (limit > 0)
+            this.pipelineLogLimit = limit;
+        this.pipelineLogCount = 0;
+        pipelineLog.setLength(0);
+        Log.info(PPU, "Pipeline log enabled limit=%d", pipelineLogLimit);
+    }
 
-    // --- Early register write logging (first few only to avoid spam) ---
-    private static final int EARLY_WRITE_LOG_LIMIT = 40; // cap (unless LOG_EXTENDED)
-    private int earlyWriteLogCount = 0;
+    @Override
+    public String consumePipelineLog() {
+        String s = pipelineLog.toString();
+        pipelineLog.setLength(0);
+        pipelineLogCount = 0;
+        return s;
+    }
+
+    // --- Utility: reverse 8-bit value (bit7<->bit0) ---
+    // reverseByte removed (not required for left-shift orientation)
+
+    // (No priming helper in accurate pipeline mode)
+
+    // priming hack removed – rely on pre-render line (if enabled early) or natural
+    // 8-cycle pipeline delay
+
+    // Placeholder memory space for pattern/nametables/palette until Bus integration
+    // fleshed out.
+    private int ppuMemoryRead(int addr) {
+        addr &= 0x3FFF;
+        if (addr < 0x2000) { // pattern tables
+            if (mapper != null) {
+                return mapper.ppuRead(addr) & 0xFF;
+            }
+            return patternTables[addr] & 0xFF; // fallback (tests / bootstrap)
+        } else if (addr < 0x3F00) { // nametables (0x2000-0x2FFF)
+            int nt = (addr - 0x2000) & 0x0FFF;
+            int index = nt & 0x03FF; // 1KB region within a logical table
+            int table = (nt >> 10) & 0x03; // 0..3 logical tables before mirroring
+            int physical = table; // map to 0 or 1 based on mirroring
+            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL; // default vertical
+            switch (mt) {
+                case VERTICAL -> physical = table & 0x01; // 0,1,0,1
+                case HORIZONTAL -> physical = (table >> 1); // 0,0,1,1
+                case SINGLE0 -> physical = 0;
+                case SINGLE1 -> physical = 1;
+                default -> physical = table & 0x01;
+            }
+            return nameTables[(physical * 0x0400) + index] & 0xFF;
+        } else if (addr < 0x4000) {
+            // Palette RAM $3F00-$3F1F mirrored every 32 bytes up to 0x3FFF
+            return palette.read(addr);
+        }
+        return 0;
+    }
+
+    private void ppuMemoryWrite(int addr, int value) {
+        addr &= 0x3FFF;
+        value &= 0xFF;
+        if (addr < 0x2000) {
+            if (mapper != null) {
+                mapper.ppuWrite(addr, value);
+            } else {
+                patternTables[addr] = (byte) value; // CHR RAM case
+            }
+        } else if (addr < 0x3F00) {
+            int nt = (addr - 0x2000) & 0x0FFF;
+            int index = nt & 0x03FF;
+            int table = (nt >> 10) & 0x03; // logical
+            int physical;
+            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
+            switch (mt) {
+                case VERTICAL -> physical = table & 0x01;
+                case HORIZONTAL -> physical = (table >> 1);
+                case SINGLE0 -> physical = 0;
+                case SINGLE1 -> physical = 1;
+                default -> physical = table & 0x01;
+            }
+            nameTables[(physical * 0x0400) + index] = (byte) value;
+            // Attribute table logging ($23C0-$23FF etc.) after mirroring mapping
+            // Reconstruct base logical address for determining attribute section
+            int logicalBase = 0x2000 | nt; // before mirroring
+            int logicalInTable = logicalBase & 0x03FF; // 0..0x3FF inside logically selected table
+            boolean isAttr = (logicalInTable & 0x03C0) == 0x03C0;
+            if (!isAttr && nametableRuntimeLog) {
+                boolean pass = true;
+                if (nametableBaselineFilter >= 0 && value == nametableBaselineFilter)
+                    pass = false;
+                if (pass && nametableLogCount < nametableLogLimit) {
+                    vprintf(
+                            "[PPU NT WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d index=%03X%n",
+                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical, index);
+                    nametableLogCount++;
+                }
+            }
+            if (isAttr && (LOG_ATTR || attrRuntimeLog)) {
+                if (!attrRuntimeLog || attrLogCount < attrLogLimit) {
+                    vprintf("[PPU ATTR WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d%n",
+                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical);
+                    attrLogCount++;
+                }
+            }
+        } else if (addr < 0x4000) {
+            palette.write(addr, value);
+            if (paletteWriteLog && (paletteWriteLogLimit == 0 || paletteWriteLogCount < paletteWriteLogLimit)) {
+                vprintf("[PPU PAL WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d%n", addr, value & 0xFF, frame,
+                        scanline, cycle);
+                paletteWriteLogCount++;
+            }
+        }
+    }
+
+    @Override
+    public int getScanline() {
+        return scanline;
+    }
+
+    @Override
+    public int getCycle() {
+        return cycle;
+    }
+
+    @Override
+    public boolean isInVBlank() {
+        return (regSTATUS & 0x80) != 0;
+    }
+
+    @Override
+    public boolean isVisibleScanline() {
+        return scanline >= 0 && scanline <= 239;
+    }
+
+    @Override
+    public boolean isPreRender() {
+        return scanline == -1;
+    }
+
+    @Override
+    public boolean isPostRender() {
+        return scanline == 240;
+    }
+
+    @Override
+    public long getFrame() {
+        return frame;
+    }
+
+    @Override
+    public void enablePaletteWriteLog(int limit) {
+        this.paletteWriteLog = true;
+        this.paletteWriteLogLimit = Math.max(0, limit);
+        this.paletteWriteLogCount = 0;
+    }
+
+    @Override
+    public int getBackgroundIndex(int x, int y) {
+        if (x < 0 || x >= 256 || y < 0 || y >= 240)
+            return 0;
+        return frameIndexBuffer[y * 256 + x] & 0xFF;
+    }
+
+    @Override
+    public int getRawBackgroundIndex(int x, int y) {
+        if (x < 0 || x >= 256 || y < 0 || y >= 240)
+            return 0;
+        return bgBaseIndexBuffer[y * 256 + x] & 0xFF;
+    }
+
+    @Override
+    public int[] getBackgroundIndexBufferCopy() {
+        int[] copy = new int[frameIndexBuffer.length];
+        System.arraycopy(frameIndexBuffer, 0, copy, 0, frameIndexBuffer.length);
+        return copy;
+    }
+
+    @Override
+    public int getVramAddress() {
+        return vramAddress & 0x7FFF;
+    }
+
+    @Override
+    public int getTempAddress() {
+        return tempAddress & 0x7FFF;
+    }
+
+    @Override
+    public int getFineX() {
+        return fineX & 0x7;
+    }
+
+    @Override
+    public void setVramAddressForTest(int v) {
+        this.vramAddress = v & 0x7FFF;
+    }
+
+    @Override
+    public void setTempAddressForTest(int t) {
+        this.tempAddress = t & 0x7FFF;
+    }
+
+    @Override
+    public void pokeNameTable(int offset, int value) {
+        if (offset >= 0 && offset < nameTables.length)
+            nameTables[offset] = (byte) value;
+    }
+
+    @Override
+    public void pokePattern(int addr, int value) {
+        if (addr >= 0 && addr < patternTables.length)
+            patternTables[addr] = (byte) value;
+    }
+
+    @Override
+    public int getPatternLowShift() {
+        return patternLowShift & 0xFFFF;
+    }
+
+    @Override
+    public int getPatternHighShift() {
+        return patternHighShift & 0xFFFF;
+    }
+
+    @Override
+    public int getAttributeLowShift() {
+        return attributeLowShift & 0xFFFF;
+    }
+
+    @Override
+    public int getAttributeHighShift() {
+        return attributeHighShift & 0xFFFF;
+    }
+
+    @Override
+    public int getNtLatch() {
+        return ntLatch & 0xFF;
+    }
+
+    @Override
+    public int getAtLatch() {
+        return atLatch & 0xFF;
+    }
+
+    @Override
+    public int getPixel(int x, int y) {
+        if (x < 0 || x >= 256 || y < 0 || y >= 240)
+            return 0;
+        return frameIndexBuffer[y * 256 + x];
+    }
+
+    @Override
+    public int[] getFrameBufferRef() { // returns ARGB buffer
+        return frameBuffer;
+    }
+
+    @Override
+    public int[] getFrameBuffer() {
+        return frameBuffer;
+    }
+
+    @Override
+    public void pokePalette(int addr, int value) {
+        palette.write(addr, value);
+    }
+
+    @Override
+    public int readPalette(int addr) {
+        return palette.read(addr);
+    }
+
+    @Override
+    public int getStatusRegister() {
+        return regSTATUS & 0xFF;
+    }
+
+    @Override
+    public int getMaskRegister() {
+        return regMASK & 0xFF;
+    }
+
+    @Override
+    public void dumpBackgroundToPpm(java.nio.file.Path path) {
+        try (java.io.BufferedWriter w = java.nio.file.Files.newBufferedWriter(path)) {
+            w.write("P3\n");
+            w.write("256 240\n255\n");
+            for (int y = 0; y < 240; y++) {
+                for (int x = 0; x < 256; x++) {
+                    int v = frameIndexBuffer[y * 256 + x] & 0x0F;
+                    int g = v * 17; // expand 0..15 to 0..255
+                    w.write(g + " " + g + " " + g + (x == 255 ? "" : " "));
+                }
+                w.write("\n");
+            }
+        } catch (Exception e) {
+            Log.error(PPU, "dumpBackgroundToPpm failed: %s", e.getMessage());
+        }
+    }
+
+    @Override
+    public void printTileIndexMatrix() {
+        // Mode options: "first" (top-left pixel), "center" (pixel 4,4), "nonzero"
+        // (first non-zero pixel in tile)
+        String mode = tileMatrixMode;
+        StringBuilder sb = new StringBuilder();
+        for (int ty = 0; ty < 30; ty++) {
+            for (int tx = 0; tx < 32; tx++) {
+                int v = 0;
+                if ("first".equals(mode)) {
+                    v = frameIndexBuffer[(ty * 8) * 256 + tx * 8] & 0x0F;
+                } else if ("center".equals(mode)) {
+                    int x = tx * 8 + 4;
+                    int y = ty * 8 + 4;
+                    v = frameIndexBuffer[y * 256 + x] & 0x0F;
+                } else if ("nonzero".equals(mode)) {
+                    int baseY = ty * 8;
+                    int baseX = tx * 8;
+                    int found = 0;
+                    outer: for (int py = 0; py < 8; py++) {
+                        int rowOff = (baseY + py) * 256 + baseX;
+                        for (int px = 0; px < 8; px++) {
+                            int val = frameIndexBuffer[rowOff + px] & 0x0F;
+                            if (val != 0) {
+                                found = val;
+                                break outer;
+                            }
+                        }
+                    }
+                    v = found;
+                } else {
+                    // fallback to first
+                    v = frameIndexBuffer[(ty * 8) * 256 + tx * 8] & 0x0F;
+                }
+                sb.append(String.format("%X", v));
+            }
+            sb.append('\n');
+        }
+        Log.info(PPU, "TileIndexMatrix\n%s", sb.toString());
+    }
+
+    @Override
+    public void setTileMatrixMode(String mode) {
+        if (mode == null)
+            return;
+        switch (mode.toLowerCase()) {
+            case "first":
+            case "center":
+            case "nonzero":
+                tileMatrixMode = mode.toLowerCase();
+                break;
+            default:
+                // ignore invalid, keep previous
+        }
+    }
+
+    @Override
+    public void printBackgroundIndexHistogram() {
+        int[] counts = new int[16];
+        for (int i = 0; i < frameIndexBuffer.length; i++) {
+            counts[frameIndexBuffer[i] & 0x0F]++;
+        }
+        Log.info(PPU, "--- Background index histogram (count) ---");
+        for (int i = 0; i < 16; i++) {
+            int c = counts[i];
+            if (c > 0) {
+                vprintf("%X: %d%n", i, c);
+            }
+        }
+    }
+
+    @Override
+    public void printNameTableTileIds(int logicalIndex) {
+        if (logicalIndex < 0 || logicalIndex > 3)
+            logicalIndex = 0;
+        vprintf("--- NameTable %d tile IDs ---\n", logicalIndex);
+        MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
+        for (int row = 0; row < 30; row++) {
+            StringBuilder sb = new StringBuilder();
+            for (int col = 0; col < 32; col++) {
+                int logicalAddr = 0x2000 + logicalIndex * 0x0400 + row * 32 + col; // dentro da parte de tiles
+                                                                                   // (0..0x03BF)
+                int nt = (logicalAddr - 0x2000) & 0x0FFF;
+                int index = nt & 0x03FF; // posição dentro da tabela lógica
+                int table = (nt >> 10) & 0x03; // tabela lógica 0..3
+                int physical;
+                switch (mt) {
+                    case VERTICAL -> physical = table & 0x01;
+                    case HORIZONTAL -> physical = (table >> 1);
+                    case SINGLE0 -> physical = 0;
+                    case SINGLE1 -> physical = 1;
+                    default -> physical = table & 0x01;
+                }
+                int value = nameTables[(physical * 0x0400) + index] & 0xFF;
+                sb.append(String.format("%02X", value));
+                if (col != 31)
+                    sb.append(' ');
+            }
+            Log.info(PPU, sb.toString());
+        }
+    }
+
+    @Override
+    public void dumpPatternTile(int tile) {
+        tile &= 0xFF;
+        // Usa bit 4 (0x10) de PPUCTRL para seleção da pattern table de BACKGROUND
+        // (igual ao pipeline)
+        int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + tile * 16;
+        vprintf("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
+        for (int row = 0; row < 8; row++) {
+            int lo = ppuMemoryRead(base + row) & 0xFF;
+            int hi = ppuMemoryRead(base + row + 8) & 0xFF;
+            StringBuilder bits = new StringBuilder();
+            for (int bit = 7; bit >= 0; bit--) {
+                int b0 = (lo >> bit) & 1;
+                int b1 = (hi >> bit) & 1;
+                int pix = (b1 << 1) | b0;
+                bits.append(pix);
+            }
+            Log.info(PPU, bits.toString());
+        }
+    }
+
+    @Override
+    public void enableBackgroundSampleDebug(int limit) {
+        this.debugBgSample = true;
+        this.debugBgSampleLimit = (limit <= 0 ? 50 : limit);
+        this.debugBgSampleCount = 0;
+        vprintf("[PPU] Background sample debug enabled (limit=%d)\n", this.debugBgSampleLimit);
+    }
+
+    @Override
+    public void enableBackgroundSampleDebugAll(int limit) {
+        this.debugBgSampleAll = true;
+        this.debugBgSample = false; // prevalece modo ALL
+        this.debugBgSampleLimit = (limit <= 0 ? 200 : limit);
+        this.debugBgSampleCount = 0;
+        vprintf("[PPU] Background sample ALL debug enabled (limit=%d)\n", this.debugBgSampleLimit);
+    }
+
+    @Override
+    public void setSimpleTiming(boolean simple) {
+        // Deprecated: manter assinatura para compatibilidade de CLI, sem efeito.
+        if (simple) {
+            Log.info(PPU, "simpleTiming ignorado (deprecated, pipeline unificado)");
+        }
+    }
+
+    @Override
+    public void setTestPatternMode(String mode) {
+        int prev = this.testPatternMode;
+        switch (mode == null ? "" : mode.toLowerCase()) {
+            case "h":
+            case "hor":
+            case "hbands":
+            case "bands-h":
+                testPatternMode = TEST_BANDS_H;
+                break;
+            case "v":
+            case "ver":
+            case "vbands":
+            case "bands-v":
+                testPatternMode = TEST_BANDS_V;
+                break;
+            case "checker":
+            case "xadrez":
+            case "check":
+                testPatternMode = TEST_CHECKER;
+                break;
+            default:
+                testPatternMode = TEST_NONE;
+                break;
+        }
+        if (testPatternMode != TEST_NONE) {
+            // Initialize palette entries for indices 1..5 with distinct vivid colors.
+            palette.write(0x3F00, 0x00);
+            int[] cols = { 0x01, 0x21, 0x11, 0x31, 0x16 }; // reused set
+            for (int i = 0; i < cols.length; i++) {
+                palette.write(0x3F01 + i, cols[i]);
+            }
+        }
+        Log.info(PPU, "testPatternMode=%d (prev=%d)", testPatternMode, prev);
+    }
+
+    @Override
+    public void enableAttributeRuntimeLog(int limit) {
+        this.attrRuntimeLog = true;
+        if (limit > 0)
+            this.attrLogLimit = limit;
+        this.attrLogCount = 0;
+        vprintf("[PPU] Attribute runtime logging enabled (limit=%d)\n", attrLogLimit);
+    }
+
+    @Override
+    public void enableNametableRuntimeLog(int limit, int baselineFilter) {
+        this.nametableRuntimeLog = true;
+        if (limit > 0)
+            this.nametableLogLimit = limit;
+        this.nametableLogCount = 0;
+        this.nametableBaselineFilter = baselineFilter;
+        vprintf("[PPU] Nametable runtime logging enabled (limit=%d, baselineFilter=%s)\n", nametableLogLimit,
+                baselineFilter >= 0 ? String.format("%02X", baselineFilter) : "NONE");
+    }
+
+    @Override
+    public void dumpFirstBackgroundSamples(int n) {
+        if (!debugBgSample)
+            return;
+        if (debugBgSampleCount > 0)
+            return; // já temos logs realtime
+        int printed = 0;
+        for (int y = 0; y < 240 && printed < n; y++) {
+            for (int x = 0; x < 256 && printed < n; x++) {
+                int idx = frameIndexBuffer[y * 256 + x] & 0x0F;
+                if (idx != 0) {
+                    vprintf("[BG-SAMPLE-FALLBACK] frame=%d x=%d y=%d idx=%X\n", frame, x, y, idx);
+                    printed++;
+                }
+            }
+        }
+        if (printed == 0) {
+            Log.info(PPU, "[BG-SAMPLE-FALLBACK] Nenhum pixel não-zero encontrado neste frame.");
+        }
+    }
+
+    @Override
+    public void printBackgroundColumnStats() {
+        int[] pixelCounts = new int[256];
+        for (int y = 0; y < 240; y++) {
+            int rowOff = y * 256;
+            for (int x = 0; x < 256; x++) {
+                if ((frameIndexBuffer[rowOff + x] & 0x0F) != 0)
+                    pixelCounts[x]++;
+            }
+        }
+        int[] tileCounts = new int[32];
+        for (int t = 0; t < 32; t++) {
+            int sum = 0;
+            for (int x = t * 8; x < t * 8 + 8; x++)
+                sum += pixelCounts[x];
+            tileCounts[t] = sum; // max 8*240=1920
+        }
+        Log.info(PPU, "--- Background non-zero pixel counts per pixel column (only columns >0) ---");
+        StringBuilder sb = new StringBuilder();
+        int shown = 0;
+        for (int x = 0; x < 256; x++) {
+            if (pixelCounts[x] != 0) {
+                sb.append(String.format("%d:%d ", x, pixelCounts[x]));
+                shown++;
+                if (shown % 16 == 0) {
+                    Log.info(PPU, sb.toString());
+                    sb.setLength(0);
+                }
+            }
+        }
+        if (sb.length() > 0)
+            Log.info(PPU, sb.toString());
+        if (shown == 0)
+            Log.info(PPU, "(nenhuma coluna com pixels !=0)");
+        Log.info(PPU, "--- Background non-zero pixel counts per tile column (0..31) ---");
+        for (int t = 0; t < 32; t++) {
+            int cnt = tileCounts[t];
+            double pct = (cnt / 1920.0) * 100.0;
+            vprintf("T%02d=%4d (%.1f%%)  %s%n", t, cnt, pct, (t < 4 ? "<- esquerda 32px" : ""));
+        }
+    }
+
+    @Override
+    public void setForceBackgroundEnable(boolean enable) {
+        this.forceBgEnable = enable;
+        Log.info(PPU, "forceBgEnable=%s", enable);
+    }
+
+    @Override
+    public void setForceSpriteEnable(boolean enable) {
+        this.forceSpriteEnable = enable;
+        Log.info(PPU, "forceSpriteEnable=%s", enable);
+    }
+
+    @Override
+    public void setForceNmiEnable(boolean enable) {
+        this.forceNmiEnable = enable;
+        Log.info(PPU, "forceNmiEnable=%s", enable);
+    }
+
+    @Override
+    public void enableNmiDebugLog(int limit) {
+        this.debugNmiLog = true;
+        if (limit > 0)
+            this.debugNmiLogLimit = limit;
+        this.debugNmiLogCount = 0;
+        vprintf("[PPU] NMI debug log enabled (limit=%d)\n", debugNmiLogLimit);
+    }
+
+    @Override
+    public void setUnlimitedSprites(boolean enable) {
+        this.unlimitedSprites = enable;
+    }
+
+    @Override
+    public boolean isUnlimitedSprites() {
+        return unlimitedSprites;
+    }
+
+    @Override
+    public int getLastSpriteCountThisLine() {
+        return spriteCountThisLine;
+    }
+
+    @Override
+    public byte[] getSecondaryOamSnapshot() {
+        byte[] copy = new byte[secondaryOam.length];
+        System.arraycopy(secondaryOam, 0, copy, 0, secondaryOam.length);
+        return copy;
+    }
+
+    @Override
+    public int getSecondaryOamPreparedLine() {
+        return preparedLine;
+    }
+
+    @Override
+    public byte[] getOamCopy() {
+        byte[] c = new byte[oam.length];
+        System.arraycopy(oam, 0, c, 0, oam.length);
+        return c;
+    }
+
+    @Override
+    public int getOamByte(int index) {
+        return oam[index & 0xFF] & 0xFF;
+    }
+
+    @Override
+    public void setSpriteYHardware(boolean enable) {
+        if (this.spriteYHardware != enable) {
+            this.spriteYHardware = enable;
+            spriteRangesDirty = true; // recalc ranges
+            Log.info(PPU, "spriteYHardware=%s", enable);
+        }
+    }
+
+    @Override
+    public boolean isSpriteYHardware() {
+        return spriteYHardware;
+    }
+
+    // --- Minimal sprite system (evaluation + per-pixel overlay) ---
+    // Remove old immediate evaluation, replace with new pipeline methods
+    // --- Sprite system: secondary OAM style preparation (simplified) ---
+    private void evaluateSpritesForLine(int targetLine) {
+        int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
+        if (spriteRangesDirty || spriteHeight != cachedSpriteHeight) {
+            for (int i = 0; i < 64; i++) {
+                int yRaw = oam[i << 2] & 0xFF;
+                // Real hardware: OAM Y holds (top - 1). Sentinel values >= 0xF0 hide the
+                // sprite.
+                // Importante: NÃO fazer wrap com &0xFF após +1; se yRaw==0xFF virar 0 causa
+                // sprite fantasma na linha 0.
+                int top = spriteYHardware ? (yRaw + 1) : yRaw; // sem wrap
+                if (top >= 256) { // yRaw==0xFF => top=256 => oculto
+                    spriteTop[i] = 512; // fora de alcance
+                    spriteBottom[i] = 511;
+                    continue;
+                }
+                int bottom = top + spriteHeight - 1;
+                spriteTop[i] = top;
+                spriteBottom[i] = bottom;
+            }
+            spriteRangesDirty = false;
+            cachedSpriteHeight = spriteHeight;
+        }
+        for (int i = 0; i < 32; i++)
+            secondaryOam[i] = (byte) 0xFF;
+        int found = 0;
+        boolean overflow = false;
+        int capacity = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
+        for (int i = 0; i < 64; i++) {
+            int top = spriteTop[i];
+            int bottom = spriteBottom[i];
+            if (targetLine >= top && targetLine <= bottom) {
+                if (found < capacity) {
+                    preparedSpriteIndices[found] = i;
+                }
+                if (found < HW_SPRITE_LIMIT) {
+                    int base = i << 2;
+                    int sec = found << 2;
+                    secondaryOam[sec] = oam[base];
+                    secondaryOam[sec + 1] = oam[base + 1];
+                    secondaryOam[sec + 2] = oam[base + 2];
+                    secondaryOam[sec + 3] = oam[base + 3];
+                }
+                found++;
+                if (found > HW_SPRITE_LIMIT && !overflow) {
+                    overflow = true; // 9th sprite encountered
+                    if (!unlimitedSprites) {
+                        break; // stop only in hardware mode
+                    }
+                }
+            }
+        }
+        if (overflow) {
+            regSTATUS |= PpuRegs.STATUS_SPR_OVERFLOW;
+        }
+        preparedSpriteCount = Math.min(found, capacity);
+        preparedLine = targetLine;
+    }
+
+    private void publishPreparedSpritesForCurrentLine() {
+        if (preparedLine != scanline) {
+            evaluateSpritesForLine(scanline); // fallback
+        }
+        spriteCountThisLine = preparedSpriteCount;
+        for (int i = 0; i < spriteCountThisLine; i++) {
+            spriteIndices[i] = preparedSpriteIndices[i];
+        }
+    }
+
+    private void overlaySpritePixel() {
+        int xPixel = cycle - 1;
+        int sl = scanline;
+        int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
+        if (xPixel < 8 && (regMASK & PpuRegs.MASK_SPR_LEFT) == 0)
+            return;
+        int bgOriginal = bgBaseIndexBuffer[sl * 256 + xPixel] & 0x0F;
+        int maxDraw = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
+        int drawCount = Math.min(spriteCountThisLine, Math.min(maxDraw, spriteIndices.length));
+        for (int si = 0; si < drawCount; si++) {
+            int spriteIndex = spriteIndices[si];
+            int base = spriteIndex * 4;
+            int y = oam[base] & 0xFF;
+            int tile = oam[base + 1] & 0xFF;
+            int attr = oam[base + 2] & 0xFF;
+            int x = oam[base + 3] & 0xFF;
+            if (xPixel < x || xPixel >= x + 8)
+                continue;
+            int spriteTopY = spriteYHardware ? (y + 1) : y; // sem wrap
+            if (spriteTopY >= 256)
+                continue; // y==0xFF sentinel -> oculto
+            int rowInSprite = sl - spriteTopY;
+            if (rowInSprite < 0 || rowInSprite >= spriteHeight)
+                continue;
+            boolean flipV = (attr & 0x80) != 0;
+            boolean flipH = (attr & 0x40) != 0;
+            int row = flipV ? (spriteHeight - 1 - rowInSprite) : rowInSprite;
+            int addrLo, addrHi;
+            if (spriteHeight == 16) {
+                int tableSelect = tile & 0x01;
+                int baseTileIndex = tile & 0xFE;
+                int half = row / 8;
+                int tileRow = row & 0x7;
+                int actualTile = baseTileIndex + half;
+                int patternTableBase = tableSelect * 0x1000;
+                addrLo = patternTableBase + actualTile * 16 + tileRow;
+                addrHi = addrLo + 8;
+            } else {
+                int patternTableBase = ((regCTRL & PpuRegs.CTRL_SPR_TABLE) != 0 ? 0x1000 : 0x0000);
+                int tileRow = row & 0x7;
+                addrLo = patternTableBase + tile * 16 + tileRow;
+                addrHi = addrLo + 8;
+            }
+            int lo = ppuMemoryRead(addrLo) & 0xFF;
+            int hi = ppuMemoryRead(addrHi) & 0xFF;
+            int colInSprite = xPixel - x;
+            int bit = flipH ? colInSprite : (7 - colInSprite);
+            int p0 = (lo >> bit) & 1;
+            int p1 = (hi >> bit) & 1;
+            int pattern = (p1 << 1) | p0;
+            if (pattern == 0)
+                continue;
+            int paletteGroup = attr & 0x03;
+            int paletteIndex = palette.read(0x3F10 + paletteGroup * 4 + pattern);
+            boolean bgTransparent = bgOriginal == 0;
+            boolean spritePriorityFront = (attr & 0x20) == 0;
+            if (spriteIndex == 0 && pattern != 0 && bgOriginal != 0) {
+                boolean allow = true;
+                if (xPixel < 8) {
+                    if ((regMASK & PpuRegs.MASK_BG_LEFT) == 0 || (regMASK & PpuRegs.MASK_SPR_LEFT) == 0)
+                        allow = false;
+                }
+                if (allow)
+                    regSTATUS |= PpuRegs.STATUS_SPR0_HIT;
+            }
+            if (spritePriorityFront || bgTransparent) {
+                frameIndexBuffer[sl * 256 + xPixel] = paletteIndex & 0x0F;
+                frameBuffer[sl * 256 + xPixel] = palette.getArgb(paletteIndex, regMASK);
+            }
+            break;
+        }
+    }
+
+    private void fireNmi() {
+        nmiFiredThisVblank = true;
+        if (cpu != null) {
+            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
+                Log.debug(PPU, "[PPU NMI->CPU] frame=%d scan=%d cyc=%d", frame, scanline, cycle);
+                debugNmiLogCount++;
+            }
+            cpu.nmi();
+        }
+        if (nmiCallback != null)
+            nmiCallback.run();
+    }
 
     private void logEarlyWrite(int reg, int val) {
         if (LOG_EXTENDED || earlyWriteLogCount < EARLY_WRITE_LOG_LIMIT) {
@@ -725,811 +1488,71 @@ public class Ppu2C02 implements PPU {
         attributeHighShift = ((attributeHighShift << 1) & 0xFFFF);
     }
 
+    //------------------- Helpers -------------------
+
+    // Global verbose logging toggle (covers internal debug/instrumentation prints)
+    private static volatile boolean verboseLogging = true;
+
+    // Synthetic test patterns
+    private static final int TEST_NONE = 0;
+    private static final int TEST_BANDS_H = 1;
+    private static final int TEST_BANDS_V = 2;
+    private static final int TEST_CHECKER = 3;
+    private int testPatternMode = TEST_NONE;
+
+    // Debug flag (can be toggled via system property -Dnes.ppu.debug=true)
+    private static final boolean DEBUG = Boolean.getBoolean("nes.ppu.debug");
+
+    // Extended attribute writes log
+    private static final boolean LOG_ATTR = Boolean.getBoolean("nes.ppu.logAttr");
+
+    // If true, don't cap register write logs
+    private static final boolean LOG_EXTENDED = Boolean.getBoolean("nes.ppu.logExtended");
+
+    // Palette write logging
+    private boolean paletteWriteLog = false;
+    private int paletteWriteLogLimit = 0;
+    private int paletteWriteLogCount = 0;
+
     // --- Pipeline diagnostics ---
     private boolean pipelineLogEnabled = false;
     private int pipelineLogLimit = 600; // enough for first few tiles
     private int pipelineLogCount = 0;
     private final StringBuilder pipelineLog = new StringBuilder();
 
-    public void enablePipelineLog(int limit) {
-        this.pipelineLogEnabled = true;
-        if (limit > 0)
-            this.pipelineLogLimit = limit;
-        this.pipelineLogCount = 0;
-        pipelineLog.setLength(0);
-        Log.info(PPU, "Pipeline log enabled limit=%d", pipelineLogLimit);
-    }
-
-    public String consumePipelineLog() {
-        String s = pipelineLog.toString();
-        pipelineLog.setLength(0);
-        pipelineLogCount = 0;
-        return s;
-    }
-
-    // --- Utility: reverse 8-bit value (bit7<->bit0) ---
-    // reverseByte removed (not required for left-shift orientation)
-
-    // (No priming helper in accurate pipeline mode)
-
-    // priming hack removed – rely on pre-render line (if enabled early) or natural
-    // 8-cycle pipeline delay
-
-    // Placeholder memory space for pattern/nametables/palette until Bus integration
-    // fleshed out.
-    private int ppuMemoryRead(int addr) {
-        addr &= 0x3FFF;
-        if (addr < 0x2000) { // pattern tables
-            if (mapper != null) {
-                return mapper.ppuRead(addr) & 0xFF;
-            }
-            return patternTables[addr] & 0xFF; // fallback (tests / bootstrap)
-        } else if (addr < 0x3F00) { // nametables (0x2000-0x2FFF)
-            int nt = (addr - 0x2000) & 0x0FFF;
-            int index = nt & 0x03FF; // 1KB region within a logical table
-            int table = (nt >> 10) & 0x03; // 0..3 logical tables before mirroring
-            int physical = table; // map to 0 or 1 based on mirroring
-            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL; // default vertical
-            switch (mt) {
-                case VERTICAL -> physical = table & 0x01; // 0,1,0,1
-                case HORIZONTAL -> physical = (table >> 1); // 0,0,1,1
-                case SINGLE0 -> physical = 0;
-                case SINGLE1 -> physical = 1;
-                default -> physical = table & 0x01;
-            }
-            return nameTables[(physical * 0x0400) + index] & 0xFF;
-        } else if (addr < 0x4000) {
-            // Palette RAM $3F00-$3F1F mirrored every 32 bytes up to 0x3FFF
-            return palette.read(addr);
-        }
-        return 0;
-    }
-
-    private void ppuMemoryWrite(int addr, int value) {
-        addr &= 0x3FFF;
-        value &= 0xFF;
-        if (addr < 0x2000) {
-            if (mapper != null) {
-                mapper.ppuWrite(addr, value);
-            } else {
-                patternTables[addr] = (byte) value; // CHR RAM case
-            }
-        } else if (addr < 0x3F00) {
-            int nt = (addr - 0x2000) & 0x0FFF;
-            int index = nt & 0x03FF;
-            int table = (nt >> 10) & 0x03; // logical
-            int physical;
-            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
-            switch (mt) {
-                case VERTICAL -> physical = table & 0x01;
-                case HORIZONTAL -> physical = (table >> 1);
-                case SINGLE0 -> physical = 0;
-                case SINGLE1 -> physical = 1;
-                default -> physical = table & 0x01;
-            }
-            nameTables[(physical * 0x0400) + index] = (byte) value;
-            // Attribute table logging ($23C0-$23FF etc.) after mirroring mapping
-            // Reconstruct base logical address for determining attribute section
-            int logicalBase = 0x2000 | nt; // before mirroring
-            int logicalInTable = logicalBase & 0x03FF; // 0..0x3FF inside logically selected table
-            boolean isAttr = (logicalInTable & 0x03C0) == 0x03C0;
-            if (!isAttr && nametableRuntimeLog) {
-                boolean pass = true;
-                if (nametableBaselineFilter >= 0 && value == nametableBaselineFilter)
-                    pass = false;
-                if (pass && nametableLogCount < nametableLogLimit) {
-                    vprintf(
-                            "[PPU NT WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d index=%03X%n",
-                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical, index);
-                    nametableLogCount++;
-                }
-            }
-            if (isAttr && (LOG_ATTR || attrRuntimeLog)) {
-                if (!attrRuntimeLog || attrLogCount < attrLogLimit) {
-                    vprintf("[PPU ATTR WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d%n",
-                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical);
-                    attrLogCount++;
-                }
-            }
-        } else if (addr < 0x4000) {
-            palette.write(addr, value);
-            if (paletteWriteLog && (paletteWriteLogLimit == 0 || paletteWriteLogCount < paletteWriteLogLimit)) {
-                vprintf("[PPU PAL WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d%n", addr, value & 0xFF, frame,
-                        scanline, cycle);
-                paletteWriteLogCount++;
-            }
-        }
-    }
-
-    // Accessors for future tests/debug
-    public int getScanline() {
-        return scanline;
-    }
-
-    public int getCycle() {
-        return cycle;
-    }
-
-    public boolean isInVBlank() {
-        return (regSTATUS & 0x80) != 0;
-    }
-
-    public boolean isVisibleScanline() {
-        return scanline >= 0 && scanline <= 239;
-    }
-
-    public boolean isPreRender() {
-        return scanline == -1;
-    }
-
-    public boolean isPostRender() {
-        return scanline == 240;
-    }
-
-    public long getFrame() {
-        return frame;
-    }
-
-    public void enablePaletteWriteLog(int limit) {
-        this.paletteWriteLog = true;
-        this.paletteWriteLogLimit = Math.max(0, limit);
-        this.paletteWriteLogCount = 0;
-    }
-
-    // --- Testing / debug accessors ---
-    public int getBackgroundIndex(int x, int y) {
-        if (x < 0 || x >= 256 || y < 0 || y >= 240)
-            return 0;
-        return frameIndexBuffer[y * 256 + x] & 0xFF;
-    }
-
-    // Background index before any sprite compositing
-    public int getRawBackgroundIndex(int x, int y) {
-        if (x < 0 || x >= 256 || y < 0 || y >= 240)
-            return 0;
-        return bgBaseIndexBuffer[y * 256 + x] & 0xFF;
-    }
-
-    public int[] getBackgroundIndexBufferCopy() {
-        int[] copy = new int[frameIndexBuffer.length];
-        System.arraycopy(frameIndexBuffer, 0, copy, 0, frameIndexBuffer.length);
-        return copy;
-    }
-
-    // Testing accessors (safe read-only)
-    public int getVramAddress() {
-        return vramAddress & 0x7FFF;
-    }
-
-    public int getTempAddress() {
-        return tempAddress & 0x7FFF;
-    }
-
-    public int getFineX() {
-        return fineX & 0x7;
-    }
-
-    // TEST HELPERS (package-private)
-    void setVramAddressForTest(int v) {
-        this.vramAddress = v & 0x7FFF;
-    }
-
-    void setTempAddressForTest(int t) {
-        this.tempAddress = t & 0x7FFF;
-    }
-
-    // Background test helpers
-    void pokeNameTable(int offset, int value) {
-        if (offset >= 0 && offset < nameTables.length)
-            nameTables[offset] = (byte) value;
-    }
-
-    void pokePattern(int addr, int value) {
-        if (addr >= 0 && addr < patternTables.length)
-            patternTables[addr] = (byte) value;
-    }
-
-    int getPatternLowShift() {
-        return patternLowShift & 0xFFFF;
-    }
-
-    int getPatternHighShift() {
-        return patternHighShift & 0xFFFF;
-    }
-
-    int getAttributeLowShift() {
-        return attributeLowShift & 0xFFFF;
-    }
-
-    int getAttributeHighShift() {
-        return attributeHighShift & 0xFFFF;
-    }
-
-    int getNtLatch() {
-        return ntLatch & 0xFF;
-    }
-
-    int getAtLatch() {
-        return atLatch & 0xFF;
-    }
-
-    int getPixel(int x, int y) {
-        if (x < 0 || x >= 256 || y < 0 || y >= 240)
-            return 0;
-        return frameIndexBuffer[y * 256 + x];
-    }
-
-    int[] getFrameBufferRef() { // returns ARGB buffer
-        return frameBuffer;
-    }
-
-    /** Public accessor for rendering layer (returns direct reference). */
-    public int[] getFrameBuffer() {
-        return frameBuffer;
-    }
-
-    // loadChr removed: pattern fetches now always routed via mapper when attached.
-
-    // TEST HELPERS for palette
-    void pokePalette(int addr, int value) {
-        palette.write(addr, value);
-    }
-
-    int readPalette(int addr) {
-        return palette.read(addr);
-    }
-
-    // Raw status for deeper debug if needed
-    public int getStatusRegister() {
-        return regSTATUS & 0xFF;
-    }
-
-    public int getMaskRegister() {
-        return regMASK & 0xFF;
-    }
-
-    // --- Debug / inspection helpers ---
-    /**
-     * Dump background raw palette indices (0..15) into a simple ASCII PGM-like
-     * PPM (P3) file for quick inspection (grayscale mapping). Each index scaled to
-     * 0..255 by *17.
-     */
-    public void dumpBackgroundToPpm(java.nio.file.Path path) {
-        try (java.io.BufferedWriter w = java.nio.file.Files.newBufferedWriter(path)) {
-            w.write("P3\n");
-            w.write("256 240\n255\n");
-            for (int y = 0; y < 240; y++) {
-                for (int x = 0; x < 256; x++) {
-                    int v = frameIndexBuffer[y * 256 + x] & 0x0F;
-                    int g = v * 17; // expand 0..15 to 0..255
-                    w.write(g + " " + g + " " + g + (x == 255 ? "" : " "));
-                }
-                w.write("\n");
-            }
-        } catch (Exception e) {
-            Log.error(PPU, "dumpBackgroundToPpm failed: %s", e.getMessage());
-        }
-    }
-
-    /** Print a 32x30 tile map of first scanline of each tile row (indices) */
-    public void printTileIndexMatrix() {
-        // Mode options: "first" (top-left pixel), "center" (pixel 4,4), "nonzero"
-        // (first non-zero pixel in tile)
-        String mode = tileMatrixMode;
-        StringBuilder sb = new StringBuilder();
-        for (int ty = 0; ty < 30; ty++) {
-            for (int tx = 0; tx < 32; tx++) {
-                int v = 0;
-                if ("first".equals(mode)) {
-                    v = frameIndexBuffer[(ty * 8) * 256 + tx * 8] & 0x0F;
-                } else if ("center".equals(mode)) {
-                    int x = tx * 8 + 4;
-                    int y = ty * 8 + 4;
-                    v = frameIndexBuffer[y * 256 + x] & 0x0F;
-                } else if ("nonzero".equals(mode)) {
-                    int baseY = ty * 8;
-                    int baseX = tx * 8;
-                    int found = 0;
-                    outer: for (int py = 0; py < 8; py++) {
-                        int rowOff = (baseY + py) * 256 + baseX;
-                        for (int px = 0; px < 8; px++) {
-                            int val = frameIndexBuffer[rowOff + px] & 0x0F;
-                            if (val != 0) {
-                                found = val;
-                                break outer;
-                            }
-                        }
-                    }
-                    v = found;
-                } else {
-                    // fallback to first
-                    v = frameIndexBuffer[(ty * 8) * 256 + tx * 8] & 0x0F;
-                }
-                sb.append(String.format("%X", v));
-            }
-            sb.append('\n');
-        }
-        Log.info(PPU, "TileIndexMatrix\n%s", sb.toString());
-    }
-
-    // Tile matrix sampling mode (default "first")
-    private String tileMatrixMode = "first";
-
-    public void setTileMatrixMode(String mode) {
-        if (mode == null)
-            return;
-        switch (mode.toLowerCase()) {
-            case "first":
-            case "center":
-            case "nonzero":
-                tileMatrixMode = mode.toLowerCase();
-                break;
-            default:
-                // ignore invalid, keep previous
-        }
-    }
-
-    /**
-     * Print histogram of background palette indices 0..15 for current frame buffer.
-     */
-    public void printBackgroundIndexHistogram() {
-        int[] counts = new int[16];
-        for (int i = 0; i < frameIndexBuffer.length; i++) {
-            counts[frameIndexBuffer[i] & 0x0F]++;
-        }
-        Log.info(PPU, "--- Background index histogram (count) ---");
-        for (int i = 0; i < 16; i++) {
-            int c = counts[i];
-            if (c > 0) {
-                vprintf("%X: %d%n", i, c);
-            }
-        }
-    }
-
-    /**
-     * Debug: imprime os IDs de tiles (bytes de nametable) de uma nametable lógica
-     * (0..3). Espelha conforme mirroring ativo no mapper. Mostra 32x30 valores em
-     * hex (duas casas) separados por espaço.
-     */
-    public void printNameTableTileIds(int logicalIndex) {
-        if (logicalIndex < 0 || logicalIndex > 3)
-            logicalIndex = 0;
-        vprintf("--- NameTable %d tile IDs ---\n", logicalIndex);
-        MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
-        for (int row = 0; row < 30; row++) {
-            StringBuilder sb = new StringBuilder();
-            for (int col = 0; col < 32; col++) {
-                int logicalAddr = 0x2000 + logicalIndex * 0x0400 + row * 32 + col; // dentro da parte de tiles
-                                                                                   // (0..0x03BF)
-                int nt = (logicalAddr - 0x2000) & 0x0FFF;
-                int index = nt & 0x03FF; // posição dentro da tabela lógica
-                int table = (nt >> 10) & 0x03; // tabela lógica 0..3
-                int physical;
-                switch (mt) {
-                    case VERTICAL -> physical = table & 0x01;
-                    case HORIZONTAL -> physical = (table >> 1);
-                    case SINGLE0 -> physical = 0;
-                    case SINGLE1 -> physical = 1;
-                    default -> physical = table & 0x01;
-                }
-                int value = nameTables[(physical * 0x0400) + index] & 0xFF;
-                sb.append(String.format("%02X", value));
-                if (col != 31)
-                    sb.append(' ');
-            }
-            Log.info(PPU, sb.toString());
-        }
-    }
-
-    /**
-     * Dump a pattern tile (0-255) of current background pattern table to stdout.
-     */
-    public void dumpPatternTile(int tile) {
-        tile &= 0xFF;
-        // Usa bit 4 (0x10) de PPUCTRL para seleção da pattern table de BACKGROUND
-        // (igual ao pipeline)
-        int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + tile * 16;
-        vprintf("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
-        for (int row = 0; row < 8; row++) {
-            int lo = ppuMemoryRead(base + row) & 0xFF;
-            int hi = ppuMemoryRead(base + row + 8) & 0xFF;
-            StringBuilder bits = new StringBuilder();
-            for (int bit = 7; bit >= 0; bit--) {
-                int b0 = (lo >> bit) & 1;
-                int b1 = (hi >> bit) & 1;
-                int pix = (b1 << 1) | b0;
-                bits.append(pix);
-            }
-            Log.info(PPU, bits.toString());
-        }
-    }
-
     // --- Debug helpers for background sampling investigation ---
     private boolean debugBgSample = false;
     private boolean debugBgSampleAll = false; // log mesmo se for muitos pixels (até limite)
     private int debugBgSampleLimit = 0;
     private int debugBgSampleCount = 0;
+
     // simpleTiming removido: pipeline agora sempre usa mapeamento ciclo 1->x0.
     // Runtime attribute logging
     private boolean attrRuntimeLog = false;
     private int attrLogLimit = 200;
     private int attrLogCount = 0;
+
     // Nametable runtime logging
     private boolean nametableRuntimeLog = false;
     private int nametableLogLimit = 200;
     private int nametableLogCount = 0;
     private int nametableBaselineFilter = -1; // se >=0 filtra esse valor
 
-    public void enableBackgroundSampleDebug(int limit) {
-        this.debugBgSample = true;
-        this.debugBgSampleLimit = (limit <= 0 ? 50 : limit);
-        this.debugBgSampleCount = 0;
-        vprintf("[PPU] Background sample debug enabled (limit=%d)\n", this.debugBgSampleLimit);
-    }
-
-    public void enableBackgroundSampleDebugAll(int limit) {
-        this.debugBgSampleAll = true;
-        this.debugBgSample = false; // prevalece modo ALL
-        this.debugBgSampleLimit = (limit <= 0 ? 200 : limit);
-        this.debugBgSampleCount = 0;
-        vprintf("[PPU] Background sample ALL debug enabled (limit=%d)\n", this.debugBgSampleLimit);
-    }
-
-    public void setSimpleTiming(boolean simple) {
-        // Deprecated: manter assinatura para compatibilidade de CLI, sem efeito.
-        if (simple) {
-            Log.info(PPU, "simpleTiming ignorado (deprecated, pipeline unificado)");
-        }
-    }
-
-    public void setTestPatternMode(String mode) {
-        int prev = this.testPatternMode;
-        switch (mode == null ? "" : mode.toLowerCase()) {
-            case "h":
-            case "hor":
-            case "hbands":
-            case "bands-h":
-                testPatternMode = TEST_BANDS_H;
-                break;
-            case "v":
-            case "ver":
-            case "vbands":
-            case "bands-v":
-                testPatternMode = TEST_BANDS_V;
-                break;
-            case "checker":
-            case "xadrez":
-            case "check":
-                testPatternMode = TEST_CHECKER;
-                break;
-            default:
-                testPatternMode = TEST_NONE;
-                break;
-        }
-        if (testPatternMode != TEST_NONE) {
-            // Initialize palette entries for indices 1..5 with distinct vivid colors.
-            palette.write(0x3F00, 0x00);
-            int[] cols = { 0x01, 0x21, 0x11, 0x31, 0x16 }; // reused set
-            for (int i = 0; i < cols.length; i++) {
-                palette.write(0x3F01 + i, cols[i]);
-            }
-        }
-        Log.info(PPU, "testPatternMode=%d (prev=%d)", testPatternMode, prev);
-    }
-
-    public void enableAttributeRuntimeLog(int limit) {
-        this.attrRuntimeLog = true;
-        if (limit > 0)
-            this.attrLogLimit = limit;
-        this.attrLogCount = 0;
-        vprintf("[PPU] Attribute runtime logging enabled (limit=%d)\n", attrLogLimit);
-    }
-
-    public void enableNametableRuntimeLog(int limit, int baselineFilter) {
-        this.nametableRuntimeLog = true;
-        if (limit > 0)
-            this.nametableLogLimit = limit;
-        this.nametableLogCount = 0;
-        this.nametableBaselineFilter = baselineFilter;
-        vprintf("[PPU] Nametable runtime logging enabled (limit=%d, baselineFilter=%s)\n", nametableLogLimit,
-                baselineFilter >= 0 ? String.format("%02X", baselineFilter) : "NONE");
-    }
-
     /**
-     * Fallback: se nenhuma amostra foi registrada em tempo real, varre o frame e
-     * imprime primeiras N não-zero.
+     * Verbose logging helper.
+     * @param fmt
+     * @param args
      */
-    public void dumpFirstBackgroundSamples(int n) {
-        if (!debugBgSample)
-            return;
-        if (debugBgSampleCount > 0)
-            return; // já temos logs realtime
-        int printed = 0;
-        for (int y = 0; y < 240 && printed < n; y++) {
-            for (int x = 0; x < 256 && printed < n; x++) {
-                int idx = frameIndexBuffer[y * 256 + x] & 0x0F;
-                if (idx != 0) {
-                    vprintf("[BG-SAMPLE-FALLBACK] frame=%d x=%d y=%d idx=%X\n", frame, x, y, idx);
-                    printed++;
-                }
-            }
-        }
-        if (printed == 0) {
-            Log.info(PPU, "[BG-SAMPLE-FALLBACK] Nenhum pixel não-zero encontrado neste frame.");
-        }
+    private static void vprintf(String fmt, Object... args) {
+        if (verboseLogging)
+            Log.debug(PPU, fmt, args);
     }
 
-    /**
-     * Estatísticas por coluna: conta pixels de background !=0 em cada coluna de 256
-     * e por coluna de tile (32).
-     */
-    public void printBackgroundColumnStats() {
-        int[] pixelCounts = new int[256];
-        for (int y = 0; y < 240; y++) {
-            int rowOff = y * 256;
-            for (int x = 0; x < 256; x++) {
-                if ((frameIndexBuffer[rowOff + x] & 0x0F) != 0)
-                    pixelCounts[x]++;
-            }
-        }
-        int[] tileCounts = new int[32];
-        for (int t = 0; t < 32; t++) {
-            int sum = 0;
-            for (int x = t * 8; x < t * 8 + 8; x++)
-                sum += pixelCounts[x];
-            tileCounts[t] = sum; // max 8*240=1920
-        }
-        Log.info(PPU, "--- Background non-zero pixel counts per pixel column (only columns >0) ---");
-        StringBuilder sb = new StringBuilder();
-        int shown = 0;
-        for (int x = 0; x < 256; x++) {
-            if (pixelCounts[x] != 0) {
-                sb.append(String.format("%d:%d ", x, pixelCounts[x]));
-                shown++;
-                if (shown % 16 == 0) {
-                    Log.info(PPU, sb.toString());
-                    sb.setLength(0);
-                }
-            }
-        }
-        if (sb.length() > 0)
-            Log.info(PPU, sb.toString());
-        if (shown == 0)
-            Log.info(PPU, "(nenhuma coluna com pixels !=0)");
-        Log.info(PPU, "--- Background non-zero pixel counts per tile column (0..31) ---");
-        for (int t = 0; t < 32; t++) {
-            int cnt = tileCounts[t];
-            double pct = (cnt / 1920.0) * 100.0;
-            vprintf("T%02d=%4d (%.1f%%)  %s%n", t, cnt, pct, (t < 4 ? "<- esquerda 32px" : ""));
-        }
+    public static void setVerboseLogging(boolean enable) {
+        verboseLogging = enable;
     }
 
-    // Força habilitar background independentemente do valor escrito em $2001
-    private boolean forceBgEnable = false;
-    // Força habilitar sprites independentemente do valor escrito em $2001
-    private boolean forceSpriteEnable = false;
-    // Força habilitar NMI mesmo se bit não setado pelo jogo
-    private boolean forceNmiEnable = false;
-
-    public void setForceBackgroundEnable(boolean enable) {
-        this.forceBgEnable = enable;
-        Log.info(PPU, "forceBgEnable=%s", enable);
-    }
-
-    public void setForceSpriteEnable(boolean enable) {
-        this.forceSpriteEnable = enable;
-        Log.info(PPU, "forceSpriteEnable=%s", enable);
-    }
-
-    public void setForceNmiEnable(boolean enable) {
-        this.forceNmiEnable = enable;
-        Log.info(PPU, "forceNmiEnable=%s", enable);
-    }
-
-    public void enableNmiDebugLog(int limit) {
-        this.debugNmiLog = true;
-        if (limit > 0)
-            this.debugNmiLogLimit = limit;
-        this.debugNmiLogCount = 0;
-        vprintf("[PPU] NMI debug log enabled (limit=%d)\n", debugNmiLogLimit);
-    }
-
-    // --- Minimal sprite system (evaluation + per-pixel overlay) ---
-    // Remove old immediate evaluation, replace with new pipeline methods
-    // --- Sprite system: secondary OAM style preparation (simplified) ---
-    private void evaluateSpritesForLine(int targetLine) {
-        int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
-        if (spriteRangesDirty || spriteHeight != cachedSpriteHeight) {
-            for (int i = 0; i < 64; i++) {
-                int yRaw = oam[i << 2] & 0xFF;
-                // Real hardware: OAM Y holds (top - 1). Sentinel values >= 0xF0 hide the
-                // sprite.
-                // Importante: NÃO fazer wrap com &0xFF após +1; se yRaw==0xFF virar 0 causa
-                // sprite fantasma na linha 0.
-                int top = spriteYHardware ? (yRaw + 1) : yRaw; // sem wrap
-                if (top >= 256) { // yRaw==0xFF => top=256 => oculto
-                    spriteTop[i] = 512; // fora de alcance
-                    spriteBottom[i] = 511;
-                    continue;
-                }
-                int bottom = top + spriteHeight - 1;
-                spriteTop[i] = top;
-                spriteBottom[i] = bottom;
-            }
-            spriteRangesDirty = false;
-            cachedSpriteHeight = spriteHeight;
-        }
-        for (int i = 0; i < 32; i++)
-            secondaryOam[i] = (byte) 0xFF;
-        int found = 0;
-        boolean overflow = false;
-        int capacity = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
-        for (int i = 0; i < 64; i++) {
-            int top = spriteTop[i];
-            int bottom = spriteBottom[i];
-            if (targetLine >= top && targetLine <= bottom) {
-                if (found < capacity) {
-                    preparedSpriteIndices[found] = i;
-                }
-                if (found < HW_SPRITE_LIMIT) {
-                    int base = i << 2;
-                    int sec = found << 2;
-                    secondaryOam[sec] = oam[base];
-                    secondaryOam[sec + 1] = oam[base + 1];
-                    secondaryOam[sec + 2] = oam[base + 2];
-                    secondaryOam[sec + 3] = oam[base + 3];
-                }
-                found++;
-                if (found > HW_SPRITE_LIMIT && !overflow) {
-                    overflow = true; // 9th sprite encountered
-                    if (!unlimitedSprites) {
-                        break; // stop only in hardware mode
-                    }
-                }
-            }
-        }
-        if (overflow) {
-            regSTATUS |= PpuRegs.STATUS_SPR_OVERFLOW;
-        }
-        preparedSpriteCount = Math.min(found, capacity);
-        preparedLine = targetLine;
-    }
-
-    private void publishPreparedSpritesForCurrentLine() {
-        if (preparedLine != scanline) {
-            evaluateSpritesForLine(scanline); // fallback
-        }
-        spriteCountThisLine = preparedSpriteCount;
-        for (int i = 0; i < spriteCountThisLine; i++) {
-            spriteIndices[i] = preparedSpriteIndices[i];
-        }
-    }
-
-    private void overlaySpritePixel() {
-        int xPixel = cycle - 1;
-        int sl = scanline;
-        int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
-        if (xPixel < 8 && (regMASK & PpuRegs.MASK_SPR_LEFT) == 0)
-            return;
-        int bgOriginal = bgBaseIndexBuffer[sl * 256 + xPixel] & 0x0F;
-        int maxDraw = unlimitedSprites ? EXTENDED_SPRITE_DRAW_LIMIT : HW_SPRITE_LIMIT;
-        int drawCount = Math.min(spriteCountThisLine, Math.min(maxDraw, spriteIndices.length));
-        for (int si = 0; si < drawCount; si++) {
-            int spriteIndex = spriteIndices[si];
-            int base = spriteIndex * 4;
-            int y = oam[base] & 0xFF;
-            int tile = oam[base + 1] & 0xFF;
-            int attr = oam[base + 2] & 0xFF;
-            int x = oam[base + 3] & 0xFF;
-            if (xPixel < x || xPixel >= x + 8)
-                continue;
-            int spriteTopY = spriteYHardware ? (y + 1) : y; // sem wrap
-            if (spriteTopY >= 256)
-                continue; // y==0xFF sentinel -> oculto
-            int rowInSprite = sl - spriteTopY;
-            if (rowInSprite < 0 || rowInSprite >= spriteHeight)
-                continue;
-            boolean flipV = (attr & 0x80) != 0;
-            boolean flipH = (attr & 0x40) != 0;
-            int row = flipV ? (spriteHeight - 1 - rowInSprite) : rowInSprite;
-            int addrLo, addrHi;
-            if (spriteHeight == 16) {
-                int tableSelect = tile & 0x01;
-                int baseTileIndex = tile & 0xFE;
-                int half = row / 8;
-                int tileRow = row & 0x7;
-                int actualTile = baseTileIndex + half;
-                int patternTableBase = tableSelect * 0x1000;
-                addrLo = patternTableBase + actualTile * 16 + tileRow;
-                addrHi = addrLo + 8;
-            } else {
-                int patternTableBase = ((regCTRL & PpuRegs.CTRL_SPR_TABLE) != 0 ? 0x1000 : 0x0000);
-                int tileRow = row & 0x7;
-                addrLo = patternTableBase + tile * 16 + tileRow;
-                addrHi = addrLo + 8;
-            }
-            int lo = ppuMemoryRead(addrLo) & 0xFF;
-            int hi = ppuMemoryRead(addrHi) & 0xFF;
-            int colInSprite = xPixel - x;
-            int bit = flipH ? colInSprite : (7 - colInSprite);
-            int p0 = (lo >> bit) & 1;
-            int p1 = (hi >> bit) & 1;
-            int pattern = (p1 << 1) | p0;
-            if (pattern == 0)
-                continue;
-            int paletteGroup = attr & 0x03;
-            int paletteIndex = palette.read(0x3F10 + paletteGroup * 4 + pattern);
-            boolean bgTransparent = bgOriginal == 0;
-            boolean spritePriorityFront = (attr & 0x20) == 0;
-            if (spriteIndex == 0 && pattern != 0 && bgOriginal != 0) {
-                boolean allow = true;
-                if (xPixel < 8) {
-                    if ((regMASK & PpuRegs.MASK_BG_LEFT) == 0 || (regMASK & PpuRegs.MASK_SPR_LEFT) == 0)
-                        allow = false;
-                }
-                if (allow)
-                    regSTATUS |= PpuRegs.STATUS_SPR0_HIT;
-            }
-            if (spritePriorityFront || bgTransparent) {
-                frameIndexBuffer[sl * 256 + xPixel] = paletteIndex & 0x0F;
-                frameBuffer[sl * 256 + xPixel] = palette.getArgb(paletteIndex, regMASK);
-            }
-            break;
-        }
-    }
-
-    // --- Sprite limit control & inspection ---
-    public void setUnlimitedSprites(boolean enable) {
-        this.unlimitedSprites = enable;
-    }
-
-    public boolean isUnlimitedSprites() {
-        return unlimitedSprites;
-    }
-
-    public int getLastSpriteCountThisLine() {
-        return spriteCountThisLine;
-    }
-
-    // --- Debug / test accessors ---
-    /** Returns a copy of the 32-byte secondary OAM buffer after last evaluation. */
-    public byte[] getSecondaryOamSnapshot() {
-        byte[] copy = new byte[secondaryOam.length];
-        System.arraycopy(secondaryOam, 0, copy, 0, secondaryOam.length);
-        return copy;
-    }
-
-    /**
-     * Returns which scanline secondary OAM currently corresponds to (prepared
-     * line).
-     */
-    public int getSecondaryOamPreparedLine() {
-        return preparedLine;
-    }
-
-    // --- OAM inspection helpers ---
-    /** Retorna cópia dos 256 bytes de OAM. */
-    public byte[] getOamCopy() {
-        byte[] c = new byte[oam.length];
-        System.arraycopy(oam, 0, c, 0, oam.length);
-        return c;
-    }
-
-    /** Lê byte individual de OAM. */
-    public int getOamByte(int index) {
-        return oam[index & 0xFF] & 0xFF;
-    }
-
-    // --- Sprite Y semantics control ---
-    public void setSpriteYHardware(boolean enable) {
-        if (this.spriteYHardware != enable) {
-            this.spriteYHardware = enable;
-            spriteRangesDirty = true; // recalc ranges
-            Log.info(PPU, "spriteYHardware=%s", enable);
-        }
-    }
-
-    public boolean isSpriteYHardware() {
-        return spriteYHardware;
+    public static boolean isVerboseLogging() {
+        return verboseLogging;
     }
 }
