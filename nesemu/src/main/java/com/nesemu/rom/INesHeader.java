@@ -7,8 +7,9 @@ import java.util.Arrays;
  * Reference: https://www.nesdev.org/wiki/INES
  */
 public class INesHeader {
-    public static final int HEADER_SIZE = 16;
 
+    // Size of iNES header in bytes
+    public static final int HEADER_SIZE = 16;
     private final int prgRomPages; // number of 16KB PRG-ROM pages
     private final int chrRomPages; // number of 8KB CHR-ROM pages
     private final int flags6;
@@ -18,9 +19,20 @@ public class INesHeader {
     private final boolean batteryBacked;
     private final boolean verticalMirroring; // true = vertical, false = horizontal
     private final boolean nes2; // NES 2.0 format?
-
     private final byte[] raw;
 
+    /**
+     * Private constructor; use static parse() method.
+     * @param raw
+     * @param prgRomPages
+     * @param chrRomPages
+     * @param flags6
+     * @param flags7
+     * @param hasTrainer
+     * @param batteryBacked
+     * @param verticalMirroring
+     * @param nes2
+     */
     private INesHeader(byte[] raw, int prgRomPages, int chrRomPages, int flags6, int flags7,
             boolean hasTrainer, boolean batteryBacked, boolean verticalMirroring, boolean nes2) {
         this.raw = Arrays.copyOf(raw, raw.length);
@@ -35,6 +47,11 @@ public class INesHeader {
         this.mapper = ((flags7 & 0xF0) | (flags6 >> 4)) & 0xFF;
     }
 
+    /**
+     * Parses raw header bytes into INesHeader instance.
+     * @param header
+     * @return
+     */
     public static INesHeader parse(byte[] header) {
         if (header.length < HEADER_SIZE)
             throw new IllegalArgumentException("Header too small");
@@ -51,42 +68,82 @@ public class INesHeader {
         return new INesHeader(header, prgPages, chrPages, f6, f7, trainer, battery, mirroring, nes2);
     }
 
+    /**
+     * Gets the number of 16KB PRG ROM pages.
+     * @return
+     */
     public int getPrgRomPages() {
         return prgRomPages;
     }
 
+    /**
+     * Gets the number of 8KB CHR ROM pages.
+     * @return
+     */
     public int getChrRomPages() {
         return chrRomPages;
     }
 
+    /**
+     * Gets the mapper number (0-255).
+     * @return
+     */
     public int getMapper() {
         return mapper;
     }
 
+    /**
+     * Indicates if the ROM has a 512-byte trainer at $7000-$71FF.
+     * @return
+     */
     public boolean hasTrainer() {
         return hasTrainer;
     }
 
+    /**
+     * Indicates if the cartridge has battery-backed PRG RAM.
+     * @return
+     */
     public boolean isBatteryBacked() {
         return batteryBacked;
     }
 
+    /**
+     * Indicates if mirroring is vertical (true) or horizontal (false).
+     * @return
+     */
     public boolean isVerticalMirroring() {
         return verticalMirroring;
     }
 
+    /**
+     * Indicates if the header is in NES 2.0 format.
+     * @return
+     */
     public boolean isNes2() {
         return nes2;
     }
 
+    /**
+     * Gets a copy of the raw header bytes.
+     * @return
+    */
     public byte[] getRaw() {
         return Arrays.copyOf(raw, raw.length);
     }
 
+    /**
+     * Gets flags 6 byte.
+     * @return
+     */
     public int getFlags6() {
         return flags6;
     }
 
+    /**
+     * Gets flags 7 byte.
+     * @return
+     */
     public int getFlags7() {
         return flags7;
     }

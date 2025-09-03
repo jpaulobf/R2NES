@@ -118,3 +118,93 @@ Rodar Donkey Kong / Super Mario Bros título+gameplay base (scroll, colisões) c
 - % instruções CPU testadas (nestest)
 - Hash de buffer final por N frames para regressão
 - Latência média frame loop
+
+---
+
+# Roadmap Avançado PPU (Pós-MVP / Próximas Iterações)
+
+Objetivo: elevar precisão visual/temporal, compatibilidade com mappers (MMC3 IRQ), performance e modularidade para facilitar APU e recursos avançados (MMC5 / PAL) futuramente.
+
+## Prioridade (Ordem Sugerida)
+1. Máscara 8px esquerda + sprite/background enable bits corretos.
+2. Odd frame cycle skip (ciclo 339 linha pré-render quando rendering ativo).
+3. Sprite 0 hit preciso (BG!=0 & SPR!=0 & x>=1 & prioridade; ignorar transparente / clipping).
+4. IRQ MMC3 (detecção borda A12 + contador + reload + IRQ CPU).
+5. Cache de tiles (decode CHR → 8 bytes) + invalidação por página / banco.
+6. Open bus / valores power-on plausíveis / buffer de leitura $2007 e paleta.
+7. Grayscale + emphasis bits (aplicar na paleta final / LUT de cor).
+8. Refator modular (BackgroundUnit, SpriteUnit, PPUMemory interface).
+9. Testes de ciclo e golden frames (hash frame) para regressão.
+10. Paleta NTSC mais fiel + filtros opcionais (scanline leve, nearest/hq2x simples).
+11. Recursos avançados (sprite overflow real, MMC5 ExRAM modos, suporte PAL, overlays debug).
+
+## Detalhamento de Tarefas
+
+### Precisão / Correções
+- [ ] Implementar máscara dos 8 primeiros pixels (BG/Sprite) respeitando PPUMASK bits 1 e 2.
+- [ ] Odd frame skip (pular 1 ciclo na linha de pré-render em frames ímpares com BG ou Sprite habilitado).
+- [ ] Revisar/instrumentar sprite 0 hit (condições: BG px !=0, SPR px !=0, x>=1, prioridades, clipping aplicado).
+- [ ] Sprite overflow (modelo de avaliação parcial real – fase posterior, não bloquear avanço inicial).
+- [ ] Estados power-on/reset para registradores PPU (valores iniciais documentados) e OAM indefinido (preencher com 0xFF / rand opcional debug).
+- [ ] Open bus para leituras de registradores não totalmente definidos (preservar bits de último valor no barramento interno).
+- [ ] Buffer interno de leitura $2007 (1-ciclo delay exceto paleta) validado por testes.
+- [ ] Incrementos de v (vertical/horizontal) nos ciclos exatos (256, 257, 280-304) consolidar em scheduler.
+- [ ] Grayscale (PPUMASK bit 0) – forçar bits de cor para escala cinza.
+- [ ] Emphasis bits (PPUMASK 5..7) – aplicar multiplicadores YIQ/RGB.
+
+### Integração com Mappers / IRQ
+- [ ] A12 edge tracking (low→high) apenas em fetch de pattern table alto, ignorando fetches supressos.
+- [ ] IRQ latch, reload, contagem e clear coerentes (MMC3) – coordenação com `Mapper4`.
+- [ ] Hook limpo no PPU para notificar mapper sobre fetch CHR (para mappers que dependem de timing futuro).
+
+### Performance
+- [ ] Cache decode de tiles CHR (8x8 → 64 pixels ou 8 bytes planar expandido) por banco + tag de versão.
+- [ ] Cache secundário para variantes com emphasis/grayscale (ou LUT pós-processo rápido).
+- [ ] Minimizar branches no pipeline (lookup tabelado de prioridade/transparência).
+- [ ] Agrupar nametable/attribute/pattern fetch em estrutura compacta (prefetch tile state).
+
+### Arquitetura / Limpeza
+- [ ] Extrair `BackgroundUnit` (shifters, fetch sequencer) e `SpriteUnit` (OAM eval + pixel mux).
+- [ ] Criar interface leve `PPUMemory` para desacoplar acesso direto ao Mapper no hot-path.
+- [ ] Agrupar registradores temporários/scroll em objeto (`PpuScrollState`).
+- [ ] Tabela de micro-op (scheduler por ciclo) para reduzir condicionais espalhadas.
+
+### Testes / QA
+- [ ] Testes unitários de incremento scroll (ciclos 256/257/280-304).
+- [ ] Testes sprite 0 hit em bordas e com prioridade atrás do BG.
+- [ ] Golden frame hash para ROMs de teste (ex: `ppu_vbl_nmi`, `sprite_hit`, `mmc3_irq`).
+- [ ] Teste de hash para CHR decode cache (garantir invalidação ao escrever CHR RAM / trocar banco).
+- [ ] Modo debug: overlay destacando fetch atual / contagem de sprites por scanline.
+
+### Funcionalidades Opcionais / UX
+- [ ] Overscan configurável (crop vertical/horizontal) e seleção NTSC/PAL.
+- [ ] Filtros de apresentação (scanlines, nearest, simples upscale shader). 
+- [ ] Export frame atual (PNG/PPM) com paleta correta.
+
+### Precisão de Cor
+- [ ] Revisar tabela de cores via aproximação NTSC (YIQ → RGB) e gerar LUT.
+- [ ] Aplicar emphasis per-pixel após composição (não só global se necessário).
+
+### Robustez
+- [ ] Garantir writes $2005/$2006 fora das janelas críticas não quebram estado inconsistente (sincronizar latch).
+- [ ] OAM secundária: preencher entradas não usadas com 0xFF.
+- [ ] Proteção contra underflow/overflow em índices de shifter.
+
+### Futuro / Avançado
+- [ ] MMC5 ExRAM (modo tile attribute / split screen) integrado ao pipeline.
+- [ ] Sprite overflow real (bug scanning) com fidelidade a testes oficiais.
+- [ ] Suporte PAL (linhas adicionais + matriz de cor diferente + timing NMI).
+- [ ] Ferramenta interna de gravação de vídeo (sequence de frames) para regressão visual.
+
+## Notas de Implementação
+- Introduzir mudanças críticas (IRQ MMC3, scheduler) isoladas atrás de flags de feature para comparação A/B.
+- Medir desempenho antes/depois (ms/frame) para validar impacto do cache de tiles.
+- Cada nova funcionalidade deve vir acompanhada de pelo menos 1 teste (hash frame ou unit) para prevenir regressão.
+
+## Indicadores de Conclusão (Roadmap)
+- MMC3 IRQ funcional em ROMs de teste (split status bars) sem jitter.
+- Hash de referência estável por 100 frames em 3+ ROMs.
+- Nenhum branch quente com >5% dos ciclos de CPU (profiling Java) sem justificativa.
+- Fácil isolamento de unidades (SpriteUnit / BackgroundUnit) em testes headless.
+
+---

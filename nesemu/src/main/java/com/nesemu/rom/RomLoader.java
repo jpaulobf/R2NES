@@ -11,12 +11,24 @@ import java.util.Arrays;
  */
 public class RomLoader {
 
+    /**
+     * Load iNES ROM from file path.
+     * @param path
+     * @return
+     * @throws IOException
+     */
     public static INesRom load(Path path) throws IOException {
         try (InputStream in = Files.newInputStream(path)) {
             return load(in);
         }
     }
 
+    /**
+     * Load iNES ROM from input stream.
+     * @param in
+     * @return
+     * @throws IOException
+     */
     public static INesRom load(InputStream in) throws IOException {
         byte[] header = in.readNBytes(INesHeader.HEADER_SIZE);
         if (header.length < INesHeader.HEADER_SIZE) {

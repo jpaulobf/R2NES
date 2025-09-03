@@ -10,15 +10,28 @@ public class Cartridge {
     private INesRom rom;
     private Mapper mapper;
 
+    /**
+     * Constructor for the Cartridge class.
+     * @param rom
+     * @param mapper
+     */
     public Cartridge(INesRom rom, Mapper mapper) {
         this.rom = rom;
         this.mapper = mapper;
     }
 
+    /**
+     * Gets the iNES ROM.
+     * @return
+     */
     public INesRom getRom() {
         return rom;
     }
 
+    /**
+     * Gets the mapper.
+     * @return
+     */
     public Mapper getMapper() {
         return mapper;
     }
