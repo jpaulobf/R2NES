@@ -23,7 +23,11 @@ public class Palette {
     // indices.
     private final int[] paletteRam = new int[32];
 
-    // Write to palette RAM with mirroring handling.
+    /**
+     * Write to palette RAM (after mirroring normalization).
+     * @param addr
+     * @param value
+     */
     public void write(int addr, int value) {
         int index = decodeAddress(addr);
         paletteRam[index] = value & 0x3F; // 6-bit color index (0..63)
@@ -39,14 +43,21 @@ public class Palette {
         }
     }
 
-    // Read from palette RAM (after mirroring normalization) returns 6-bit color
-    // index
+    /**
+     * Read from palette RAM (after mirroring normalization).
+     * @param addr
+     * @return
+     */
     public int read(int addr) {
         int index = decodeAddress(addr);
         return paletteRam[index] & 0x3F;
     }
 
-    // Decode $3F00-$3FFF palette address to 0..31 with mirroring rules
+    /**
+     * Decode address $3F00-$3FFF to palette RAM index 0..31 applying mirroring rules.
+     * @param addr
+     * @return
+     */
     private int decodeAddress(int addr) {
         addr &= 0x3FFF;
         addr = 0x3F00 | (addr & 0x1F); // fold into 32-byte window
@@ -55,16 +66,15 @@ public class Palette {
         if ((index & 0x13) == 0x10) {
             index &= ~0x10;
         }
-        // NOTE: Do NOT collapse $3F04/$3F08/$3F0C into $3F00. Games (e.g. SMB) may
-        // write a distinct value (often $0F) to those entries after setting the
-        // universal background color at $3F00. Collapsing them causes the sky (which
-        // relies on $3F00) to be overwritten to black. Only $3F10/$14/$18/$1C mirror
-        // $3F00/$04/$08/$0C per hardware rules (handled above by clearing bit4 when
-        // pattern matches 0x10/0x14/0x18/0x1C).
         return index;
     }
 
-    // Get ARGB color with optional grayscale/emphasis (mask bits passed in)
+    /**
+     * Get ARGB color for given palette color index (0..63) applying PPUMASK effects.
+     * @param paletteColorIndex
+     * @param mask
+     * @return
+     */
     public int getArgb(int paletteColorIndex, int mask /* PPUMASK */) {
         paletteColorIndex &= 0x3F;
         int rgb = NES_PALETTE[paletteColorIndex];
@@ -102,15 +112,28 @@ public class Palette {
         return rgb;
     }
 
+    /**
+     * Get universal background color (palette RAM index 0).
+     * @return
+     */
     public int getUniversalBackgroundColor() {
         return paletteRam[0] & 0x3F;
     }
 
-    // Testing helpers
+    /**
+     * Debug: read raw palette RAM value (0..63) at given index (0..31).
+     * @param index
+     * @return
+     */
     int debugReadRaw(int index) {
         return paletteRam[index & 0x1F];
     }
 
+    /**
+     * Debug: write raw palette RAM value (0..63) at given index (0..31).
+     * @param index
+     * @param value
+     */
     void debugWriteRaw(int index, int value) {
         paletteRam[index & 0x1F] = value & 0x3F;
     }
