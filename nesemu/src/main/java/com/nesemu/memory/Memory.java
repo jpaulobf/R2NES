@@ -23,27 +23,18 @@ public class Memory implements NesMemory {
     // private APU apu;
     // private Mapper mapper;
 
-    /**
-     * Loads raw PRG-ROM data (already expanded or mirrored as needed).
-     */
+    @Override
     public void loadPRGROM(int[] data) {
         int len = Math.min(data.length, prgRom.length);
         System.arraycopy(data, 0, prgRom, 0, len);
     }
 
-    /**
-     * Loads iNES cartridge (Mapper 0) applying 16KB mirroring if needed.
-     */
+    @Override
     public void loadCartridge(com.nesemu.rom.INesRom rom) {
         int[] prg = rom.buildPrgRom32k();
         loadPRGROM(prg);
     }
 
-    /**
-     * Reads a byte from the memory at the specified address.
-     * Handles RAM, PPU registers, APU/IO registers, SRAM, and PRG-ROM.
-     * Addresses are wrapped to fit the NES memory map.
-     */
     @Override
     public int read(int address) {
         address &= 0xFFFF;
@@ -71,11 +62,6 @@ public class Memory implements NesMemory {
         }
     }
 
-    /**
-     * Writes a byte to the memory at the specified address.
-     * Handles RAM, PPU registers, APU/IO registers, SRAM, and PRG-ROM.
-     * Addresses are wrapped to fit the NES memory map.
-     */
     @Override
     public void write(int address, int value) {
         address &= 0xFFFF;
@@ -105,35 +91,40 @@ public class Memory implements NesMemory {
         }
     }
 
-    /** Utility methods for tests */
+    @Override
     public void clearRAM() {
         for (int i = 0; i < ram.length; i++)
             ram[i] = 0;
     }
 
+    @Override
     public void clearSRAM() {
         for (int i = 0; i < sram.length; i++)
             sram[i] = 0;
     }
 
+    @Override
     public void clearPRGROM() {
         for (int i = 0; i < prgRom.length; i++)
             prgRom[i] = 0;
     }
 
-    // --- Fine-grained accessors for Bus delegation ---
+    @Override
     public int readInternalRam(int address) {
         return ram[address & 0x07FF] & 0xFF;
     }
 
+    @Override
     public void writeInternalRam(int address, int value) {
         ram[address & 0x07FF] = value & 0xFF;
     }
 
+    @Override
     public int readSram(int address) { // address in full CPU space 0x6000-0x7FFF
         return sram[address - 0x6000] & 0xFF;
     }
 
+    @Override
     public void writeSram(int address, int value) {
         sram[address - 0x6000] = value & 0xFF;
     }
