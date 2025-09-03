@@ -235,7 +235,7 @@ public class Ppu2C02 implements PPU {
             if ((regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0) {
                 fireNmi();
             } else {
-                vprintf("[PPU VBL NO-NMI] frame=%d scan=%d cyc=%d ctrl=%02X\n", frame, scanline, cycle,
+                verboseLog("[PPU VBL NO-NMI] frame=%d scan=%d cyc=%d ctrl=%02X\n", frame, scanline, cycle,
                         regCTRL & 0xFF);
             }
         } else if (scanline == -1 && cycle == 1) {
@@ -323,11 +323,11 @@ public class Ppu2C02 implements PPU {
                 if (forceNmiEnable && (regCTRL & PpuRegs.CTRL_NMI_ENABLE) == 0) {
                     int before = regCTRL;
                     regCTRL |= PpuRegs.CTRL_NMI_ENABLE;
-                    vprintf("[PPU FORCE NMI] frame=%d scan=%d cyc=%d ctrl antes=%02X depois=%02X%n", frame,
+                    verboseLog("[PPU FORCE NMI] frame=%d scan=%d cyc=%d ctrl antes=%02X depois=%02X%n", frame,
                             scanline, cycle, before & 0xFF, regCTRL & 0xFF);
                 }
                 if (((prevCTRL ^ regCTRL) & PpuRegs.CTRL_NMI_ENABLE) != 0) {
-                    vprintf("[PPU CTRL NMI CHG] frame=%d scan=%d cyc=%d nmi=%d prev=%02X new=%02X%n", frame,
+                    verboseLog("[PPU CTRL NMI CHG] frame=%d scan=%d cyc=%d nmi=%d prev=%02X new=%02X%n", frame,
                             scanline, cycle,
                             (regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0 ? 1 : 0, prevCTRL & 0xFF, regCTRL & 0xFF);
                 }
@@ -344,17 +344,17 @@ public class Ppu2C02 implements PPU {
                 if (forceBgEnable && (regMASK & 0x08) == 0) {
                     int before = regMASK;
                     regMASK |= 0x08;
-                    vprintf("[PPU FORCE BG] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
+                    verboseLog("[PPU FORCE BG] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
                             scanline, cycle, before & 0xFF, regMASK & 0xFF);
                 }
                 if (forceSpriteEnable && (regMASK & 0x10) == 0) {
                     int before = regMASK;
                     regMASK |= 0x10;
-                    vprintf("[PPU FORCE SPR] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
+                    verboseLog("[PPU FORCE SPR] frame=%d scan=%d cyc=%d mask antes=%02X depois=%02X%n", frame,
                             scanline, cycle, before & 0xFF, regMASK & 0xFF);
                 }
                 if (changedBg || changedSpr) {
-                    vprintf("[PPU MASK CHG] frame=%d scan=%d cyc=%d -> BG=%d SPR=%d raw=%02X\n", frame,
+                    verboseLog("[PPU MASK CHG] frame=%d scan=%d cyc=%d -> BG=%d SPR=%d raw=%02X\n", frame,
                             scanline, cycle,
                             (regMASK & 0x08) != 0 ? 1 : 0, (regMASK & 0x10) != 0 ? 1 : 0, regMASK & 0xFF);
                 }
@@ -434,100 +434,6 @@ public class Ppu2C02 implements PPU {
         pipelineLog.setLength(0);
         pipelineLogCount = 0;
         return s;
-    }
-
-    // --- Utility: reverse 8-bit value (bit7<->bit0) ---
-    // reverseByte removed (not required for left-shift orientation)
-
-    // (No priming helper in accurate pipeline mode)
-
-    // priming hack removed – rely on pre-render line (if enabled early) or natural
-    // 8-cycle pipeline delay
-
-    // Placeholder memory space for pattern/nametables/palette until Bus integration
-    // fleshed out.
-    private int ppuMemoryRead(int addr) {
-        addr &= 0x3FFF;
-        if (addr < 0x2000) { // pattern tables
-            if (mapper != null) {
-                return mapper.ppuRead(addr) & 0xFF;
-            }
-            return patternTables[addr] & 0xFF; // fallback (tests / bootstrap)
-        } else if (addr < 0x3F00) { // nametables (0x2000-0x2FFF)
-            int nt = (addr - 0x2000) & 0x0FFF;
-            int index = nt & 0x03FF; // 1KB region within a logical table
-            int table = (nt >> 10) & 0x03; // 0..3 logical tables before mirroring
-            int physical = table; // map to 0 or 1 based on mirroring
-            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL; // default vertical
-            switch (mt) {
-                case VERTICAL -> physical = table & 0x01; // 0,1,0,1
-                case HORIZONTAL -> physical = (table >> 1); // 0,0,1,1
-                case SINGLE0 -> physical = 0;
-                case SINGLE1 -> physical = 1;
-                default -> physical = table & 0x01;
-            }
-            return nameTables[(physical * 0x0400) + index] & 0xFF;
-        } else if (addr < 0x4000) {
-            // Palette RAM $3F00-$3F1F mirrored every 32 bytes up to 0x3FFF
-            return palette.read(addr);
-        }
-        return 0;
-    }
-
-    private void ppuMemoryWrite(int addr, int value) {
-        addr &= 0x3FFF;
-        value &= 0xFF;
-        if (addr < 0x2000) {
-            if (mapper != null) {
-                mapper.ppuWrite(addr, value);
-            } else {
-                patternTables[addr] = (byte) value; // CHR RAM case
-            }
-        } else if (addr < 0x3F00) {
-            int nt = (addr - 0x2000) & 0x0FFF;
-            int index = nt & 0x03FF;
-            int table = (nt >> 10) & 0x03; // logical
-            int physical;
-            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
-            switch (mt) {
-                case VERTICAL -> physical = table & 0x01;
-                case HORIZONTAL -> physical = (table >> 1);
-                case SINGLE0 -> physical = 0;
-                case SINGLE1 -> physical = 1;
-                default -> physical = table & 0x01;
-            }
-            nameTables[(physical * 0x0400) + index] = (byte) value;
-            // Attribute table logging ($23C0-$23FF etc.) after mirroring mapping
-            // Reconstruct base logical address for determining attribute section
-            int logicalBase = 0x2000 | nt; // before mirroring
-            int logicalInTable = logicalBase & 0x03FF; // 0..0x3FF inside logically selected table
-            boolean isAttr = (logicalInTable & 0x03C0) == 0x03C0;
-            if (!isAttr && nametableRuntimeLog) {
-                boolean pass = true;
-                if (nametableBaselineFilter >= 0 && value == nametableBaselineFilter)
-                    pass = false;
-                if (pass && nametableLogCount < nametableLogLimit) {
-                    vprintf(
-                            "[PPU NT WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d index=%03X%n",
-                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical, index);
-                    nametableLogCount++;
-                }
-            }
-            if (isAttr && (LOG_ATTR || attrRuntimeLog)) {
-                if (!attrRuntimeLog || attrLogCount < attrLogLimit) {
-                    vprintf("[PPU ATTR WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d%n",
-                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical);
-                    attrLogCount++;
-                }
-            }
-        } else if (addr < 0x4000) {
-            palette.write(addr, value);
-            if (paletteWriteLog && (paletteWriteLogLimit == 0 || paletteWriteLogCount < paletteWriteLogLimit)) {
-                vprintf("[PPU PAL WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d%n", addr, value & 0xFF, frame,
-                        scanline, cycle);
-                paletteWriteLogCount++;
-            }
-        }
     }
 
     @Override
@@ -781,7 +687,7 @@ public class Ppu2C02 implements PPU {
         for (int i = 0; i < 16; i++) {
             int c = counts[i];
             if (c > 0) {
-                vprintf("%X: %d%n", i, c);
+                verboseLog("%X: %d%n", i, c);
             }
         }
     }
@@ -790,7 +696,7 @@ public class Ppu2C02 implements PPU {
     public void printNameTableTileIds(int logicalIndex) {
         if (logicalIndex < 0 || logicalIndex > 3)
             logicalIndex = 0;
-        vprintf("--- NameTable %d tile IDs ---\n", logicalIndex);
+        verboseLog("--- NameTable %d tile IDs ---\n", logicalIndex);
         MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
         for (int row = 0; row < 30; row++) {
             StringBuilder sb = new StringBuilder();
@@ -823,7 +729,7 @@ public class Ppu2C02 implements PPU {
         // Usa bit 4 (0x10) de PPUCTRL para seleção da pattern table de BACKGROUND
         // (igual ao pipeline)
         int base = ((regCTRL & 0x10) != 0 ? 0x1000 : 0x0000) + tile * 16;
-        vprintf("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
+        verboseLog("--- Pattern tile %02X (base=%04X) ---\n", tile, base);
         for (int row = 0; row < 8; row++) {
             int lo = ppuMemoryRead(base + row) & 0xFF;
             int hi = ppuMemoryRead(base + row + 8) & 0xFF;
@@ -843,7 +749,7 @@ public class Ppu2C02 implements PPU {
         this.debugBgSample = true;
         this.debugBgSampleLimit = (limit <= 0 ? 50 : limit);
         this.debugBgSampleCount = 0;
-        vprintf("[PPU] Background sample debug enabled (limit=%d)\n", this.debugBgSampleLimit);
+        verboseLog("[PPU] Background sample debug enabled (limit=%d)\n", this.debugBgSampleLimit);
     }
 
     @Override
@@ -852,7 +758,7 @@ public class Ppu2C02 implements PPU {
         this.debugBgSample = false; // prevalece modo ALL
         this.debugBgSampleLimit = (limit <= 0 ? 200 : limit);
         this.debugBgSampleCount = 0;
-        vprintf("[PPU] Background sample ALL debug enabled (limit=%d)\n", this.debugBgSampleLimit);
+        verboseLog("[PPU] Background sample ALL debug enabled (limit=%d)\n", this.debugBgSampleLimit);
     }
 
     @Override
@@ -905,7 +811,7 @@ public class Ppu2C02 implements PPU {
         if (limit > 0)
             this.attrLogLimit = limit;
         this.attrLogCount = 0;
-        vprintf("[PPU] Attribute runtime logging enabled (limit=%d)\n", attrLogLimit);
+        verboseLog("[PPU] Attribute runtime logging enabled (limit=%d)\n", attrLogLimit);
     }
 
     @Override
@@ -915,7 +821,7 @@ public class Ppu2C02 implements PPU {
             this.nametableLogLimit = limit;
         this.nametableLogCount = 0;
         this.nametableBaselineFilter = baselineFilter;
-        vprintf("[PPU] Nametable runtime logging enabled (limit=%d, baselineFilter=%s)\n", nametableLogLimit,
+        verboseLog("[PPU] Nametable runtime logging enabled (limit=%d, baselineFilter=%s)\n", nametableLogLimit,
                 baselineFilter >= 0 ? String.format("%02X", baselineFilter) : "NONE");
     }
 
@@ -930,7 +836,7 @@ public class Ppu2C02 implements PPU {
             for (int x = 0; x < 256 && printed < n; x++) {
                 int idx = frameIndexBuffer[y * 256 + x] & 0x0F;
                 if (idx != 0) {
-                    vprintf("[BG-SAMPLE-FALLBACK] frame=%d x=%d y=%d idx=%X\n", frame, x, y, idx);
+                    verboseLog("[BG-SAMPLE-FALLBACK] frame=%d x=%d y=%d idx=%X\n", frame, x, y, idx);
                     printed++;
                 }
             }
@@ -978,7 +884,7 @@ public class Ppu2C02 implements PPU {
         for (int t = 0; t < 32; t++) {
             int cnt = tileCounts[t];
             double pct = (cnt / 1920.0) * 100.0;
-            vprintf("T%02d=%4d (%.1f%%)  %s%n", t, cnt, pct, (t < 4 ? "<- esquerda 32px" : ""));
+            verboseLog("T%02d=%4d (%.1f%%)  %s%n", t, cnt, pct, (t < 4 ? "<- esquerda 32px" : ""));
         }
     }
 
@@ -1006,7 +912,7 @@ public class Ppu2C02 implements PPU {
         if (limit > 0)
             this.debugNmiLogLimit = limit;
         this.debugNmiLogCount = 0;
-        vprintf("[PPU] NMI debug log enabled (limit=%d)\n", debugNmiLogLimit);
+        verboseLog("[PPU] NMI debug log enabled (limit=%d)\n", debugNmiLogLimit);
     }
 
     @Override
@@ -1062,9 +968,110 @@ public class Ppu2C02 implements PPU {
         return spriteYHardware;
     }
 
-    // --- Minimal sprite system (evaluation + per-pixel overlay) ---
-    // Remove old immediate evaluation, replace with new pipeline methods
-    // --- Sprite system: secondary OAM style preparation (simplified) ---
+    /**
+     * Internal PPU memory read abstraction.
+     * Resolves CHR via mapper (if attached), applies nametable mirroring and palette
+     * mirroring rules. Only addresses within $0000-$3FFF are valid; higher bits are
+     * mirrored by masking. Palette range ($3F00-$3FFF) is handled by Palette helper.
+     */
+    private int ppuMemoryRead(int addr) {
+        addr &= 0x3FFF;
+        if (addr < 0x2000) { // pattern tables
+            if (mapper != null) {
+                return mapper.ppuRead(addr) & 0xFF;
+            }
+            return patternTables[addr] & 0xFF; // fallback (tests / bootstrap)
+        } else if (addr < 0x3F00) { // nametables (0x2000-0x2FFF)
+            int nt = (addr - 0x2000) & 0x0FFF;
+            int index = nt & 0x03FF; // 1KB region within a logical table
+            int table = (nt >> 10) & 0x03; // 0..3 logical tables before mirroring
+            int physical = table; // map to 0 or 1 based on mirroring
+            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL; // default vertical
+            switch (mt) {
+                case VERTICAL -> physical = table & 0x01; // 0,1,0,1
+                case HORIZONTAL -> physical = (table >> 1); // 0,0,1,1
+                case SINGLE0 -> physical = 0;
+                case SINGLE1 -> physical = 1;
+                default -> physical = table & 0x01;
+            }
+            return nameTables[(physical * 0x0400) + index] & 0xFF;
+        } else if (addr < 0x4000) {
+            // Palette RAM $3F00-$3F1F mirrored every 32 bytes up to 0x3FFF
+            return palette.read(addr);
+        }
+        return 0;
+    }
+
+    /**
+     * Internal PPU memory write abstraction.
+     * Writes to CHR go through mapper (CHR RAM) or local patternTables fallback.
+     * Nametable writes honor current mirroring via mapper.getMirrorType().
+     * Palette writes are forwarded to Palette helper; attribute & nametable runtime
+     * logs may be emitted for diagnostics.
+     */
+    private void ppuMemoryWrite(int addr, int value) {
+        addr &= 0x3FFF;
+        value &= 0xFF;
+        if (addr < 0x2000) {
+            if (mapper != null) {
+                mapper.ppuWrite(addr, value);
+            } else {
+                patternTables[addr] = (byte) value; // CHR RAM case
+            }
+        } else if (addr < 0x3F00) {
+            int nt = (addr - 0x2000) & 0x0FFF;
+            int index = nt & 0x03FF;
+            int table = (nt >> 10) & 0x03; // logical
+            int physical;
+            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL;
+            switch (mt) {
+                case VERTICAL -> physical = table & 0x01;
+                case HORIZONTAL -> physical = (table >> 1);
+                case SINGLE0 -> physical = 0;
+                case SINGLE1 -> physical = 1;
+                default -> physical = table & 0x01;
+            }
+            nameTables[(physical * 0x0400) + index] = (byte) value;
+            // Attribute table logging ($23C0-$23FF etc.) after mirroring mapping
+            // Reconstruct base logical address for determining attribute section
+            int logicalBase = 0x2000 | nt; // before mirroring
+            int logicalInTable = logicalBase & 0x03FF; // 0..0x3FF inside logically selected table
+            boolean isAttr = (logicalInTable & 0x03C0) == 0x03C0;
+            if (!isAttr && nametableRuntimeLog) {
+                boolean pass = true;
+                if (nametableBaselineFilter >= 0 && value == nametableBaselineFilter)
+                    pass = false;
+                if (pass && nametableLogCount < nametableLogLimit) {
+                    verboseLog(
+                            "[PPU NT WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d index=%03X%n",
+                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical, index);
+                    nametableLogCount++;
+                }
+            }
+            if (isAttr && (LOG_ATTR || attrRuntimeLog)) {
+                if (!attrRuntimeLog || attrLogCount < attrLogLimit) {
+                    verboseLog("[PPU ATTR WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d table=%d phys=%d%n",
+                            logicalBase, value & 0xFF, frame, scanline, cycle, table, physical);
+                    attrLogCount++;
+                }
+            }
+        } else if (addr < 0x4000) {
+            palette.write(addr, value);
+            if (paletteWriteLog && (paletteWriteLogLimit == 0 || paletteWriteLogCount < paletteWriteLogLimit)) {
+                verboseLog("[PPU PAL WR] addr=%04X val=%02X frame=%d scan=%d cyc=%d%n", addr, value & 0xFF, frame,
+                        scanline, cycle);
+                paletteWriteLogCount++;
+            }
+        }
+    }
+
+    /**
+     * Build sprite list for a target scanline (next visible line or fallback if late).
+     * Implements simplified secondary OAM evaluation: determines which sprites overlap
+     * the line, copies first 8 (or all if unlimitedSprites) into secondaryOam and
+     * records indices for rendering. Also computes sprite overflow flag when ninth
+     * sprite is found (unless unlimited mode).
+     */
     private void evaluateSpritesForLine(int targetLine) {
         int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
         if (spriteRangesDirty || spriteHeight != cachedSpriteHeight) {
@@ -1123,6 +1130,11 @@ public class Ppu2C02 implements PPU {
         preparedLine = targetLine;
     }
 
+    /**
+     * Promote previously prepared sprite list (from evaluateSpritesForLine) to the
+     * active list for the current scanline. If preparation is missing or stale,
+     * falls back to a late evaluation to avoid blanking sprites.
+     */
     private void publishPreparedSpritesForCurrentLine() {
         if (preparedLine != scanline) {
             evaluateSpritesForLine(scanline); // fallback
@@ -1133,6 +1145,13 @@ public class Ppu2C02 implements PPU {
         }
     }
 
+    /**
+     * Per-pixel sprite overlay logic executed after background pixel is produced.
+     * Iterates prepared sprites in front-to-back order (OAM priority) applying
+     * horizontal/vertical flips, fetches pattern row bytes, resolves palette index,
+     * handles transparency and priority bits, sets sprite zero hit flag, and updates
+     * framebuffer only if sprite pixel is opaque and has priority over background.
+     */
     private void overlaySpritePixel() {
         int xPixel = cycle - 1;
         int sl = scanline;
@@ -1206,6 +1225,11 @@ public class Ppu2C02 implements PPU {
         }
     }
 
+    /**
+     * Issue NMI to CPU (if connected) once per vblank entry when enabled.
+     * Also invokes optional external callback for testing or UI hooks. Guards
+     * against multiple firings within same vblank interval via nmiFiredThisVblank.
+     */
     private void fireNmi() {
         nmiFiredThisVblank = true;
         if (cpu != null) {
@@ -1219,25 +1243,40 @@ public class Ppu2C02 implements PPU {
             nmiCallback.run();
     }
 
+    /**
+     * Conditional register write logger for the first few early writes (or unlimited
+     * if LOG_EXTENDED). Aids debugging initialisation sequences without flooding logs.
+     */
     private void logEarlyWrite(int reg, int val) {
         if (LOG_EXTENDED || earlyWriteLogCount < EARLY_WRITE_LOG_LIMIT) {
-            vprintf("[PPU WR %02X] val=%02X frame=%d scan=%d cyc=%d v=%04X t=%04X fineX=%d%n",
+            verboseLog("[PPU WR %02X] val=%02X frame=%d scan=%d cyc=%d v=%04X t=%04X fineX=%d%n",
                     0x2000 + (reg & 0x7), val & 0xFF, frame, scanline, cycle, vramAddress & 0x7FFF,
                     tempAddress & 0x7FFF, fineX);
             earlyWriteLogCount++;
         }
     }
 
+    /**
+     * Increment VRAM address by 1 or 32 after PPUDATA access depending on control
+     * register increment bit (affects horizontal vs vertical scroll increments).
+     */
     private void incrementVram() {
         int increment = ((regCTRL & PpuRegs.CTRL_VRAM_INC_32) != 0) ? 32 : 1;
         vramAddress = (vramAddress + increment) & 0x7FFF; // 15-bit
     }
 
+    /**
+     * Check if either background or sprite rendering enable bits are set. Used to
+     * gate scrolling address updates and pipeline execution.
+     */
     private boolean renderingEnabled() {
         return (regMASK & (PpuRegs.MASK_BG_ENABLE | PpuRegs.MASK_SPR_ENABLE)) != 0;
     }
 
-    // --- Loopy address helpers ---
+    /**
+     * Increment coarse X scroll component within VRAM address, toggling horizontal
+     * nametable bit when wrapping from 31 to 0 per NES scrolling rules.
+     */
     private void incrementCoarseX() {
         if ((vramAddress & 0x001F) == 31) { // coarse X == 31
             vramAddress &= ~0x001F; // coarse X = 0
@@ -1247,6 +1286,10 @@ public class Ppu2C02 implements PPU {
         }
     }
 
+    /**
+     * Increment vertical scroll portion (fine Y then coarse Y) with correct wrapping
+     * and vertical nametable toggling as defined by loopy's algorithm.
+     */
     private void incrementY() {
         int fineY = (vramAddress >> 12) & 0x7;
         if (fineY < 7) {
@@ -1268,16 +1311,30 @@ public class Ppu2C02 implements PPU {
         }
     }
 
+    /**
+     * Copy horizontal scroll components (coarse X and horizontal nametable bit) from
+     * temp address 't' into current VRAM address 'v' at cycle 257 of each scanline.
+     */
     private void copyHorizontalBits() {
         // Copy coarse X (bits 0-4) and horizontal nametable (bit 10) from t to v
         vramAddress = (vramAddress & ~0x041F) | (tempAddress & 0x041F);
     }
 
+    /**
+     * Copy vertical scroll components (fine Y, coarse Y, vertical nametable bit) from
+     * temp address 't' into 'v' during pre-render line cycles 280-304.
+     */
     private void copyVerticalBits() {
         // Copy fine Y (12-14), coarse Y (5-9) and vertical nametable (bit 11)
         vramAddress = (vramAddress & ~0x7BE0) | (tempAddress & 0x7BE0);
     }
 
+    /**
+     * Execute one step of the background fetch/decode pipeline for the current
+     * cycle: fetch nametable, attribute, low/high pattern bytes, then reload shift
+     * registers every 8 cycles. Incorporates pre-render prefetch promotion so first
+     * visible pixel has two tiles primed. Logged optionally for diagnostics.
+     */
     private void backgroundPipeline() {
         // Only execute during visible cycles 1-256 or prefetch cycles 321-336 on
         // visible/pre-render lines
@@ -1369,6 +1426,12 @@ public class Ppu2C02 implements PPU {
         }
     }
 
+    /**
+     * Generate background pixel for current cycle (cycle-1 -> x position): select
+     * pattern/attribute bits from shift registers at tap adjusted by fineX, resolve
+     * palette index, apply left-column masking and test pattern overrides, write to
+     * frame buffers, and optionally log sampling details.
+     */
     private void produceBackgroundPixel() {
         boolean bgEnabled = (regMASK & PpuRegs.MASK_BG_ENABLE) != 0;
         int x = cycle - 1;
@@ -1436,7 +1499,7 @@ public class Ppu2C02 implements PPU {
         frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK);
         if ((debugBgSample || debugBgSampleAll) && debugBgSampleCount < debugBgSampleLimit) {
             // Log sample with enough context to reason about shift orientation
-            vprintf(
+            verboseLog(
                     "[BG-SAMPLE] frame=%d scan=%d cyc=%d x=%d fineX=%d tap=%d patLoSh=%04X patHiSh=%04X attrLoSh=%04X attrHiSh=%04X nt=%02X at=%02X bits={%d%d attr=%d} palIdx=%X store=%X\n",
                     frame, scanline, cycle, x, fineX, 15 - (fineX & 7),
                     patternLowShift & 0xFFFF, patternHighShift & 0xFFFF,
@@ -1447,6 +1510,12 @@ public class Ppu2C02 implements PPU {
         }
     }
 
+    /**
+     * Transfer freshly fetched tile pattern and attribute bits into the low byte of
+     * the dual 16-bit shift registers; upper bytes retain prior tile data. Attribute
+     * bits are expanded to 0x00 or 0xFF masks for easier per-bit extraction during
+     * pixel generation.
+     */
     private void loadShiftRegisters() {
         // Load freshly fetched pattern bytes into low 8 bits; keep existing high 8
         // (already shifting toward bit15)
@@ -1481,6 +1550,10 @@ public class Ppu2C02 implements PPU {
         attributeHighShift = (attributeHighShift & 0xFF00) | (highBit != 0 ? 0x00FF : 0x0000);
     }
 
+    /**
+     * Advance background shift registers one bit left after producing a pixel so
+     * that next bit pair becomes available at correct tap for subsequent pixel.
+     */
     private void shiftBackgroundRegisters() {
         patternLowShift = ((patternLowShift << 1) & 0xFFFF);
         patternHighShift = ((patternHighShift << 1) & 0xFFFF);
@@ -1543,7 +1616,7 @@ public class Ppu2C02 implements PPU {
      * @param fmt
      * @param args
      */
-    private static void vprintf(String fmt, Object... args) {
+    private static void verboseLog(String fmt, Object... args) {
         if (verboseLogging)
             Log.debug(PPU, fmt, args);
     }
