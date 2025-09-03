@@ -1,4 +1,4 @@
-package com.nesemu.tools;
+package com.nesemu.debbuger;
 
 import com.nesemu.apu.APU;
 import com.nesemu.bus.Bus;

@@ -7,6 +7,8 @@ import com.nesemu.mapper.Mapper;
  * This class contains the ROM data and the mapper used for memory mapping.
  */
 public class Cartridge {
+
+    // iNES ROM data and mapper
     private INesRom rom;
     private Mapper mapper;
 

@@ -1,6 +1,8 @@
 package com.nesemu.input;
 
-/** NES controller logical buttons (bit order matches standard shift order). */
+/** 
+ * NES controller logical buttons (bit order matches standard shift order). 
+ */
 public enum ControllerButton {
     A, B, SELECT, START, UP, DOWN, LEFT, RIGHT;
 
