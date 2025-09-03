@@ -3,9 +3,14 @@ package com.nesemu.memory;
 import com.nesemu.memory.interfaces.NesMemory;
 
 /**
- * NES Memory Map implementation.
- * Handles internal RAM + mirrors, PPU/APU/IO stubs, SRAM and PRG-ROM.
- * Future: integrate PPU, APU, Mapper, IO, etc.
+ * Legacy flat memory implementation kept for CPU unit tests and transitional
+ * fallback only.
+ *
+ * The active emulator path now routes CPU accesses through {@link com.nesemu.bus.Bus}
+ * which delegates cartridge regions to concrete {@link com.nesemu.mapper.Mapper}
+ * implementations and PPU registers directly to the PPU. This class should NOT
+ * be extended with new mapper/PPU logic; instead, migrate tests to use the bus.
+ *
  */
 public class Memory implements NesMemory {
 
@@ -46,7 +51,6 @@ public class Memory implements NesMemory {
             return 0;
         } else if (address < 0x4020) {
             // APU & IO registers
-            // TODO: Integrar com APU/IO
             // if (address >= 0x4000 && address <= 0x4017) return apu.readRegister(address);
             return 0; // Stub
         } else if (address < 0x6000) {
@@ -57,7 +61,6 @@ public class Memory implements NesMemory {
             return sram[address - 0x6000];
         } else {
             // PRG-ROM (cartridge)
-            // TODO: Integrar com Mapper
             return prgRom[address - 0x8000];
         }
     }
@@ -74,7 +77,6 @@ public class Memory implements NesMemory {
             // ppu.writeRegister(0x2000 + (address & 0x7), value);
         } else if (address < 0x4020) {
             // APU & IO registers
-            // TODO: Integrar com APU/IO
             // if (address >= 0x4000 && address <= 0x4017) apu.writeRegister(address,
             // value);
         } else if (address < 0x6000) {
