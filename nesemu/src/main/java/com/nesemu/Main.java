@@ -74,6 +74,10 @@ public class Main {
         String saveStateKey = null; // INI: save-state (hotkey token e.g. f5)
         String loadStateKey = null; // INI: load-state (hotkey token e.g. f7)
         String timingModeOpt = null; // --timing-mode=simple|interleaved
+        String fastForwardKey = null; // INI: fast-foward (hold to disable pacing)
+        String fastForwardKeyCli = null; // CLI override
+        int fastForwardMaxFps = 0; // 0 = unlimited
+        Integer fastForwardMaxFpsCli = null; // CLI override
 
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
@@ -159,6 +163,16 @@ public class Main {
                     timingModeOpt = v;
                 } else {
                     Log.warn(GENERAL, "Valor inválido em --timing-mode= (usar simple|interleaved)");
+                }
+            } else if (a.startsWith("--fast-forward-key=")) {
+                fastForwardKeyCli = a.substring(19).trim().toLowerCase(Locale.ROOT);
+                if (fastForwardKeyCli.isEmpty())
+                    fastForwardKeyCli = null;
+            } else if (a.startsWith("--fast-forward-max-fps=")) {
+                try {
+                    fastForwardMaxFpsCli = Integer.parseInt(a.substring(24).trim());
+                } catch (NumberFormatException e) {
+                    Log.warn(GENERAL, "Valor inválido em --fast-forward-max-fps= (usar número inteiro)");
                 }
             } else if (a.startsWith("--log-attr")) {
                 if (a.contains("=")) {
@@ -491,6 +505,15 @@ public class Main {
             if (inputCfg.hasOption("load-state")) {
                 loadStateKey = inputCfg.getOption("load-state");
             }
+            if (inputCfg.hasOption("fast-foward")) { // manter grafia conforme INI
+                fastForwardKey = inputCfg.getOption("fast-foward");
+            }
+            if (inputCfg.hasOption("fast-foward-max-fps")) { // INI throttle
+                try {
+                    fastForwardMaxFps = Integer.parseInt(inputCfg.getOption("fast-foward-max-fps").trim());
+                } catch (Exception ignore) {
+                }
+            }
             // (Adia attach de controllers até após criação do emu)
         } catch (Exception ex) {
             Log.warn(CONTROLLER, "Falha ao carregar configuração de input: %s", ex.getMessage());
@@ -762,6 +785,16 @@ public class Main {
         Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (initialMaskOverride != null ? " (override)" : ""));
         if (gui) {
             NesWindow window = new NesWindow("R2-NES - " + romFilePath.getFileName(), 3);
+            // Apply fast-forward config (CLI override precedence)
+            String effectiveFfKey = fastForwardKeyCli != null ? fastForwardKeyCli : fastForwardKey;
+            if (fastForwardMaxFpsCli != null)
+                fastForwardMaxFps = fastForwardMaxFpsCli;
+            if (fastForwardMaxFps < 0)
+                fastForwardMaxFps = 0;
+            if (fastForwardMaxFps > 0) {
+                window.setFastForwardMaxFps(fastForwardMaxFps);
+                Log.info(GENERAL, "Fast-Forward max FPS: %d", fastForwardMaxFps);
+            }
             final Path[] romFilePathHolder = new Path[] { romFilePath }; // for inner classes
             final String[] saveStatePathHolder = new String[] { saveStatePath }; // mutable wrapper for closures
             if (borderlessFullscreen != null && borderlessFullscreen) {
@@ -807,13 +840,14 @@ public class Main {
             // Mutable HUD state wrapper for inner classes
             final boolean[] hudState = new boolean[] { hud };
             if (toggleFullscreenKey != null || toggleHudKey != null || toggleFullscreenProportionKey != null
-                    || saveStateKey != null || loadStateKey != null) {
+                    || saveStateKey != null || loadStateKey != null || effectiveFfKey != null) {
                 String fsKey = toggleFullscreenKey == null ? null : toggleFullscreenKey.toLowerCase(Locale.ROOT).trim();
                 String hudKey = toggleHudKey == null ? null : toggleHudKey.toLowerCase(Locale.ROOT).trim();
                 String propKey = toggleFullscreenProportionKey == null ? null
                         : toggleFullscreenProportionKey.toLowerCase(Locale.ROOT).trim();
                 String saveKey = saveStateKey == null ? null : saveStateKey.toLowerCase(Locale.ROOT).trim();
                 String loadKey = loadStateKey == null ? null : loadStateKey.toLowerCase(Locale.ROOT).trim();
+                String ffKey = effectiveFfKey == null ? null : effectiveFfKey.toLowerCase(Locale.ROOT).trim();
                 java.awt.event.KeyAdapter adapter = new java.awt.event.KeyAdapter() {
                     @Override
                     public void keyPressed(java.awt.event.KeyEvent e) {
@@ -891,6 +925,25 @@ public class Main {
                                 Log.warn(GENERAL, "Falha load-state: %s", ex.getMessage());
                                 stateMsg[0] = "LOAD ERR";
                                 stateMsgExpireNs[0] = System.nanoTime() + 1_500_000_000L;
+                            }
+                        }
+                        if (ffKey != null && tok.equals(ffKey)) {
+                            if (!window.isFastForward()) {
+                                window.setFastForward(true);
+                                Log.info(GENERAL, "Fast-Forward ON");
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void keyReleased(java.awt.event.KeyEvent e) {
+                        String tok = keyEventToToken(e);
+                        if (tok == null)
+                            return;
+                        if (ffKey != null && tok.equals(ffKey)) {
+                            if (window.isFastForward()) {
+                                window.setFastForward(false);
+                                Log.info(GENERAL, "Fast-Forward OFF");
                             }
                         }
                     }
@@ -1001,6 +1054,16 @@ public class Main {
                     g2.fillRect(80, 110, 120, 24);
                     g2.setColor(java.awt.Color.CYAN);
                     g2.drawString(msg, 92, 126);
+                }
+                if (window.isFastForward()) {
+                    double factor = window.getLastFps() / 60.0;
+                    if (factor < 0.01)
+                        factor = 0.01;
+                    String msg = String.format("FFWD x%.1f", factor);
+                    g2.setColor(new java.awt.Color(0, 0, 0, 170));
+                    g2.fillRect(8, 200, 120, 24);
+                    g2.setColor(java.awt.Color.ORANGE);
+                    g2.drawString(msg, 16, 216);
                 }
             });
             window.show(emuRef[0].getPpu().getFrameBuffer());

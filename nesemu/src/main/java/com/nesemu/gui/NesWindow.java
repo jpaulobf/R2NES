@@ -31,7 +31,7 @@ public class NesWindow {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile boolean useBufferStrategy = true; // default to active BS
     private boolean borderless = false;
-    
+
     // When true render thread skips presenting (during fullscreen transitions)
     private volatile boolean suspendRendering = false;
 
@@ -43,9 +43,14 @@ public class NesWindow {
     private volatile double lastFps = 0.0;
     private long fpsWindowStart = 0L;
     private int fpsFrames = 0;
+    private volatile boolean fastForward = false;
+    private volatile int fastForwardMaxFps = 0; // 0 = ilimitado
+    private long ffFpsWindowStart = 0L;
+    private int ffFpsFrames = 0;
 
     /**
      * Constructor, default scale=2.
+     * 
      * @param title
      * @param scale
      */
@@ -55,6 +60,9 @@ public class NesWindow {
         canvas.setPreferredSize(new java.awt.Dimension(256 * scale, 240 * scale));
         canvas.setBackground(Color.BLACK);
         canvas.setFocusable(true);
+        // Allow TAB (and Shift+TAB) to reach KeyListeners (otherwise Swing uses for
+        // focus traversal)
+        canvas.setFocusTraversalKeysEnabled(false);
         frame = new JFrame(title);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.getContentPane().setBackground(Color.BLACK);
@@ -62,10 +70,13 @@ public class NesWindow {
         frame.getContentPane().add(canvas);
         frame.pack();
         frame.setLocationRelativeTo(null);
+        // Also disable traversal on frame to be safe
+        frame.setFocusTraversalKeysEnabled(false);
     }
 
     /**
      * Show the window (must be called from Swing thread).
+     * 
      * @param framebuffer
      */
     public void show(int[] framebuffer) {
@@ -95,6 +106,7 @@ public class NesWindow {
     /**
      * Set or unset borderless fullscreen mode. If the window is already visible, it
      * will dispose/re-show to apply decoration change.
+     * 
      * @param enabled
      */
     public void setBorderlessFullscreen(boolean enabled) {
@@ -175,14 +187,15 @@ public class NesWindow {
 
     /**
      * Return whether borderless fullscreen mode is active.
+     * 
      * @return
      */
     public boolean isBorderlessFullscreen() {
         return borderless;
     }
 
-    /** 
-     * Expose underlying JFrame for advanced integrations (limited use). 
+    /**
+     * Expose underlying JFrame for advanced integrations (limited use).
      */
     public JFrame getFrame() {
         return frame;
@@ -214,7 +227,9 @@ public class NesWindow {
     }
 
     /**
-     * Start the rendering loop in a separate thread. If already running, does nothing.
+     * Start the rendering loop in a separate thread. If already running, does
+     * nothing.
+     * 
      * @param perFrame
      * @param targetFps
      */
@@ -223,7 +238,9 @@ public class NesWindow {
     }
 
     /**
-     * Start the rendering loop in a separate thread. If already running, does nothing.
+     * Start the rendering loop in a separate thread. If already running, does
+     * nothing.
+     * 
      * @param perFrame
      * @param targetFps
      * @param mode
@@ -243,6 +260,7 @@ public class NesWindow {
 
     /**
      * Runs Legacy render loop with simple sleep pacing.
+     * 
      * @param perFrame
      * @param targetFps
      */
@@ -254,6 +272,28 @@ public class NesWindow {
             perFrame.run();
             blitAndPresent();
             fpsFrames++;
+            if (fastForward && fastForwardMaxFps > 0) {
+                // Throttle simples baseado em janela de 1 segundo
+                long nowCheck = System.nanoTime();
+                if (ffFpsWindowStart == 0L)
+                    ffFpsWindowStart = nowCheck;
+                ffFpsFrames++;
+                long winElapsed = nowCheck - ffFpsWindowStart;
+                if (winElapsed >= 1_000_000_000L) {
+                    // reset a cada segundo
+                    ffFpsFrames = 0;
+                    ffFpsWindowStart = nowCheck;
+                } else {
+                    double currentFps = ffFpsFrames / (winElapsed / 1_000_000_000.0);
+                    if (currentFps > fastForwardMaxFps) {
+                        // dorme pequeno slice para reduzir
+                        try {
+                            Thread.sleep(1);
+                        } catch (InterruptedException ignored) {
+                        }
+                    }
+                }
+            }
             long now = System.nanoTime();
             long windowElapsed = now - fpsWindowStart;
             if (windowElapsed >= 1_000_000_000L) {
@@ -261,7 +301,7 @@ public class NesWindow {
                 fpsFrames = 0;
                 fpsWindowStart = now;
             }
-            if (frameDurationNanos > 0) {
+            if (!fastForward && frameDurationNanos > 0) {
                 long elapsed = now - start;
                 long sleep = frameDurationNanos - elapsed;
                 if (sleep > 0) {
@@ -276,6 +316,7 @@ public class NesWindow {
 
     /**
      * Runs High-Res render loop with busy-wait pacing.
+     * 
      * @param perFrame
      * @param targetFps
      */
@@ -296,12 +337,37 @@ public class NesWindow {
             perFrame.run();
             blitAndPresent();
             fpsFrames++;
+            if (fastForward && fastForwardMaxFps > 0) {
+                long nowCheck = System.nanoTime();
+                if (ffFpsWindowStart == 0L)
+                    ffFpsWindowStart = nowCheck;
+                ffFpsFrames++;
+                long winElapsed = nowCheck - ffFpsWindowStart;
+                if (winElapsed >= 1_000_000_000L) {
+                    ffFpsFrames = 0;
+                    ffFpsWindowStart = nowCheck;
+                } else {
+                    double currentFps = ffFpsFrames / (winElapsed / 1_000_000_000.0);
+                    if (currentFps > fastForwardMaxFps) {
+                        // Aguarda leve para conter
+                        try {
+                            Thread.sleep(1);
+                        } catch (InterruptedException ignored) {
+                        }
+                    }
+                }
+            }
             long now = System.nanoTime();
             long winElapsed = now - fpsWindowStart;
             if (winElapsed >= 1_000_000_000L) {
                 lastFps = fpsFrames / (winElapsed / 1_000_000_000.0);
                 fpsFrames = 0;
                 fpsWindowStart = now;
+            }
+            if (fastForward) {
+                // Pula qualquer espera e realinha next para evitar drift acumulado
+                next = System.nanoTime() + frameDur;
+                continue;
             }
             // Espera até 'next'
             long remaining;
@@ -431,6 +497,7 @@ public class NesWindow {
 
     /**
      * Get current proportion mode.
+     * 
      * @return
      */
     public int getProportionMode() {
@@ -460,6 +527,7 @@ public class NesWindow {
      * requires temporarily suspending rendering while the component hierarchy is
      * reconfigured. This method is safe to call from any thread, but the actual
      * change will be applied asynchronously on the Swing thread.
+     * 
      * @param enable
      */
     public void setUseBufferStrategy(boolean enable) {
@@ -508,10 +576,28 @@ public class NesWindow {
 
     /**
      * Get last measured FPS (updated about once per second).
+     * 
      * @return
      */
     public double getLastFps() {
         return lastFps;
+    }
+
+    // Fast-forward API
+    public void setFastForward(boolean enable) {
+        this.fastForward = enable;
+    }
+
+    public boolean isFastForward() {
+        return fastForward;
+    }
+
+    public void setFastForwardMaxFps(int max) {
+        this.fastForwardMaxFps = Math.max(0, max);
+    }
+
+    public int getFastForwardMaxFps() {
+        return fastForwardMaxFps;
     }
 
     /** Install key listener mapping key pressed/released events to controllers. */
@@ -623,8 +709,7 @@ public class NesWindow {
         canvas.addKeyListener(adapter);
     }
 
-
-    //----------------------------------- Helper ---------------------------------
+    // ----------------------------------- Helper ---------------------------------
 
     /**
      * Helper Enum

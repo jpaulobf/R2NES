@@ -1,6 +1,28 @@
 Changelog - R2NES
 ===================
 
+Version 0.3.9 – Fast-Forward & Throttle, PPU Refactor (2025-09-04)
+------------------------
+
+Added
+- Fast-forward hotkey (hold) configurable via INI `fast-foward=` (grafia mantida) e CLI `--fast-forward-key=`.
+- Optional maximum FPS throttle during fast-forward: INI `fast-foward-max-fps=` e CLI `--fast-forward-max-fps=` (0 ou ausente = ilimitado).
+- On-screen HUD overlay indicator now shows `FFWD xN.N` speed multiplier (relative to 60 FPS baseline).
+- Borderless fullscreen config key (`borderless-fullscreen=`) with CLI overrides.
+- Timing mode selection exposed via `--timing-mode=` complementing legacy `--timing-simple`.
+
+Changed
+- Background fetch phase-0 logic refactored into helper (`tileReloadAndAdvanceX`) for readability (no behavioral change intended).
+- Frame pacing loops bypass sleeps entirely during fast-forward unless throttle active (reduces latency while holding key).
+- Version bumped to 0.3.9.
+
+Fixed
+- TAB key not triggering fast-forward due to focus traversal consumption (disabled focus traversal keys on window & canvas).
+
+Notes
+- Throttle is coarse (frame count window); future refinement may use moving average or adaptive sleep for smoother caps.
+- INI retains original misspelling `fast-foward` for backward compatibility; a future release may accept both spellings.
+
 Version 0.3.8.1 – Interleaved Timing Mode (2025-09-04)
 ------------------------
 

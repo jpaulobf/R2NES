@@ -12,7 +12,15 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
  
-### New (0.3.8)
+### New (0.3.9)
+Fast-forward system + timing refinements:
+* Hold configurable hotkey (INI `fast-foward=` / CLI `--fast-forward-key=`) to bypass normal frame pacing.
+* Optional throttle: INI `fast-foward-max-fps=` or CLI `--fast-forward-max-fps=`. Set to e.g. 240 for ~4x, 0 (default) = uncapped.
+* HUD overlay now shows `FFWD xN.N` multiplier relative to 60 FPS.
+* TAB usable as fast-forward key (focus traversal disabled internally).
+* PPU background phase-0 fetch refactored (readability, no functional change).
+
+### Previous (0.3.8)
 Save state system (snapshot) with hotkeys and INI configuration:
 * Default hotkeys: F5 = Save, F7 = Load (configurable in `emulator.ini`).
 * Keys in INI:
@@ -90,6 +98,8 @@ java -jar target\R2NES-X.X.jar --gui --hud roms\realrom.nes
 | `--verbose` | Force legacy verbose |
 | `--unlimited-sprites` | Disable 8-sprite limit |
 | `--sprite-y=hardware or test` | Sprite Y semantics |
+| `--fast-forward-key=KEY` | Override fast-forward hotkey (INI `fast-foward=`) |
+| `--fast-forward-max-fps=N` | Throttle cap during fast-forward (0 = uncapped) |
 
 ### Outputs
 | File | Content |
@@ -164,7 +174,15 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Novidade (0.3.8)
+### Novidade (0.3.9)
+Sistema de fast-forward + refinamentos de timing:
+* Manter hotkey configurável pressionada (INI `fast-foward=` / CLI `--fast-forward-key=`) ignora o pacing normal.
+* Throttle opcional: INI `fast-foward-max-fps=` ou CLI `--fast-forward-max-fps=`. Ex: 240 ≈ 4x; 0 (padrão) = sem limite.
+* HUD mostra `FFWD xN.N` (multiplicador relativo a 60 FPS).
+* TAB agora funciona (teclas de travessia de foco desabilitadas).
+* Refatoração da fase 0 do pipeline de background da PPU (legibilidade).
+
+### Versão Anterior (0.3.8)
 Sistema de save state (snapshot) com hotkeys e configuração via INI:
 * Hotkeys padrão: F5 = Salvar, F7 = Carregar (configurável no `emulator.ini`).
 * Chaves no INI:
@@ -238,6 +256,8 @@ java -jar target\R2NES-X.X.jar --gui --hud roms\realrom.nes
 | `--verbose` | Força verboso |
 | `--unlimited-sprites` | Remove limite |
 | `--sprite-y=hardware ou test` | Semântica Y |
+| `--fast-forward-key=TECLA` | Hotkey fast-forward (override INI `fast-foward=`) |
+| `--fast-forward-max-fps=N` | Limite FPS durante fast-forward (0 = sem limite) |
 
 ### Saídas
 | Arquivo | Conteúdo |
