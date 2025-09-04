@@ -9,25 +9,29 @@ import com.nesemu.input.ControllerButton;
  */
 public interface Controller {
     /**
-     * Read next bit of controller shift register (typical NES sequence A,B,Select,Start,Up,Down,Left,Right).
+     * Read next bit of controller shift register (typical NES sequence
+     * A,B,Select,Start,Up,Down,Left,Right).
      * Implementations usually shift on each read after a strobe phase.
+     * 
      * @return bit (0 or 1) in LSB; upper bits should be 0.
      */
     int read();
 
     /**
-     * Write strobe/control value; when bit 0 set then latch current button states; when cleared begin shifting on reads.
+     * Write strobe/control value; when bit 0 set then latch current button states;
+     * when cleared begin shifting on reads.
+     * 
      * @param value raw byte (only bit0 normally relevant)
      */
     void write(int value);
 
-    /** 
-     * Update a key token (from GUI) 
+    /**
+     * Update a key token (from GUI)
      */
     void setKeyTokenState(String token, boolean down);
 
-    /** 
-     * Programmatic set of a logical button (test convenience). 
+    /**
+     * Programmatic set of a logical button (test convenience).
      */
     void setLogical(ControllerButton btn, boolean down);
 
@@ -44,19 +48,30 @@ public interface Controller {
 
     /**
      * Get current read bit index (0..8).
+     * 
      * @return
      */
     int getReadBitIndexDebug();
 
     /**
      * Get current latched value (for debugging).
+     * 
      * @return
      */
     int getLatchedValueDebug();
 
     /**
      * Get latched bits as string (for debugging).
+     * 
      * @return
      */
     String getLatchedBitsString();
+
+    /**
+     * Notification that one full rendered frame has advanced (≈60Hz). Default
+     * no-op.
+     * Used by implementations to drive features like turbo (auto-fire) timing.
+     */
+    default void onFrameAdvance() {
+    }
 }

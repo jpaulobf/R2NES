@@ -591,6 +591,13 @@ public class Main {
                 }
                 var pad1 = new NesController(cfgForPads.getController(0));
                 var pad2 = new NesController(cfgForPads.getController(1));
+                // Apply turbo-fast option if present (global for now)
+                String turboFastOpt = cfgForPads.getOption("turbo-fast");
+                boolean turboFast = turboFastOpt != null && turboFastOpt.equalsIgnoreCase("true");
+                if (turboFast) {
+                    pad1.setTurboFast(true);
+                    pad2.setTurboFast(true);
+                }
                 emuRef[0].getBus().attachControllers(pad1, pad2);
                 controllerPad1 = pad1;
                 controllerPad2 = pad2;

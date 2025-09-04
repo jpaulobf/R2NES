@@ -13,8 +13,8 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** 
- * Parser for emulator.ini controller mapping. 
+/**
+ * Parser for emulator.ini controller mapping.
  */
 public class InputConfig {
 
@@ -24,6 +24,7 @@ public class InputConfig {
 
     /**
      * Get (and create if needed) controller config for given 0-based index.
+     * 
      * @param index
      * @return
      */
@@ -35,6 +36,7 @@ public class InputConfig {
 
     /**
      * Get number of configured controllers.
+     * 
      * @param key
      * @return
      */
@@ -46,6 +48,7 @@ public class InputConfig {
 
     /**
      * Check if given option is present.
+     * 
      * @param key
      * @return
      */
@@ -57,6 +60,7 @@ public class InputConfig {
 
     /**
      * Load input config from given path (if file missing, return empty config).
+     * 
      * @param path
      * @return
      * @throws IOException
@@ -65,7 +69,9 @@ public class InputConfig {
         InputConfig cfg = new InputConfig();
         if (!Files.exists(path))
             return cfg; // empty default
-        Pattern p = Pattern.compile("dp-(\\d+)-(up|down|left|right|select|start|a|b)");
+        // Accept normal mappings and optional '-turbo' suffix for A/B (e.g.,
+        // dp-01-a-turbo)
+        Pattern p = Pattern.compile("dp-(\\d+)-(up|down|left|right|select|start|a|b)(-turbo)?");
         try (BufferedReader br = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             String line;
             while ((line = br.readLine()) != null) {
@@ -77,10 +83,11 @@ public class InputConfig {
                     continue; // ignore malformed
                 String key = line.substring(0, eq).trim();
                 String val = line.substring(eq + 1).trim();
-                Matcher m = p.matcher(key);
+                Matcher m = p.matcher(key.toLowerCase(Locale.ROOT));
                 if (m.matches()) {
                     int pad = Integer.parseInt(m.group(1));
                     String btnName = m.group(2).toLowerCase(Locale.ROOT);
+                    boolean turbo = m.group(3) != null; // '-turbo' suffix present
                     ControllerButton btn = switch (btnName) {
                         case "up" -> ControllerButton.UP;
                         case "down" -> ControllerButton.DOWN;
@@ -100,7 +107,11 @@ public class InputConfig {
                         for (String t : toks) {
                             String tok = t.trim();
                             if (!tok.isEmpty())
-                                cc.add(btn, tok.toLowerCase(Locale.ROOT));
+                                if (turbo && (btn == ControllerButton.A || btn == ControllerButton.B)) {
+                                    cc.addTurbo(btn, tok.toLowerCase(Locale.ROOT));
+                                } else {
+                                    cc.add(btn, tok.toLowerCase(Locale.ROOT));
+                                }
                         }
                     }
                 } else {

@@ -12,7 +12,21 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
  
-### New (0.3.9.2)
+### New (0.3.9.8)
+Turbo buttons (autofire) & no-ROM startup improvements:
+* New optional mappings in `emulator.ini`: `dp-01-a-turbo`, `dp-01-b-turbo` (and equivalents for pad2). If not mapped, turbo is inactive (no overhead).
+* Default turbo cadence: 15 Hz (pattern ON 2 frames / OFF 2 frames @60fps).
+* Optional faster cadence: set `turbo-fast=true` for 30 Hz (ON 1 / OFF 1).
+* Turbo key has precedence over the normal A/B key when both held (clean deterministic state latching).
+* Internal frame hook drives cadence (`onFrameAdvance` per controller) – deterministic across runtime (not yet serialized in save states).
+* Startup with GUI and no ROM now shows a clean black screen (HUD / ESC still functional) instead of auto-loading a legacy fallback ROM.
+* Removed deprecated implicit fallback ROM behavior (prevents accidental infringement / confusion).
+
+Limitations / Next:
+* Turbo phase not saved in snapshots (will reset pattern after load; acceptable for now).
+* Potential future HUD indicator (e.g., showing T-A / T-B when active) – deferred.
+
+### Previous (0.3.9.2)
 Left column rendering modes & scroll fidelity fixes:
 * New `left-column-mode=` (INI / CLI `--left-column-mode=`) values:
   * `hardware` (default) – authentic NES: left 8 background pixels only blank if PPUMASK bit 1 cleared.
@@ -192,7 +206,21 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Novidade (0.3.9.2)
+### Novidade (0.3.9.8)
+Botões turbo (autofire) & modo sem ROM:
+* Novos mapeamentos opcionais no `emulator.ini`: `dp-01-a-turbo`, `dp-01-b-turbo` (e pad2). Se não mapeados, turbo fica totalmente inativo (zero custo).
+* Cadência padrão: 15 Hz (liga 2 frames / desliga 2 frames).
+* `turbo-fast=true` ativa modo rápido 30 Hz (liga 1 / desliga 1).
+* Tecla turbo tem precedência sobre a tecla normal A/B quando ambas pressionadas (estado previsível na latch).
+* Hook interno por frame (`onFrameAdvance`) dirige a cadência (ainda não incluso no save state).
+* Iniciar GUI sem ROM agora exibe tela preta limpa (HUD / ESC ok) em vez de carregar ROM fallback antiga.
+* Comportamento de fallback automático de ROM removido (evita confusão / possíveis issues de licença).
+
+Limitações / Próximos:
+* Fase do turbo não serializada no snapshot (reinicia padrão após load).
+* Indicador HUD (ex: T-A / T-B) pode vir depois.
+
+### Versão Anterior (0.3.9.2)
 Modos de coluna esquerda & correções de scroll:
 * Novo `left-column-mode=` (INI / CLI `--left-column-mode=`) com valores:
   * `hardware` (padrão) – comportamento autêntico: 8 px iniciais só ficam em branco se bit 1 do PPUMASK estiver limpo.

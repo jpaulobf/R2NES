@@ -74,6 +74,14 @@ public class Bus implements NesBus {
     private int watchTriggerCount = 0;
     private int watchReadLimit = 1;
 
+    /** Notify controllers that a frame has ended (for turbo timing). */
+    public void onFrameEnd() {
+        if (pad1 != null)
+            pad1.onFrameAdvance();
+        if (pad2 != null)
+            pad2.onFrameAdvance();
+    }
+
     @Override
     public void enablePpuRegLogging(int limit) {
         this.logPpuRegs = true;
@@ -310,8 +318,8 @@ public class Bus implements NesBus {
         }
     }
 
-    /** 
-     * Perform OAM DMA immediately (blocking copy of 256 bytes). 
+    /**
+     * Perform OAM DMA immediately (blocking copy of 256 bytes).
      */
     private void performOamDma() {
         if (pendingDmaPage < 0) {
@@ -391,6 +399,7 @@ public class Bus implements NesBus {
 
     /**
      * Read PPU register via reflection.
+     * 
      * @param reg
      * @return
      */
@@ -406,6 +415,7 @@ public class Bus implements NesBus {
 
     /**
      * Write PPU register via reflection.
+     * 
      * @param reg
      * @param value
      */
@@ -416,9 +426,10 @@ public class Bus implements NesBus {
             // ignore
         }
     }
-    
+
     /**
      * Get current PPU frame (if connected), else -1.
+     * 
      * @return
      */
     private long getPpuFrame() {
@@ -431,6 +442,7 @@ public class Bus implements NesBus {
 
     /**
      * Get current PPU scanline (if connected), else -1.
+     * 
      * @return
      */
     private int getPpuScanline() {
@@ -443,6 +455,7 @@ public class Bus implements NesBus {
 
     /**
      * Get current PPU cycle (if connected), else -1.
+     * 
      * @return
      */
     private int getPpuCycle() {

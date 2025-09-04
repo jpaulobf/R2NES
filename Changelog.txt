@@ -1,6 +1,31 @@
 Changelog - R2NES
 ===================
 
+Version 0.3.9.8 – Turbo Buttons & No-ROM Mode (2025-09-04)
+------------------------
+
+Added
+- Turbo (autofire) support for A/B via optional INI mappings: `dp-01-a-turbo`, `dp-01-b-turbo` (and pad2 variants). If unmapped, feature is inert.
+- Default turbo cadence 15 Hz (ON 2 frames / OFF 2 frames @60fps). Fast mode 30 Hz (ON 1 / OFF 1) enabled with `turbo-fast=true`.
+- Precedence: turbo key overrides normal A/B key if both held (deterministic latch state, avoids mixed bits).
+- Internal frame hook (`onFrameAdvance`) drives cadence without per-read branching overhead.
+- GUI startup without ROM now creates a black-screen PPU instance (HUD / ESC functional) instead of auto-loading a fallback cartridge.
+
+Removed
+- Deprecated implicit fallback ROM load behavior.
+
+Changed
+- Controller config parser extended to accept `-turbo` suffix and global `turbo-fast` boolean option.
+- README (EN/PT) updated to document turbo + no-ROM mode.
+
+Limitations
+- Turbo frame phase not serialized in save-state v2 (pattern restarts after load; negligible impact).
+- No HUD indicator yet for turbo activity (planned enhancement).
+
+Notes
+- Turbo logic isolated at frame boundary; maintains existing $4016 strobe/latch semantics and keeps overhead minimal during rapid serial reads.
+- Future save-state version may include turbo phase for perfect determinism across loads.
+
 Version 0.3.9.2 – Left Column Modes & Scroll Fixes (2025-09-04)
 ------------------------
 

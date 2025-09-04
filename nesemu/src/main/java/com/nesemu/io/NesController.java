@@ -16,21 +16,26 @@ import com.nesemu.input.ControllerConfig;
  * reading button presses, and managing the controller's internal state.
  */
 public class NesController implements Controller {
-    
+
     // Configuration mapping buttons to key tokens
     private final ControllerConfig config;
-    
+
     // Live key token pressed state
     private final Set<String> pressed = ConcurrentHashMap.newKeySet();
     private boolean strobe = false; // current strobe line (bit0 of last write)
     private int readBitIndex = 0; // 0..8 (#bits already returned in current snapshot)
     private int latchedValue = 0; // snapshot of buttons (A..Right bits 0..7)
-    
+
     // Direct logical button overrides (for programmatic tests)
     private final Map<ControllerButton, Boolean> logicalState = new EnumMap<>(ControllerButton.class);
 
+    // Turbo support
+    private boolean turboFast = false; // false=15Hz (ON2/OFF2), true=30Hz (ON1/OFF1)
+    private long frameCounter = 0; // increments each frame
+
     /**
      * Constructor for NesController.
+     * 
      * @param config
      */
     public NesController(ControllerConfig config) {
@@ -138,10 +143,15 @@ public class NesController implements Controller {
      * Clear any logical override (back to token/key state).
      */
     private boolean isButtonActive(ControllerButton btn) {
-        // If logical override present, use it; else check any token pressed
+        // If logical override present, use it (overrides turbo too)
         Boolean ov = logicalState.get(btn);
         if (ov != null)
             return ov.booleanValue();
+        // Turbo applies only to A/B when at least one turbo token is pressed
+        if ((btn == ControllerButton.A || btn == ControllerButton.B) && hasTurboTokenPressed(btn)) {
+            return computeTurboOn();
+        }
+        // Normal tokens
         for (String token : config.getTokens(btn)) {
             if (pressed.contains(token))
                 return true;
@@ -161,8 +171,38 @@ public class NesController implements Controller {
         latchedValue = v;
     }
 
+    private boolean hasTurboTokenPressed(ControllerButton btn) {
+        for (String tok : config.getTurboTokens(btn)) {
+            if (pressed.contains(tok))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean computeTurboOn() {
+        if (turboFast) {
+            // 30Hz: ON 1 frame, OFF 1 frame (even frames ON)
+            return (frameCounter & 1L) == 0L;
+        } else {
+            // 15Hz: ON 2 frames, OFF 2 frames (pattern length 4)
+            long m = frameCounter & 3L; // modulo 4
+            return (m == 0L || m == 1L);
+        }
+    }
+
+    /** Enable/disable fast turbo (30Hz vs 15Hz). */
+    public void setTurboFast(boolean fast) {
+        this.turboFast = fast;
+    }
+
+    @Override
+    public void onFrameAdvance() {
+        frameCounter++;
+    }
+
     /**
      * Helper to append button label if pressed.
+     * 
      * @param sb
      * @param b
      * @param label

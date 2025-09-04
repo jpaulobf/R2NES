@@ -212,6 +212,10 @@ public class NesEmulator {
         // Apply any post-frame transformations (e.g., left column crop mode)
         // Done here so it affects both GUI and headless executions uniformly.
         ppu.applyPostFrameCroppingIfNeeded();
+        // Notify controllers (turbo cadence)
+        if (bus != null) {
+            ((Bus) bus).onFrameEnd();
+        }
     }
 
     /** Convenience: run a number of whole frames. */
