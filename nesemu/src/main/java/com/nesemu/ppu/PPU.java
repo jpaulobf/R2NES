@@ -1485,9 +1485,9 @@ public class PPU implements NesPPU {
                 break;
             case 3: { // Fetch attribute byte
                 int v = vramAddress;
-                int coarseX = v & 0x1F;
-                int coarseY = (v >> 5) & 0x1F;
-                int attributeAddr = 0x23C0 | (v & 0x0C00) | ((coarseY >> 2) << 3) | (coarseX >> 2);
+                int coarseXFetch = v & 0x1F;
+                int coarseYFetch = (v >> 5) & 0x1F;
+                int attributeAddr = 0x23C0 | (v & 0x0C00) | ((coarseYFetch >> 2) << 3) | (coarseXFetch >> 2);
                 atLatch = ppuMemoryRead(attributeAddr);
                 if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
                     pipelineLog.append(String.format("  AT at=%02X addr=%04X\n", atLatch & 0xFF, attributeAddr));
@@ -1507,95 +1507,95 @@ public class PPU implements NesPPU {
                 patternHighLatch = ppuMemoryRead(base);
                 break;
             }
-            case 0: // Reload immediately (canonical pipeline: insert into low 8 bits)
-                loadShiftRegisters();
-                // Pre-render prefetch promotion: during scanline -1 cycles 321-336 we load two
-                // tiles.
-                // First reload (tile A): capture its bytes after load.
-                // Second reload (tile B): promote A into high byte so that at pixel 0
-                // high=tileA, low=tileB.
-                if (isPreRender() && cycle >= 321 && cycle <= 336) {
-                    if (!prefetchHadFirstTile) {
-                        prefetchPatternLowA = patternLowShift & 0x00FF;
-                        prefetchPatternHighA = patternHighShift & 0x00FF;
-                        prefetchAttrLowA = attributeLowShift & 0x00FF;
-                        prefetchAttrHighA = attributeHighShift & 0x00FF;
-                        prefetchHadFirstTile = true;
-                    } else {
-                        patternLowShift = ((prefetchPatternLowA & 0xFF) << 8) | (patternLowShift & 0x00FF);
-                        patternHighShift = ((prefetchPatternHighA & 0xFF) << 8) | (patternHighShift & 0x00FF);
-                        attributeLowShift = ((prefetchAttrLowA & 0xFF) << 8) | (attributeLowShift & 0x00FF);
-                        attributeHighShift = ((prefetchAttrHighA & 0xFF) << 8) | (attributeHighShift & 0x00FF);
-                    }
-                }
-                // Reset flag when leaving pre-render: at start of visible scanline 0 cycle 0 we
-                // will
-                // naturally begin consuming; ensure next frame re-initializes.
-                if (!isPreRender() && prefetchHadFirstTile && scanline == 0 && cycle == 0) {
-                    prefetchHadFirstTile = false; // safety reset (should already be clear next frame)
-                }
-                // Coarse X increment occurs immediately after reload except on cycle 256
-                if (cycle != 256) {
-                    incrementCoarseX();
-                }
-                if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
-                    pipelineLog.append(String.format("  RL patLo=%04X patHi=%04X attrLo=%04X attrHi=%04X\n",
-                            patternLowShift & 0xFFFF, patternHighShift & 0xFFFF,
-                            attributeLowShift & 0xFFFF, attributeHighShift & 0xFFFF));
-                    pipelineLogCount++;
-                }
+            case 0: { // Reload + advance coarse X (unless cycle 256)
+                // coarse X increments at cycles 8,16,…,248,328,336 (skip 256)
+                tileReloadAndAdvanceX();
                 break;
+            }
         }
     }
 
     /**
-     * Generate background pixel for current cycle (cycle-1 -> x position): select
-     * pattern/attribute bits from shift registers at tap adjusted by fineX, resolve
-     * palette index, apply left-column masking and test pattern overrides, write to
-     * frame buffers, and optionally log sampling details.
+     * Performs the phase-0 tile reload (inject freshly fetched latches into the
+     * low byte of the shift registers), handles pre-render dual-tile prefetch
+     * promotion, optional reset of the prefetch flag at the start of the first
+     * visible scanline, increments coarse X except on cycle 256, and emits the
+     * RL (reload) pipeline log line.
+     * Mirrors previous inline logic for clarity and future refinements.
+     */
+    private void tileReloadAndAdvanceX() {
+        // Insert freshly fetched tile bits
+        loadShiftRegisters();
+        // Pre-render prefetch promotion (cycles 321-336 of scanline -1)
+        if (isPreRender() && cycle >= 321 && cycle <= 336) {
+            if (!prefetchHadFirstTile) {
+                prefetchPatternLowA = patternLowShift & 0x00FF;
+                prefetchPatternHighA = patternHighShift & 0x00FF;
+                prefetchAttrLowA = attributeLowShift & 0x00FF;
+                prefetchAttrHighA = attributeHighShift & 0x00FF;
+                prefetchHadFirstTile = true;
+            } else {
+                patternLowShift = ((prefetchPatternLowA & 0xFF) << 8) | (patternLowShift & 0x00FF);
+                patternHighShift = ((prefetchPatternHighA & 0xFF) << 8) | (patternHighShift & 0x00FF);
+                attributeLowShift = ((prefetchAttrLowA & 0xFF) << 8) | (attributeLowShift & 0x00FF);
+                attributeHighShift = ((prefetchAttrHighA & 0xFF) << 8) | (attributeHighShift & 0x00FF);
+            }
+        }
+        // Reset flag leaving pre-render (safety; should clear naturally each frame)
+        if (!isPreRender() && prefetchHadFirstTile && scanline == 0 && cycle == 0) {
+            prefetchHadFirstTile = false;
+        }
+        // Increment coarse X for every tile boundary except the vertical increment slot
+        if (cycle != 256) {
+            incrementCoarseX();
+        }
+        // Pipeline log after reload (same condition as before extraction)
+        if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
+            pipelineLog.append(String.format("  RL patLo=%04X patHi=%04X attrLo=%04X attrHi=%04X\n",
+                    patternLowShift & 0xFFFF, patternHighShift & 0xFFFF,
+                    attributeLowShift & 0xFFFF, attributeHighShift & 0xFFFF));
+            pipelineLogCount++;
+        }
+    }
+
+    /**
+     * Generate one background pixel (before sprite overlay) using current shift
+     * register state. Supports optional synthetic test patterns.
      */
     private void produceBackgroundPixel() {
-        boolean bgEnabled = (regMASK & PpuRegs.MASK_BG_ENABLE) != 0;
         int x = cycle - 1;
-        if (x < 8 && (regMASK & PpuRegs.MASK_BG_LEFT) == 0) {
-            return;
-        }
-        if (x < 0 || x >= 256 || !isVisibleScanline())
-            return;
-        // Test mode: render 5 horizontal color bands ignoring normal pipeline/mask.
-        // Test patterns override normal pipeline
+        boolean bgEnabled = (regMASK & PpuRegs.MASK_BG_ENABLE) != 0;
+
+        // Synthetic test patterns override real background
         if (testPatternMode != TEST_NONE) {
             int paletteIndex = 0;
             switch (testPatternMode) {
                 case TEST_BANDS_H: {
-                    int band = scanline / 48; // 5 bands
-                    if (band > 4)
-                        band = 4;
+                    int band = (scanline / 16) & 0x03;
                     paletteIndex = (band + 1) & 0x0F;
                     break;
                 }
                 case TEST_BANDS_V: {
-                    int band = x / 51; // 256/5 ≈ 51
-                    if (band > 4)
-                        band = 4;
+                    int band = (x / 16) & 0x03;
                     paletteIndex = (band + 1) & 0x0F;
                     break;
                 }
                 case TEST_CHECKER: {
-                    // Alterna por tile (8x8). Usa 4 cores repetindo 1..4
                     int tileX = x / 8;
                     int tileY = scanline / 8;
-                    int idx = ((tileX + tileY) & 0x03) + 1; // 1..4
+                    int idx = ((tileX + tileY) & 0x03) + 1;
                     paletteIndex = idx;
                     break;
                 }
+                default:
+                    break;
             }
             frameIndexBuffer[scanline * 256 + x] = paletteIndex;
             int colorIndex = palette.read(0x3F00 + paletteIndex);
-            frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK & ~0x01); // força color (remove
-                                                                                            // grayscale bit)
+            frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK & ~0x01); // remove grayscale bit
             return;
         }
+
         if (!bgEnabled) {
             return;
         }
@@ -1620,7 +1620,6 @@ public class PPU implements NesPPU {
         int colorIndex = palette.read(0x3F00 + ((pattern == 0) ? 0 : paletteIndex));
         frameBuffer[scanline * 256 + x] = palette.getArgb(colorIndex, regMASK);
         if ((debugBgSample || debugBgSampleAll) && debugBgSampleCount < debugBgSampleLimit) {
-            // Log sample with enough context to reason about shift orientation
             verboseLog(
                     "[BG-SAMPLE] frame=%d scan=%d cyc=%d x=%d fineX=%d tap=%d patLoSh=%04X patHiSh=%04X attrLoSh=%04X attrHiSh=%04X nt=%02X at=%02X bits={%d%d attr=%d} palIdx=%X store=%X\n",
                     frame, scanline, cycle, x, fineX, 15 - (fineX & 7),
