@@ -187,6 +187,9 @@ public class NesEmulator {
         while (ppu.getFrame() == targetFrame) {
             runCycles(1); // 1 CPU cycle -> 3 PPU cycles
         }
+    // Apply any post-frame transformations (e.g., left column crop mode)
+    // Done here so it affects both GUI and headless executions uniformly.
+    ppu.applyPostFrameCroppingIfNeeded();
     }
 
     /** Convenience: run a number of whole frames. */

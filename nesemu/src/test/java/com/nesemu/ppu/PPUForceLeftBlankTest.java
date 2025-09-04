@@ -24,12 +24,12 @@ public class PPUForceLeftBlankTest {
     public void testForceLeftBlankOverridesMask() {
         NesEmulator emu = new NesEmulator(buildSimpleRom());
         emu.getBus().write(0x2001, 0x0A); // BG + left column
-        ((PPU)emu.getPpu()).setForceLeftBlank(true);
+        ((PPU)emu.getPpu()).setLeftColumnMode(PPU.LeftColumnMode.ALWAYS);
         emu.stepFrame();
         int[] idx = emu.getPpu().getBackgroundIndexBufferCopy();
         for(int y=0;y<240;y++) {
             for(int x=0;x<8;x++) {
-                assertEquals(0, idx[y*256+x] & 0x0F, "Coluna esquerda deveria estar blank (forceLeftBlank)");
+                assertEquals(0, idx[y*256+x] & 0x0F, "Coluna esquerda deveria estar blank (ALWAYS mode)");
             }
         }
     }

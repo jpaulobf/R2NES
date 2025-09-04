@@ -78,7 +78,7 @@ public class Main {
         String fastForwardKeyCli = null; // CLI override
         int fastForwardMaxFps = 0; // 0 = unlimited
         Integer fastForwardMaxFpsCli = null; // CLI override
-        boolean forceLeftBlank = false; // --force-left-blank
+    String leftColumnModeOpt = null; // --left-column-mode=hardware|always|crop (INI: left-column-mode)
 
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
@@ -175,8 +175,8 @@ public class Main {
                 } catch (NumberFormatException e) {
                     Log.warn(GENERAL, "Valor inválido em --fast-forward-max-fps= (usar número inteiro)");
                 }
-            } else if (a.equalsIgnoreCase("--force-left-blank")) {
-                forceLeftBlank = true;
+            } else if (a.startsWith("--left-column-mode=")) {
+                leftColumnModeOpt = a.substring(19).trim().toLowerCase(Locale.ROOT);
             } else if (a.startsWith("--log-attr")) {
                 if (a.contains("=")) {
                     try {
@@ -408,8 +408,8 @@ public class Main {
             }
             if (!forceBg && inputCfg.hasOption("force-bg"))
                 forceBg = Boolean.parseBoolean(inputCfg.getOption("force-bg"));
-            if (!forceLeftBlank && inputCfg.hasOption("force-left-blank"))
-                forceLeftBlank = Boolean.parseBoolean(inputCfg.getOption("force-left-blank"));
+            if (leftColumnModeOpt == null && inputCfg.hasOption("left-column-mode"))
+                leftColumnModeOpt = inputCfg.getOption("left-column-mode").trim().toLowerCase(Locale.ROOT);
             if (!bgColStats && inputCfg.hasOption("bg-col-stats"))
                 bgColStats = Boolean.parseBoolean(inputCfg.getOption("bg-col-stats"));
             if (testPattern == null && inputCfg.hasOption("test-pattern"))
@@ -789,9 +789,15 @@ public class Main {
                                                                                    // blanked)
         emuRef[0].getBus().write(0x2001, initMask);
         Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (initialMaskOverride != null ? " (override)" : ""));
-        if (forceLeftBlank) {
-            ((PPU) emuRef[0].getPpu()).setForceLeftBlank(true);
-            Log.info(PPU, "Force-left-blank ativo: coluna esquerda será sempre blank");
+        if (leftColumnModeOpt != null) {
+            com.nesemu.ppu.PPU.LeftColumnMode mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE;
+            switch (leftColumnModeOpt) {
+                case "always": mode = com.nesemu.ppu.PPU.LeftColumnMode.ALWAYS; break;
+                case "crop": mode = com.nesemu.ppu.PPU.LeftColumnMode.CROP; break;
+                case "hardware": default: mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE; break;
+            }
+            ((PPU) emuRef[0].getPpu()).setLeftColumnMode(mode);
+            Log.info(PPU, "Left-column-mode=%s", mode.name().toLowerCase(Locale.ROOT));
         }
         if (gui) {
             NesWindow window = new NesWindow("R2-NES - " + romFilePath.getFileName(), 3);
