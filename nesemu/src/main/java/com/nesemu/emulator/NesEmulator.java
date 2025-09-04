@@ -58,6 +58,26 @@ public class NesEmulator {
     }
 
     /**
+     * Standalone PPU mode (no ROM/mapper) for GUI black screen / diagnostics.
+     * Provides a ticking PPU & CPU minimal loop so HUD/ESC still function.
+     */
+    public static NesEmulator createBlackScreenInstance() {
+        NesEmulator emu = new NesEmulator();
+        PPU p = new PPU();
+        p.reset();
+        // No mapper attached: background stays blank (pattern reads default 0).
+        emu.bus.attachPPU(p);
+        p.attachCPU(emu.cpu);
+        try {
+            java.lang.reflect.Field f = NesEmulator.class.getDeclaredField("ppu");
+            f.setAccessible(true);
+            f.set(emu, p);
+        } catch (Exception ignore) {
+        }
+        return emu;
+    }
+
+    /**
      * New path: build full stack from ROM
      * 
      * @param rom

@@ -532,29 +532,46 @@ public class Main {
         }
         Path romFilePath = null;
         if (!patternStandalone) {
-            if (romPath == null) {
-                romPath = "roms/donkeykong.nes"; // fallback relativo
-                Log.info(ROM, "ROM fallback padrão: %s", romPath);
-            }
-            romFilePath = Path.of(romPath);
-            if (!Files.exists(romFilePath)) {
-                Log.error(ROM, "ROM não encontrada: %s", romPath);
-                return;
-            }
-            Log.info(ROM, "Carregando ROM: %s", romFilePath.toAbsolutePath());
-            romRef[0] = RomLoader.load(romFilePath);
-            Path saveDir = null;
-            if (savePathOverride != null) {
-                try {
-                    saveDir = Path.of(savePathOverride);
-                } catch (Exception ignore) {
+            if (romPath == null || romPath.isBlank()) {
+                if (!gui) {
+                    Log.error(ROM, "Nenhuma ROM especificada. Use argumento CLI ou defina 'rom=' no emulator.ini");
+                    Log.error(ROM, "Execução abortada (headless requer ROM ou test-pattern)");
+                    return;
+                } else {
+                    Log.warn(ROM, "Nenhuma ROM especificada. Iniciando GUI em tela preta (PPU idle)");
+                }
+            } else {
+                romFilePath = Path.of(romPath);
+                if (!Files.exists(romFilePath)) {
+                    if (!gui) {
+                        Log.error(ROM, "ROM não encontrada: %s", romPath);
+                        return;
+                    } else {
+                        Log.warn(ROM, "ROM inexistente: %s. Iniciando em tela preta.", romPath);
+                        romFilePath = null; // força tela preta
+                    }
                 }
             }
-            if (saveDir != null) {
-                emuRef[0] = new NesEmulator(romRef[0], romFilePath, saveDir); // construtor com save-dir explícito
-                Log.info(GENERAL, "save-path override: %s", saveDir.toAbsolutePath());
-            } else {
-                emuRef[0] = new NesEmulator(romRef[0], romFilePath); // fallback: ROM directory
+            if (romFilePath != null) {
+                Log.info(ROM, "Carregando ROM: %s", romFilePath.toAbsolutePath());
+                romRef[0] = RomLoader.load(romFilePath);
+                Path saveDir = null;
+                if (savePathOverride != null) {
+                    try {
+                        saveDir = Path.of(savePathOverride);
+                    } catch (Exception ignore) {
+                    }
+                }
+                if (saveDir != null) {
+                    emuRef[0] = new NesEmulator(romRef[0], romFilePath, saveDir);
+                    Log.info(GENERAL, "save-path override: %s", saveDir.toAbsolutePath());
+                } else {
+                    emuRef[0] = new NesEmulator(romRef[0], romFilePath);
+                }
+            } else if (gui) {
+                // Criar emulador "vazio" apenas com PPU para tela preta (HUD/ESC funcionam)
+                romRef[0] = null;
+                emuRef[0] = NesEmulator.createBlackScreenInstance();
             }
         }
 
@@ -807,7 +824,8 @@ public class Main {
             Log.info(PPU, "Left-column-mode=%s", mode.name().toLowerCase(Locale.ROOT));
         }
         if (gui) {
-            NesWindow window = new NesWindow("R2-NES - " + romFilePath.getFileName(), 3);
+            String title = (romFilePath != null) ? ("R2-NES - " + romFilePath.getFileName()) : "R2-NES (no ROM)";
+            NesWindow window = new NesWindow(title, 3);
             // Apply fast-forward config (CLI override precedence)
             String effectiveFfKey = fastForwardKeyCli != null ? fastForwardKeyCli : fastForwardKey;
             if (fastForwardMaxFpsCli != null)
@@ -818,7 +836,7 @@ public class Main {
                 window.setFastForwardMaxFps(fastForwardMaxFps);
                 Log.info(GENERAL, "Fast-Forward max FPS: %d", fastForwardMaxFps);
             }
-            final Path[] romFilePathHolder = new Path[] { romFilePath }; // for inner classes
+            final Path[] romFilePathHolder = new Path[] { romFilePath }; // may be null in black screen mode
             final String[] saveStatePathHolder = new String[] { saveStatePath }; // mutable wrapper for closures
             if (borderlessFullscreen != null && borderlessFullscreen) {
                 window.setBorderlessFullscreen(true);
@@ -827,26 +845,28 @@ public class Main {
                 Log.info(GENERAL, "Borderless fullscreen: OFF");
             }
             // Autosave hook: attach window listener to save SRAM on close
-            try {
-                java.awt.event.WindowListener wl = new java.awt.event.WindowAdapter() {
-                    @Override
-                    public void windowClosing(java.awt.event.WindowEvent e) {
-                        if (emuRef[0] != null) {
-                            emuRef[0].forceAutoSave();
-                            Log.info(GENERAL, "AutoSave (.sav) disparado no fechamento da janela");
+            if (romFilePath != null) { // só registrar autosave se houve ROM carregada
+                try {
+                    java.awt.event.WindowListener wl = new java.awt.event.WindowAdapter() {
+                        @Override
+                        public void windowClosing(java.awt.event.WindowEvent e) {
+                            if (emuRef[0] != null) {
+                                emuRef[0].forceAutoSave();
+                                Log.info(GENERAL, "AutoSave (.sav) disparado no fechamento da janela");
+                            }
                         }
-                    }
 
-                    @Override
-                    public void windowClosed(java.awt.event.WindowEvent e) {
-                        if (emuRef[0] != null) {
-                            emuRef[0].forceAutoSave();
+                        @Override
+                        public void windowClosed(java.awt.event.WindowEvent e) {
+                            if (emuRef[0] != null) {
+                                emuRef[0].forceAutoSave();
+                            }
                         }
-                    }
-                };
-                window.getFrame().addWindowListener(wl);
-            } catch (Exception ex) {
-                Log.warn(GENERAL, "Falha ao registrar autosave window listener: %s", ex.getMessage());
+                    };
+                    window.getFrame().addWindowListener(wl);
+                } catch (Exception ex) {
+                    Log.warn(GENERAL, "Falha ao registrar autosave window listener: %s", ex.getMessage());
+                }
             }
             final long[] resetMsgExpireNs = new long[] { 0L };
             final long[] stateMsgExpireNs = new long[] { 0L };
