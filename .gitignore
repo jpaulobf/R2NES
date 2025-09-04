@@ -3,14 +3,10 @@
 nesemu/out.log
 nesemu/nestest/out.log
 nesemu/background.ppm
-nesemu/roms/donkeykong.nes
 nesemu/out_center.txt
 nesemu/out_first.txt
 nesemu/out_nonzero.txt
 nesemu/trace_long.txt
 background.ppm
 nesemu/roms/**
-nesemu/roms/popeye.nes
-nesemu/roms/smb.nes
-.vscode/TODO.md
 TODO.md
