@@ -131,12 +131,17 @@ public class NesWindow {
                 frame.setVisible(true);
                 if (enabled) {
                     frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                    hideCursor();
                 } else if (windowedBounds != null) {
                     frame.setBounds(windowedBounds);
+                    showCursor();
                 }
                 borderless = enabled;
             } else if (enabled) { // already undecorated, just ensure maximized
                 frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                hideCursor();
+            } else if (!enabled) {
+                showCursor();
             }
 
             if (useBufferStrategy) {
@@ -190,6 +195,31 @@ public class NesWindow {
                 restoreFocus();
             }
         });
+    }
+
+    private java.awt.Cursor hiddenCursor = null;
+
+    private void hideCursor() {
+        try {
+            if (hiddenCursor == null) {
+                java.awt.Toolkit tk = java.awt.Toolkit.getDefaultToolkit();
+                java.awt.Image img = new java.awt.image.BufferedImage(16, 16,
+                        java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                hiddenCursor = tk.createCustomCursor(img, new java.awt.Point(0, 0), "hidden");
+            }
+            frame.setCursor(hiddenCursor);
+            canvas.setCursor(hiddenCursor);
+        } catch (Exception ignore) {
+        }
+    }
+
+    private void showCursor() {
+        try {
+            java.awt.Cursor def = java.awt.Cursor.getDefaultCursor();
+            frame.setCursor(def);
+            canvas.setCursor(def);
+        } catch (Exception ignore) {
+        }
     }
 
     /**

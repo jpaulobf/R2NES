@@ -12,7 +12,14 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
  
-### New (0.3.9)
+### New (0.3.9.1)
+UX & pacing diagnostics:
+* ESC key (fixed) prompts confirmation (autosave on Yes, then exit).
+* Mouse cursor auto-hidden in borderless fullscreen, restored on exit.
+* Frame pacing instrumentation (avg frame time, jitter, worst frame) internal (HUD exposure soon).
+* High-res pacer earlier realignment (>1 frame lag) to reduce burst stutter.
+
+### Previous (0.3.9)
 Fast-forward system + timing refinements:
 * Hold configurable hotkey (INI `fast-foward=` / CLI `--fast-forward-key=`) to bypass normal frame pacing.
 * Optional throttle: INI `fast-foward-max-fps=` or CLI `--fast-forward-max-fps=`. Set to e.g. 240 for ~4x, 0 (default) = uncapped.
@@ -174,7 +181,14 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Novidade (0.3.9)
+### Novidade (0.3.9.1)
+UX e diagnósticos de pacing:
+* Tecla ESC (fixa) abre confirmação (autosave se Yes e encerra).
+* Cursor do mouse oculto automaticamente em fullscreen borderless e restaurado ao sair.
+* Instrumentação de tempo de frame (média, jitter, pior) interna (HUD em breve).
+* Realinhamento mais cedo no pacer high-res (>1 frame de atraso) reduz bursts.
+
+### Versão Anterior (0.3.9)
 Sistema de fast-forward + refinamentos de timing:
 * Manter hotkey configurável pressionada (INI `fast-foward=` / CLI `--fast-forward-key=`) ignora o pacing normal.
 * Throttle opcional: INI `fast-foward-max-fps=` ou CLI `--fast-forward-max-fps=`. Ex: 240 ≈ 4x; 0 (padrão) = sem limite.

@@ -851,6 +851,24 @@ public class Main {
                 java.awt.event.KeyAdapter adapter = new java.awt.event.KeyAdapter() {
                     @Override
                     public void keyPressed(java.awt.event.KeyEvent e) {
+                        // ESC -> confirmação de saída (não configurável)
+                        if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE) {
+                            int res = javax.swing.JOptionPane.showConfirmDialog(window.getFrame(),
+                                    "You really want exit?", "Confirm Exit",
+                                    javax.swing.JOptionPane.YES_NO_OPTION);
+                            if (res == javax.swing.JOptionPane.YES_OPTION) {
+                                try {
+                                    if (emuRef[0] != null) {
+                                        emuRef[0].forceAutoSave();
+                                        Log.info(GENERAL, "AutoSave (.sav) antes de sair via ESC");
+                                    }
+                                } catch (Exception ex) {
+                                    Log.warn(GENERAL, "Falha autosave na saída: %s", ex.getMessage());
+                                }
+                                System.exit(0);
+                            }
+                            return; // não propaga ESC para outros toggles
+                        }
                         String tok = keyEventToToken(e);
                         if (tok == null)
                             return;

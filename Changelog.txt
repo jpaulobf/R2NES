@@ -1,6 +1,22 @@
 Changelog - R2NES
 ===================
 
+Version 0.3.9.1 – UX & Pacing Diagnostics (2025-09-04)
+------------------------
+
+Added
+- ESC hotkey (not configurable) opens confirmation dialog: "You really want exit? Yes/No"; on Yes performs autosave then exits.
+- Automatic mouse cursor hide in borderless fullscreen; restored when returning to windowed mode.
+- Frame timing instrumentation (legacy + high-res pacer): last frame duration, exponential moving average, jitter (absolute deviation EMA), worst frame per FPS window.
+
+Changed
+- High-res pacer realignment threshold reduced (realigns when >1 frame behind instead of >3) to curb burst catch-up and reduce perceived micro-stutter.
+- Version bumped to 0.3.9.1.
+
+Notes
+- Instrumentation getters available; HUD integration for frame ms/jitter pending (future minor update).
+- Potential future INI key to toggle advanced metrics or set frame long threshold for logging.
+
 Version 0.3.9 – Fast-Forward & Throttle, PPU Refactor (2025-09-04)
 ------------------------
 
