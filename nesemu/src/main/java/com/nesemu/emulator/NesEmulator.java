@@ -37,6 +37,15 @@ public class NesEmulator {
     private static final int STATE_VERSION = 2;
 
     /**
+     * CPU↔PPU timing mode. SIMPLE mantém padrão antigo (CPU depois 3×PPU).
+     * INTERLEAVED reduz defasagem média aplicando 1 PPU antes da CPU e 2 depois.
+     * Ambos preservam razão 3:1 de ciclos agregados.
+     */
+    public enum TimingMode { SIMPLE, INTERLEAVED }
+
+    private TimingMode timingMode = TimingMode.SIMPLE; // default compat
+
+    /**
      * Legacy path: build minimal stack with no PPU or mapper (for CPU unit tests).
      */
     public NesEmulator() {
@@ -145,13 +154,24 @@ public class NesEmulator {
                 cpu.clock();
             return;
         }
-        for (long i = 0; i < cpuCycles; i++) {
-            cpu.clock();
-            ppu.clock();
-            ppu.clock();
-            ppu.clock();
-            // Future: APU clock (every CPU cycle) & poll NMI from PPU
-            autoSaveTick();
+        if (timingMode == TimingMode.SIMPLE) {
+            for (long i = 0; i < cpuCycles; i++) {
+                cpu.clock();
+                ppu.clock();
+                ppu.clock();
+                ppu.clock();
+                autoSaveTick();
+            }
+        } else { // INTERLEAVED
+            for (long i = 0; i < cpuCycles; i++) {
+                // 1º PPU antes da CPU para reduzir atraso de writes que afetam próximo pixel
+                ppu.clock();
+                cpu.clock();
+                // 2 PPU restantes
+                ppu.clock();
+                ppu.clock();
+                autoSaveTick();
+            }
         }
     }
 
@@ -179,6 +199,16 @@ public class NesEmulator {
     /** Expose current rendered frame index (proxy to PPU). */
     public long getFrame() {
         return ppu.getFrame();
+    }
+
+    /** Define modo de temporização CPU↔PPU (default SIMPLE). */
+    public void setTimingMode(TimingMode mode) {
+        if (mode != null) this.timingMode = mode;
+    }
+
+    /** Obtém modo de temporização atual. */
+    public TimingMode getTimingMode() {
+        return this.timingMode;
     }
 
     /**

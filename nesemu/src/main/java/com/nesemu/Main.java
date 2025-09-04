@@ -73,6 +73,8 @@ public class Main {
         String saveStatePath = null; // INI: save-state-path (dir for .state snapshots)
         String saveStateKey = null; // INI: save-state (hotkey token e.g. f5)
         String loadStateKey = null; // INI: load-state (hotkey token e.g. f7)
+        String timingModeOpt = null; // --timing-mode=simple|interleaved
+
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         boolean patternStandalone = false; // modo especial: renderiza apenas padrão sintético sem ROM/CPU
@@ -151,6 +153,13 @@ public class Main {
                 initScroll = true;
             } else if (a.equalsIgnoreCase("--timing-simple")) {
                 timingSimple = true;
+            } else if (a.startsWith("--timing-mode=")) {
+                String v = a.substring(14).trim().toLowerCase(Locale.ROOT);
+                if (v.equals("simple") || v.equals("interleaved")) {
+                    timingModeOpt = v;
+                } else {
+                    Log.warn(GENERAL, "Valor inválido em --timing-mode= (usar simple|interleaved)");
+                }
             } else if (a.startsWith("--log-attr")) {
                 if (a.contains("=")) {
                     try {
@@ -430,6 +439,11 @@ public class Main {
                 if (v.equals("hardware") || v.equals("test"))
                     spriteYMode = v;
             }
+            if (timingModeOpt == null && inputCfg.hasOption("timing-mode")) {
+                String v = inputCfg.getOption("timing-mode").trim().toLowerCase(Locale.ROOT);
+                if (v.equals("simple") || v.equals("interleaved"))
+                    timingModeOpt = v;
+            }
             if (pacerModeOpt == null && inputCfg.hasOption("pacer")) {
                 String v = inputCfg.getOption("pacer").trim().toLowerCase(Locale.ROOT);
                 if (v.equals("legacy") || v.equals("hr"))
@@ -611,7 +625,16 @@ public class Main {
         }
         if (!patternStandalone) {
             if (timingSimple) {
-                emuRef[0].getPpu().setSimpleTiming(true);
+                emuRef[0].getPpu().setSimpleTiming(true); // deprecated path retained
+            }
+            // Aplica modo de temporização se definido (default SIMPLE já é padrão)
+            if (timingModeOpt != null) {
+                if (timingModeOpt.equals("interleaved")) {
+                    emuRef[0].setTimingMode(NesEmulator.TimingMode.INTERLEAVED);
+                } else {
+                    emuRef[0].setTimingMode(NesEmulator.TimingMode.SIMPLE);
+                }
+                Log.info(GENERAL, "Timing mode: %s", timingModeOpt);
             }
         }
         if (!patternStandalone) {

@@ -66,7 +66,7 @@ Notes: forced palette indices 1..5, grayscale bit ignored, HUD shows frame/scanl
 java -jar target\R2NES-X.X.jar --gui --hud roms\realrom.nes
 ```
 
-### Background Diagnostics Flags
+### Background Diagnostics & Timing Flags
 | Flag | Purpose |
 |------|---------|
 | `--force-bg` | Force PPUMASK bg bit |
@@ -74,7 +74,8 @@ java -jar target\R2NES-X.X.jar --gui --hud roms\realrom.nes
 | `--dbg-bg-all` | Extend sampling window |
 | `--bg-col-stats` | Per column stats |
 | `--tile-matrix=...` | ASCII tile matrix mode |
-| `--timing-simple` | Simplified timing mode |
+| `--timing-simple` | Simplified timing mode (legacy) |
+| `--timing-mode=simple|interleaved` | Select global CPU↔PPU scheduling |
 | `--init-scroll` | Initialize scroll/VRAM registers |
 | `--log-attr[=N]` | Attribute table writes log |
 | `--log-nt[=N]` | Nametable writes log |
@@ -132,6 +133,16 @@ Hotkey behavior: Press save key at any time; load key restores snapshot and norm
 | 3 | CNROM | 8K CHR bank |
 | 4 | MMC3 | (WIP partial – save state support pending) |
 | 5 | MMC5 | (WIP partial – save state support pending) |
+
+### Timing Modes
+Two global scheduling strategies (default: simple):
+
+| Mode | Pattern | Characteristics | When to Use |
+|------|---------|-----------------|-------------|
+| simple | CPU instr then batch 3*cycles PPU | Legacy behavior, fewer context switches | Baseline performance, broad testing |
+| interleaved | PPU, CPU, PPU, PPU (per CPU cycle slice) | Lower event latency (NMI, sprite zero hit) closer to hardware cadence | Timing-sensitive debugging, edge cases |
+
+CLI: `--timing-mode=interleaved` or INI `timing-mode=interleaved`. Legacy `--timing-simple` still maps to simple.
 
 ### Implementation Notes
 * Shift registers, 8-cycle cadence.
@@ -203,7 +214,7 @@ java -cp target/R2NES-X.X.jar D:\caminho\jogo.nes --gui --hud
 java -jar target\R2NES-X.X.jar --gui --hud roms\realrom.nes
 ```
 
-### Flags de Diagnóstico
+### Flags de Diagnóstico e Timing
 | Flag | Função |
 |------|--------|
 | `--force-bg` | Força background |
@@ -211,7 +222,8 @@ java -jar target\R2NES-X.X.jar --gui --hud roms\realrom.nes
 | `--dbg-bg-all` | Amplia janela |
 | `--bg-col-stats` | Estatísticas coluna |
 | `--tile-matrix=...` | Matriz ASCII |
-| `--timing-simple` | Tempo simplificado |
+| `--timing-simple` | Tempo simplificado (legado) |
+| `--timing-mode=simple|interleaved` | Seleciona agendamento CPU↔PPU |
 | `--init-scroll` | Inicializa scroll |
 | `--log-attr[=N]` | Log attribute |
 | `--log-nt[=N]` | Log nametable |
@@ -269,6 +281,16 @@ Hotkeys: Salvar a qualquer momento; carregar restaura snapshot e normaliza timin
 | 3 | CNROM | Banking CHR |
 | 4 | MMC3 | (Parcial – suporte save state pendente) |
 | 5 | MMC5 | (Parcial – suporte save state pendente) |
+
+### Modos de Tempo
+Dois modos globais (padrão: simple):
+
+| Modo | Padrão | Características | Uso Recomendado |
+|------|--------|-----------------|-----------------|
+| simple | CPU instr + lote PPU | Menos trocas de contexto | Desempenho base |
+| interleaved | PPU, CPU, PPU, PPU | Menor latência (NMI, sprite zero) mais próximo do hardware | Depuração de timing |
+
+CLI: `--timing-mode=interleaved` ou INI `timing-mode=interleaved`. `--timing-simple` mantido para retrocompatibilidade.
 
 ### Notas
 * Shift registers 8 ciclos.

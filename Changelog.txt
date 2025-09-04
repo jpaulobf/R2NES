@@ -1,8 +1,26 @@
 Changelog - R2NES
 ===================
 
-Version 0.3.8 – Save State System (Version 2 Format) (2025-09-04)
+Version 0.3.8.1 – Interleaved Timing Mode (2025-09-04)
 ------------------------
+
+Added
+- New configurable CPU/PPU timing selection via `--timing-mode=` (simple|interleaved) and `timing-mode=` in `emulator.ini`.
+- Interleaved mode introduces micro-slice execution pattern (PPU, CPU, PPU, PPU) instead of batching all PPU cycles after each CPU instruction.
+- Reduces latency for: NMI visibility to CPU, sprite zero hit detection, sprite evaluation edge cases.
+- INI documentation block with guidance + legacy flag `--timing-simple` still supported (maps to SIMPLE).
+
+Changed
+- Project version bumped to 0.3.8.1.
+
+Notes
+- Default remains SIMPLE until further performance profiling; INTERLEAVED can be enabled per ROM/test scenario.
+- No functional change to save state format (still version 2).
+
+Planned
+- Future refinement may allow runtime toggle hotkey and finer PPU interleave phases (eventually cycle-exact pairing with CPU memory accesses).
+
+Version 0.3.8 – Save State System (Version 2 Format) (2025-09-04)
 
 Added
 - Configurable save/load state system.
