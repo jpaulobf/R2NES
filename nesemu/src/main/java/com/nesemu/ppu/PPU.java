@@ -69,6 +69,8 @@ public class PPU implements NesPPU {
     private int vramAddress; // current VRAM address
     private int tempAddress; // temp (t) during address/scroll sequence
     private int fineX; // fine X scroll (0..7) from first scroll write
+    // Cached tap = 15 - fineX (used when sampling background shifters)
+    private int fineXTap = 15; // default for fineX=0
 
     // Buffered read (PPUDATA) behavior
     private int readBuffer; // internal buffer
@@ -376,6 +378,7 @@ public class PPU implements NesPPU {
             case 5: // PPUSCROLL
                 if (addrLatchHigh) {
                     fineX = value & 0x07; // coarse X goes into tempAddress bits 0-4; fine X separate
+                    fineXTap = 15 - fineX;
                     int coarseX = (value >> 3) & 0x1F;
                     tempAddress = (tempAddress & 0x7FE0) | coarseX;
                     addrLatchHigh = false;
@@ -1004,8 +1007,13 @@ public class PPU implements NesPPU {
         if (this.cycle < 0 || this.cycle > 340) {
             this.cycle = 0;
         }
-        this.vramAddress = vram & 0x3FFF;
-        this.tempAddress = tAddr & 0x3FFF;
+    // Preserve full 15-bit internal loopy address (bits 0-14). External VRAM bus
+    // only decodes 14 bits (0x3FFF), but bit 14 holds fine Y high bit and must
+    // survive for correct vertical copy & fine scroll behaviour. Previous
+    // masking with 0x3FFF erroneously cleared fineY bit 2 causing tests expecting
+    // bit 14 transfers (e.g. fineY=5 -> bits 12 & 14 set) to fail.
+    this.vramAddress = vram & 0x7FFF;
+    this.tempAddress = tAddr & 0x7FFF;
         this.fineX = fineXVal & 0x07;
         this.frame = frameVal & 0xFFFFFFFFL;
         this.nmiFiredThisVblank = false; // reset latch to allow NMI logic to resync
@@ -1448,7 +1456,11 @@ public class PPU implements NesPPU {
      */
     private void copyVerticalBits() {
         // Copy fine Y (12-14), coarse Y (5-9) and vertical nametable (bit 11)
-        vramAddress = (vramAddress & ~0x7BE0) | (tempAddress & 0x7BE0);
+    vramAddress = (vramAddress & ~0x7BE0) | (tempAddress & 0x7BE0);
+    if (Log.isEnabled(Log.Level.TRACE, PPU)) {
+        Log.trace(PPU, "[PPU COPY VERT] frame=%d scan=%d cyc=%d t=%04X -> v=%04X", frame, scanline, cycle,
+            tempAddress & 0x7FFF, vramAddress & 0x7FFF);
+    }
     }
 
     /**
@@ -1605,7 +1617,7 @@ public class PPU implements NesPPU {
             return;
         }
         // Left-shift model: pixel bits reside at (15 - fineX)
-        int tap = 15 - (fineX & 7);
+    int tap = fineXTap; // precomputed (15 - fineX)
         int bit0 = (patternLowShift >> tap) & 0x1;
         int bit1 = (patternHighShift >> tap) & 0x1;
         int attrLow = (attributeLowShift >> tap) & 0x1;
