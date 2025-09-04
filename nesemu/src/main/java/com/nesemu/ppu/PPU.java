@@ -1007,13 +1007,13 @@ public class PPU implements NesPPU {
         if (this.cycle < 0 || this.cycle > 340) {
             this.cycle = 0;
         }
-    // Preserve full 15-bit internal loopy address (bits 0-14). External VRAM bus
-    // only decodes 14 bits (0x3FFF), but bit 14 holds fine Y high bit and must
-    // survive for correct vertical copy & fine scroll behaviour. Previous
-    // masking with 0x3FFF erroneously cleared fineY bit 2 causing tests expecting
-    // bit 14 transfers (e.g. fineY=5 -> bits 12 & 14 set) to fail.
-    this.vramAddress = vram & 0x7FFF;
-    this.tempAddress = tAddr & 0x7FFF;
+        // Preserve full 15-bit internal loopy address (bits 0-14). External VRAM bus
+        // only decodes 14 bits (0x3FFF), but bit 14 holds fine Y high bit and must
+        // survive for correct vertical copy & fine scroll behaviour. Previous
+        // masking with 0x3FFF erroneously cleared fineY bit 2 causing tests expecting
+        // bit 14 transfers (e.g. fineY=5 -> bits 12 & 14 set) to fail.
+        this.vramAddress = vram & 0x7FFF;
+        this.tempAddress = tAddr & 0x7FFF;
         this.fineX = fineXVal & 0x07;
         this.frame = frameVal & 0xFFFFFFFFL;
         this.nmiFiredThisVblank = false; // reset latch to allow NMI logic to resync
@@ -1456,11 +1456,11 @@ public class PPU implements NesPPU {
      */
     private void copyVerticalBits() {
         // Copy fine Y (12-14), coarse Y (5-9) and vertical nametable (bit 11)
-    vramAddress = (vramAddress & ~0x7BE0) | (tempAddress & 0x7BE0);
-    if (Log.isEnabled(Log.Level.TRACE, PPU)) {
-        Log.trace(PPU, "[PPU COPY VERT] frame=%d scan=%d cyc=%d t=%04X -> v=%04X", frame, scanline, cycle,
-            tempAddress & 0x7FFF, vramAddress & 0x7FFF);
-    }
+        vramAddress = (vramAddress & ~0x7BE0) | (tempAddress & 0x7BE0);
+        if (Log.isEnabled(Log.Level.TRACE, PPU)) {
+            Log.trace(PPU, "[PPU COPY VERT] frame=%d scan=%d cyc=%d t=%04X -> v=%04X", frame, scanline, cycle,
+                    tempAddress & 0x7FFF, vramAddress & 0x7FFF);
+        }
     }
 
     /**
@@ -1611,13 +1611,13 @@ public class PPU implements NesPPU {
         if (!bgEnabled) {
             return;
         }
-        if ((regMASK & PpuRegs.MASK_BG_LEFT) == 0 && x < 8) {
+        if (((regMASK & PpuRegs.MASK_BG_LEFT) == 0 || forceLeftBlank) && x < 8) {
             frameBuffer[scanline * 256 + x] = 0;
             frameIndexBuffer[scanline * 256 + x] = 0;
             return;
         }
         // Left-shift model: pixel bits reside at (15 - fineX)
-    int tap = fineXTap; // precomputed (15 - fineX)
+        int tap = fineXTap; // precomputed (15 - fineX)
         int bit0 = (patternLowShift >> tap) & 0x1;
         int bit1 = (patternHighShift >> tap) & 0x1;
         int attrLow = (attributeLowShift >> tap) & 0x1;
@@ -1732,6 +1732,8 @@ public class PPU implements NesPPU {
     private boolean debugBgSampleAll = false; // log mesmo se for muitos pixels (até limite)
     private int debugBgSampleLimit = 0;
     private int debugBgSampleCount = 0;
+    // Diagnostic override to force blanking of leftmost background column
+    private boolean forceLeftBlank = false;
 
     // simpleTiming removido: pipeline agora sempre usa mapeamento ciclo 1->x0.
     // Runtime attribute logging
@@ -1762,5 +1764,14 @@ public class PPU implements NesPPU {
 
     public static boolean isVerboseLogging() {
         return verboseLogging;
+    }
+
+    // Diagnostic setters
+    public void setForceLeftBlank(boolean v) {
+        this.forceLeftBlank = v;
+    }
+
+    public boolean isForceLeftBlank() {
+        return forceLeftBlank;
     }
 }
