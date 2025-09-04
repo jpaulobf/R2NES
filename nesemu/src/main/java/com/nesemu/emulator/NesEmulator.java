@@ -41,7 +41,9 @@ public class NesEmulator {
      * INTERLEAVED reduz defasagem média aplicando 1 PPU antes da CPU e 2 depois.
      * Ambos preservam razão 3:1 de ciclos agregados.
      */
-    public enum TimingMode { SIMPLE, INTERLEAVED }
+    public enum TimingMode {
+        SIMPLE, INTERLEAVED
+    }
 
     private TimingMode timingMode = TimingMode.SIMPLE; // default compat
 
@@ -187,9 +189,9 @@ public class NesEmulator {
         while (ppu.getFrame() == targetFrame) {
             runCycles(1); // 1 CPU cycle -> 3 PPU cycles
         }
-    // Apply any post-frame transformations (e.g., left column crop mode)
-    // Done here so it affects both GUI and headless executions uniformly.
-    ppu.applyPostFrameCroppingIfNeeded();
+        // Apply any post-frame transformations (e.g., left column crop mode)
+        // Done here so it affects both GUI and headless executions uniformly.
+        ppu.applyPostFrameCroppingIfNeeded();
     }
 
     /** Convenience: run a number of whole frames. */
@@ -206,7 +208,8 @@ public class NesEmulator {
 
     /** Define modo de temporização CPU↔PPU (default SIMPLE). */
     public void setTimingMode(TimingMode mode) {
-        if (mode != null) this.timingMode = mode;
+        if (mode != null)
+            this.timingMode = mode;
     }
 
     /** Obtém modo de temporização atual. */

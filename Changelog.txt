@@ -1,6 +1,31 @@
 Changelog - R2NES
 ===================
 
+Version 0.3.9.2 – Left Column Modes & Scroll Fixes (2025-09-04)
+------------------------
+
+Added
+- Configurable left column handling: INI / CLI `left-column-mode=` with values:
+  * `hardware` (default): obey PPUMASK bit 1 (standard NES behavior: left 8 px blank only if mask bit cleared).
+  * `always`: always blank first 8 background pixels (legacy masking / hides edge artifacts consistently).
+  * `crop`: post-frame overwrite of first 8 columns (keeps internal buffers intact for debugging; applied after render loop).
+- CLI: `--left-column-mode=hardware|always|crop`.
+
+Changed
+- Default initial PPUMASK reset value from 0x0A to 0x08 (removes forced leftmost background enable bit in reset scenario).
+- Central post-frame hook (`applyPostFrameCroppingIfNeeded`) invoked automatically after each frame.
+- Fine X scroll tap optimization (cached value avoids redundant masking operations per pixel).
+
+Fixed
+- Save/load core state lost vertical scroll bit 14; now preserves full 15-bit loopy address (0x7FFF mask) preventing incorrect vertical copy at pre-render cycles.
+
+Tests
+- Updated / added tests for: vertical copy + fine X tap, left column hardware vs always modes, crop mode integration (indirect via framebuffer state after frame).
+
+Notes
+- `crop` differs from `always`: it allows raw hardware edge for internal logic then blanks visually, useful for pixel pipeline debugging without user-visible seam.
+- Potential future hotkey to cycle modes at runtime (not yet implemented).
+
 Version 0.3.9.1 – UX & Pacing Diagnostics (2025-09-04)
 ------------------------
 

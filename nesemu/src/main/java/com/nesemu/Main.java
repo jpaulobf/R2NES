@@ -78,7 +78,7 @@ public class Main {
         String fastForwardKeyCli = null; // CLI override
         int fastForwardMaxFps = 0; // 0 = unlimited
         Integer fastForwardMaxFpsCli = null; // CLI override
-    String leftColumnModeOpt = null; // --left-column-mode=hardware|always|crop (INI: left-column-mode)
+        String leftColumnModeOpt = null; // --left-column-mode=hardware|always|crop (INI: left-column-mode)
 
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
@@ -792,9 +792,16 @@ public class Main {
         if (leftColumnModeOpt != null) {
             com.nesemu.ppu.PPU.LeftColumnMode mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE;
             switch (leftColumnModeOpt) {
-                case "always": mode = com.nesemu.ppu.PPU.LeftColumnMode.ALWAYS; break;
-                case "crop": mode = com.nesemu.ppu.PPU.LeftColumnMode.CROP; break;
-                case "hardware": default: mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE; break;
+                case "always":
+                    mode = com.nesemu.ppu.PPU.LeftColumnMode.ALWAYS;
+                    break;
+                case "crop":
+                    mode = com.nesemu.ppu.PPU.LeftColumnMode.CROP;
+                    break;
+                case "hardware":
+                default:
+                    mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE;
+                    break;
             }
             ((PPU) emuRef[0].getPpu()).setLeftColumnMode(mode);
             Log.info(PPU, "Left-column-mode=%s", mode.name().toLowerCase(Locale.ROOT));

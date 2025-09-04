@@ -1615,11 +1615,14 @@ public class PPU implements NesPPU {
         boolean blankLeft = false;
         switch (leftColumnMode) {
             case HARDWARE:
-                blankLeft = ((regMASK & PpuRegs.MASK_BG_LEFT) == 0) && x < 8; break;
+                blankLeft = ((regMASK & PpuRegs.MASK_BG_LEFT) == 0) && x < 8;
+                break;
             case ALWAYS:
-                blankLeft = x < 8; break;
+                blankLeft = x < 8;
+                break;
             case CROP:
-                blankLeft = false; break; // defer to post-frame crop
+                blankLeft = false;
+                break; // defer to post-frame crop
         }
         if (blankLeft) {
             frameBuffer[scanline * 256 + x] = 0;
@@ -1742,8 +1745,12 @@ public class PPU implements NesPPU {
     private boolean debugBgSampleAll = false; // log mesmo se for muitos pixels (até limite)
     private int debugBgSampleLimit = 0;
     private int debugBgSampleCount = 0;
+
     // Left column mode (hardware / always blank / crop after render)
-    public enum LeftColumnMode { HARDWARE, ALWAYS, CROP }
+    public enum LeftColumnMode {
+        HARDWARE, ALWAYS, CROP
+    }
+
     private LeftColumnMode leftColumnMode = LeftColumnMode.HARDWARE;
 
     // simpleTiming removido: pipeline agora sempre usa mapeamento ciclo 1->x0.
@@ -1778,15 +1785,22 @@ public class PPU implements NesPPU {
     }
 
     // Left column mode API
-    public void setLeftColumnMode(LeftColumnMode mode) { if (mode != null) this.leftColumnMode = mode; }
-    public LeftColumnMode getLeftColumnMode() { return leftColumnMode; }
+    public void setLeftColumnMode(LeftColumnMode mode) {
+        if (mode != null)
+            this.leftColumnMode = mode;
+    }
+
+    public LeftColumnMode getLeftColumnMode() {
+        return leftColumnMode;
+    }
+
     public void applyPostFrameCroppingIfNeeded() {
         if (leftColumnMode == LeftColumnMode.CROP) {
-            for (int y=0;y<240;y++) {
-                int base = y*256;
-                for (int x=0;x<8;x++) {
-                    frameIndexBuffer[base+x] = 0;
-                    frameBuffer[base+x] = palette.getArgb(palette.read(0x3F00), regMASK);
+            for (int y = 0; y < 240; y++) {
+                int base = y * 256;
+                for (int x = 0; x < 8; x++) {
+                    frameIndexBuffer[base + x] = 0;
+                    frameBuffer[base + x] = palette.getArgb(palette.read(0x3F00), regMASK);
                 }
             }
         }

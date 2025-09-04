@@ -12,7 +12,18 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
  
-### New (0.3.9.1)
+### New (0.3.9.2)
+Left column rendering modes & scroll fidelity fixes:
+* New `left-column-mode=` (INI / CLI `--left-column-mode=`) values:
+  * `hardware` (default) – authentic NES: left 8 background pixels only blank if PPUMASK bit 1 cleared.
+  * `always` – always blanks first 8 background pixels (legacy masking; hides edge artifacts unconditionally).
+  * `crop` – renders full 256 px internally then post-frame blanks first 8 columns (debug-friendly; no pipeline divergence).
+* Post-frame crop hook applied automatically after each frame when mode = crop.
+* Fine X tap optimization: cached fine X value reduces per-pixel masking ops.
+* Save/load state vertical scroll bit 14 preserved (fixes rare wrong vertical copy at pre-render cycles).
+* Default reset PPUMASK adjusted (0x08) removing implicit left-column background enable.
+
+### Previous (0.3.9.1)
 UX & pacing diagnostics:
 * ESC key (fixed) prompts confirmation (autosave on Yes, then exit).
 * Mouse cursor auto-hidden in borderless fullscreen, restored on exit.
@@ -181,7 +192,18 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Novidade (0.3.9.1)
+### Novidade (0.3.9.2)
+Modos de coluna esquerda & correções de scroll:
+* Novo `left-column-mode=` (INI / CLI `--left-column-mode=`) com valores:
+  * `hardware` (padrão) – comportamento autêntico: 8 px iniciais só ficam em branco se bit 1 do PPUMASK estiver limpo.
+  * `always` – sempre apaga os 8 primeiros pixels (mascaramento constante para ocultar artefatos).
+  * `crop` – renderiza 256 px internamente e apaga após o frame (debug-friendly, sem alterar pipeline).
+* Hook pós-frame executa crop automático quando modo = crop.
+* Otimização de fine X (cache) reduz operações por pixel.
+* Correção: bit 14 do scroll vertical preservado ao carregar estado (evita cópia vertical incorreta no pré-render).
+* PPUMASK inicial ajustado para 0x08 (removendo enable implícito de background na coluna esquerda).
+
+### Versão Anterior (0.3.9.1)
 UX e diagnósticos de pacing:
 * Tecla ESC (fixa) abre confirmação (autosave se Yes e encerra).
 * Cursor do mouse oculto automaticamente em fullscreen borderless e restaurado ao sair.
