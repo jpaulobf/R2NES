@@ -47,6 +47,13 @@ public class NesWindow {
     private volatile int fastForwardMaxFps = 0; // 0 = ilimitado
     private long ffFpsWindowStart = 0L;
     private int ffFpsFrames = 0;
+    // Frame timing instrumentation
+    private volatile long lastFrameNanos = 0L; // duração do frame anterior
+    private volatile double avgFrameNanos = 0.0; // média exponencial suavizada
+    private volatile long worstFrameNanos = 0L; // pior frame (reinicia a cada janela de FPS)
+    private volatile double jitterNanos = 0.0; // média exponencial da diferença absoluta
+    private static final double FRAME_AVG_ALPHA = 0.08;
+    private static final double JITTER_ALPHA = 0.08;
 
     /**
      * Constructor, default scale=2.
@@ -272,6 +279,19 @@ public class NesWindow {
             perFrame.run();
             blitAndPresent();
             fpsFrames++;
+            long end = System.nanoTime();
+            long frameNs = end - start;
+            lastFrameNanos = frameNs;
+            if (avgFrameNanos == 0) {
+                avgFrameNanos = frameNs;
+                jitterNanos = 0;
+            } else {
+                avgFrameNanos = avgFrameNanos * (1 - FRAME_AVG_ALPHA) + frameNs * FRAME_AVG_ALPHA;
+                double delta = Math.abs(frameNs - avgFrameNanos);
+                jitterNanos = jitterNanos * (1 - JITTER_ALPHA) + delta * JITTER_ALPHA;
+            }
+            if (frameNs > worstFrameNanos)
+                worstFrameNanos = frameNs;
             if (fastForward && fastForwardMaxFps > 0) {
                 // Throttle simples baseado em janela de 1 segundo
                 long nowCheck = System.nanoTime();
@@ -326,16 +346,44 @@ public class NesWindow {
             // Sem alvo: roda o mais rápido possível
             fpsWindowStart = System.nanoTime();
             while (running.get()) {
+                long start = System.nanoTime();
                 perFrame.run();
                 blitAndPresent();
+                long end = System.nanoTime();
+                long frameNs = end - start;
+                lastFrameNanos = frameNs;
+                if (avgFrameNanos == 0) {
+                    avgFrameNanos = frameNs;
+                    jitterNanos = 0;
+                } else {
+                    avgFrameNanos = avgFrameNanos * (1 - FRAME_AVG_ALPHA) + frameNs * FRAME_AVG_ALPHA;
+                    double delta = Math.abs(frameNs - avgFrameNanos);
+                    jitterNanos = jitterNanos * (1 - JITTER_ALPHA) + delta * JITTER_ALPHA;
+                }
+                if (frameNs > worstFrameNanos)
+                    worstFrameNanos = frameNs;
             }
             return;
         }
         long next = System.nanoTime() + frameDur;
         fpsWindowStart = System.nanoTime();
         while (running.get()) {
+            long start = System.nanoTime();
             perFrame.run();
             blitAndPresent();
+            long end = System.nanoTime();
+            long frameNs = end - start;
+            lastFrameNanos = frameNs;
+            if (avgFrameNanos == 0) {
+                avgFrameNanos = frameNs;
+                jitterNanos = 0;
+            } else {
+                avgFrameNanos = avgFrameNanos * (1 - FRAME_AVG_ALPHA) + frameNs * FRAME_AVG_ALPHA;
+                double delta = Math.abs(frameNs - avgFrameNanos);
+                jitterNanos = jitterNanos * (1 - JITTER_ALPHA) + delta * JITTER_ALPHA;
+            }
+            if (frameNs > worstFrameNanos)
+                worstFrameNanos = frameNs;
             fpsFrames++;
             if (fastForward && fastForwardMaxFps > 0) {
                 long nowCheck = System.nanoTime();
@@ -386,11 +434,10 @@ public class NesWindow {
             }
             // Agenda próximo frame
             next += frameDur;
-            // Se ficamos MUITO atrasados (mais de 3 frames), realinha suavemente
-            if (now - next > frameDur * 3L) {
-                next = now + frameDur; // realinha se backlog exagerado
+            // Atrasou mais que 1 frame? Realinha imediatamente (evita burst).
+            if (now - next > frameDur) {
+                next = now + frameDur;
             }
-            // Opcional: se frequentemente atrasado, relaxa spin (não implementado ainda)
         }
     }
 
@@ -716,5 +763,23 @@ public class NesWindow {
      */
     public enum PacerMode {
         LEGACY, HR
+    }
+
+    // ----------------------------- Instrumentation Getters ---------------------
+    // getLastFps already defined earlier
+    public long getLastFrameNanos() {
+        return lastFrameNanos;
+    }
+
+    public double getAvgFrameNanos() {
+        return avgFrameNanos;
+    }
+
+    public long getWorstFrameNanos() {
+        return worstFrameNanos;
+    }
+
+    public double getJitterNanos() {
+        return jitterNanos;
     }
 }
