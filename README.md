@@ -12,75 +12,30 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### New (0.4)
-Scanlines overlay, pause system & unified exit confirmation:
-* CRT-style scanlines: enable with `scanlines=true` and set opacity via `scanlines-alpha=0.0..1.0` (default 0.04). Renders every other horizontal line with alpha (no framebuffer mutation / save-state impact).
-* Pause hotkey: configure `pause-emulation=` (multiple tokens separated by `/`, e.g. `pause-emulation=P/p/pause`). While paused the emulator halts frame stepping, shows a "PAUSED" overlay and yields CPU (low usage).
-* Pause/Break key supported (token `pause`).
-* Unified exit confirmation (ESC, Alt+F4, window close). Emulator auto-pauses before showing dialog; if user cancels, previous pause state is restored.
-* Turbo interaction: pausing freezes current turbo phase; resuming continues cadence (phase not yet serialized).
+### Current Release (0.4.1)
+Instrumentation, timing refinements and prior UX features consolidated.
 
-Changed / Internal:
-* Key mapping extended for VK_PAUSE.
-* Render loop sleeps briefly while paused instead of busy ticking.
+Key additions since earlier builds:
+* Spin watchdog + optional opcode hex dump (stall diagnostics).
+* Mapper (MMC1) bank/control logging limit.
+* NMI trace & PPUSTATUS ($2002) read counters (frame + last 8 values).
+* Sprite 0 hit timestamp instrumentation and optional forced-hit debug flag.
+* Inline disassembly snippet in spin / manual snapshots (auto-disabled when instrumentation off).
+* Coarse X increment accuracy fix (tile-boundary only) & robust vblank/NMI edge handling.
+* Central instrumentation gating (minimal overhead when all debug flags off).
+* Existing recent features retained: scanlines overlay, pause + unified exit dialog, turbo buttons (normal & fast), fast‑forward with optional FPS cap, left column modes, interleaved timing mode, save states (v2), HUD overlay, unlimited sprites mode, test pattern rendering.
 
-Limitations / Next:
-* No single-frame advance while paused (planned).
-* Fixed 50% scanline density (future presets 25%/75% + toggle hotkey).
-* Pause flag & turbo phase not in save-state v2.
-* Roadmap: MMC3 IRQ, APU, HUD turbo indicator, zipped ROM loading.
- 
-### New (0.3.9.8)
-Turbo buttons (autofire) & no-ROM startup improvements:
-* New optional mappings in `emulator.ini`: `dp-01-a-turbo`, `dp-01-b-turbo` (and equivalents for pad2). If not mapped, turbo is inactive (no overhead).
-* Default turbo cadence: 15 Hz (pattern ON 2 frames / OFF 2 frames @60fps).
-* Optional faster cadence: set `turbo-fast=true` for 30 Hz (ON 1 / OFF 1).
-* Turbo key has precedence over the normal A/B key when both held (clean deterministic state latching).
-* Internal frame hook drives cadence (`onFrameAdvance` per controller) – deterministic across runtime (not yet serialized in save states).
-* Startup with GUI and no ROM now shows a clean black screen (HUD / ESC still functional) instead of auto-loading a legacy fallback ROM.
-* Removed deprecated implicit fallback ROM behavior (prevents accidental infringement / confusion).
+Core Feature Summary:
+* CPU: Complete official 6502 instruction set with tracing & breakpoints.
+* PPU: Background pipeline (nametable/attribute/pattern fetch), fine/coarse scroll logic, sprite evaluation & priority, basic sprite 0 hit, mirroring, palette handling.
+* Timing: Simple & interleaved scheduling; odd-frame cycle skip; fast-forward & pacing strategies.
+* Persistence: Save states (v2) + battery-backed PRG RAM autosave.
+* Mappers: NROM, MMC1, UxROM, CNROM, partial MMC3/MMC5.
+* Debug: Attribute/nametable/palette logs, pipeline logging, watchdog snapshots, disassembly, manual snapshot hotkey.
+* UX: HUD, fullscreen & proportion cycling, scanlines, pause, turbo, fast-forward, configurable hotkeys.
+* Config: `emulator.ini` precedence (CLI > INI > defaults) with extensive toggles.
 
-Limitations / Next:
-* Turbo phase not saved in snapshots (will reset pattern after load; acceptable for now).
-* Potential future HUD indicator (e.g., showing T-A / T-B when active) – deferred.
-
-### Previous (0.3.9.2)
-Left column rendering modes & scroll fidelity fixes:
-* New `left-column-mode=` (INI / CLI `--left-column-mode=`) values:
-  * `hardware` (default) – authentic NES: left 8 background pixels only blank if PPUMASK bit 1 cleared.
-  * `always` – always blanks first 8 background pixels (legacy masking; hides edge artifacts unconditionally).
-  * `crop` – renders full 256 px internally then post-frame blanks first 8 columns (debug-friendly; no pipeline divergence).
-* Post-frame crop hook applied automatically after each frame when mode = crop.
-* Fine X tap optimization: cached fine X value reduces per-pixel masking ops.
-* Save/load state vertical scroll bit 14 preserved (fixes rare wrong vertical copy at pre-render cycles).
-* Default reset PPUMASK adjusted (0x08) removing implicit left-column background enable.
-
-### Previous (0.3.9.1)
-UX & pacing diagnostics:
-* ESC key (fixed) prompts confirmation (autosave on Yes, then exit).
-* Mouse cursor auto-hidden in borderless fullscreen, restored on exit.
-* Frame pacing instrumentation (avg frame time, jitter, worst frame) internal (HUD exposure soon).
-* High-res pacer earlier realignment (>1 frame lag) to reduce burst stutter.
-
-### Previous (0.3.9)
-Fast-forward system + timing refinements:
-* Hold configurable hotkey (INI `fast-foward=` / CLI `--fast-forward-key=`) to bypass normal frame pacing.
-* Optional throttle: INI `fast-foward-max-fps=` or CLI `--fast-forward-max-fps=`. Set to e.g. 240 for ~4x, 0 (default) = uncapped.
-* HUD overlay now shows `FFWD xN.N` multiplier relative to 60 FPS.
-* TAB usable as fast-forward key (focus traversal disabled internally).
-* PPU background phase-0 fetch refactored (readability, no functional change).
-
-### Previous (0.3.8)
-Save state system (snapshot) with hotkeys and INI configuration:
-* Default hotkeys: F5 = Save, F7 = Load (configurable in `emulator.ini`).
-* Keys in INI:
-  * `save-state-path=` directory for `.state` files (created if missing).
-  * `save-state=` key token (e.g. F5, F2 or letter), supports multiple alternatives with `A/a` style.
-  * `load-state=` key token.
-* State file format: magic 'NESS', version 2 (includes PPU internal latch data). Backward compatible with version 1 (auto-normalizes mid‑frame loads).
-* Currently validated on Mapper 0 (NROM) and Mapper 1 (MMC1). Other mappers will serialize their banking registers / CHR & PRG RAM soon.
-* On-screen overlay messages: "SAVING", "LOADING", or errors.
-Limitations: APU not yet serialized; some rare mid-scanline loads may be normalized to start-of-frame (harmless visual micro-stutter).
+Planned (short list): MMC3 IRQ counter, APU audio core, enhanced sprite 0 timing, save state v3 (more internal latches), HUD turbo indicator.
 
 ### Build
 Requires Java 17+ and Maven.
@@ -224,75 +179,30 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Novidade (0.4)
-Scanlines, pausa e saída unificada:
-* Scanlines estilo CRT: `scanlines=true` + opacidade `scanlines-alpha=0.0..1.0` (padrão 0.04). Desenha linhas horizontais alternadas (50%) com alpha (não altera framebuffer / save state).
-* Hotkey de pausa: `pause-emulation=` (múltiplos tokens separados por `/`, ex: `P/p/pause`). Em pausa o emulador não avança frames, mostra "PAUSED" e consome pouca CPU.
-* Tecla Pause/Break suportada (`pause`).
-* Confirmação de saída unificada (ESC, Alt+F4, botão fechar). O emulador pausa antes do diálogo; cancelando restaura o estado anterior.
-* Interação com turbo: pausar congela fase; retomar continua (fase ainda não serializada).
+### Versão Atual (0.4.1)
+Refinamentos de instrumentação, timing e consolidação de UX.
 
-Alterações Internas:
-* Mapeamento expandido para VK_PAUSE.
-* Loop dorme brevemente em pausa ao invés de girar.
+Principais adições recentes:
+* Spin watchdog + dump opcional de opcodes.
+* Logging limitado de banking do MMC1.
+* Trace de NMI e contadores de leituras $2002 (quadro + últimos 8 valores).
+* Instrumentação e flag de debug para sprite 0 hit (forçar/medir).
+* Trecho de desassembly inline em snapshots (desativado quando instrumentação off).
+* Correção de incremento coarse X apenas em limites de tile e limpeza de vblank/NMI duplicado.
+* Gating central para minimizar custo quando sem debug ativo.
+* Recursos já presentes: scanlines, pausa + diálogo de saída, turbo (normal/rápido), fast‑forward com limite opcional, modos de coluna esquerda, timing interleaved, save states v2, HUD, modo unlimited sprites, padrões sintéticos.
 
-Limitações / Próximos:
-* Sem avanço de frame único (planejado).
-* Densidade fixa 50% (futuros presets 25%/75% e toggle em tempo real).
-* Flag de pausa e fase do turbo não estão no save-state v2.
-* Roadmap: IRQ MMC3, áudio APU, indicador HUD turbo, ROM zipada.
+Resumo de Funcionalidades:
+* CPU: 6502 completo, trace e breakpoints.
+* PPU: pipeline de background, scroll fino/grosso, sprites (prioridade, hit básico), mirroring, paleta.
+* Timing: modos simple/interleaved, fast-forward, pacing configurável.
+* Persistência: save states v2 + autosave de PRG RAM.
+* Mappers: NROM, MMC1, UxROM, CNROM, MMC3 parcial, MMC5 parcial.
+* Debug: logs de atributo/nametable/palette, pipeline, snapshots ricos, spin watchdog, disassembly.
+* UX: HUD, fullscreen, proporção, scanlines, pausa, turbo, fast-forward, hotkeys configuráveis.
+* Config: `emulator.ini` abrangente (precedência CLI > INI > default).
 
-### Novidade (0.3.9.8)
-Botões turbo (autofire) & modo sem ROM:
-* Novos mapeamentos opcionais no `emulator.ini`: `dp-01-a-turbo`, `dp-01-b-turbo` (e pad2). Se não mapeados, turbo fica totalmente inativo (zero custo).
-* Cadência padrão: 15 Hz (liga 2 frames / desliga 2 frames).
-* `turbo-fast=true` ativa modo rápido 30 Hz (liga 1 / desliga 1).
-* Tecla turbo tem precedência sobre a tecla normal A/B quando ambas pressionadas (estado previsível na latch).
-* Hook interno por frame (`onFrameAdvance`) dirige a cadência (ainda não incluso no save state).
-* Iniciar GUI sem ROM agora exibe tela preta limpa (HUD / ESC ok) em vez de carregar ROM fallback antiga.
-* Comportamento de fallback automático de ROM removido (evita confusão / possíveis issues de licença).
-
-Limitações / Próximos:
-* Fase do turbo não serializada no snapshot (reinicia padrão após load).
-* Indicador HUD (ex: T-A / T-B) pode vir depois.
-
-### Versão Anterior (0.3.9.2)
-Modos de coluna esquerda & correções de scroll:
-* Novo `left-column-mode=` (INI / CLI `--left-column-mode=`) com valores:
-  * `hardware` (padrão) – comportamento autêntico: 8 px iniciais só ficam em branco se bit 1 do PPUMASK estiver limpo.
-  * `always` – sempre apaga os 8 primeiros pixels (mascaramento constante para ocultar artefatos).
-  * `crop` – renderiza 256 px internamente e apaga após o frame (debug-friendly, sem alterar pipeline).
-* Hook pós-frame executa crop automático quando modo = crop.
-* Otimização de fine X (cache) reduz operações por pixel.
-* Correção: bit 14 do scroll vertical preservado ao carregar estado (evita cópia vertical incorreta no pré-render).
-* PPUMASK inicial ajustado para 0x08 (removendo enable implícito de background na coluna esquerda).
-
-### Versão Anterior (0.3.9.1)
-UX e diagnósticos de pacing:
-* Tecla ESC (fixa) abre confirmação (autosave se Yes e encerra).
-* Cursor do mouse oculto automaticamente em fullscreen borderless e restaurado ao sair.
-* Instrumentação de tempo de frame (média, jitter, pior) interna (HUD em breve).
-* Realinhamento mais cedo no pacer high-res (>1 frame de atraso) reduz bursts.
-
-### Versão Anterior (0.3.9)
-Sistema de fast-forward + refinamentos de timing:
-* Manter hotkey configurável pressionada (INI `fast-foward=` / CLI `--fast-forward-key=`) ignora o pacing normal.
-* Throttle opcional: INI `fast-foward-max-fps=` ou CLI `--fast-forward-max-fps=`. Ex: 240 ≈ 4x; 0 (padrão) = sem limite.
-* HUD mostra `FFWD xN.N` (multiplicador relativo a 60 FPS).
-* TAB agora funciona (teclas de travessia de foco desabilitadas).
-* Refatoração da fase 0 do pipeline de background da PPU (legibilidade).
-
-### Versão Anterior (0.3.8)
-Sistema de save state (snapshot) com hotkeys e configuração via INI:
-* Hotkeys padrão: F5 = Salvar, F7 = Carregar (configurável no `emulator.ini`).
-* Chaves no INI:
-  * `save-state-path=` diretório dos arquivos `.state`.
-  * `save-state=` tecla para salvar.
-  * `load-state=` tecla para carregar.
-* Formato: magic 'NESS', versão 2 (inclui latches internos da PPU). Compatível com versão 1 (normaliza load no meio do frame).
-* Validado em Mapper 0 (NROM) e Mapper 1 (MMC1). Outros mappers terão seus registradores/buffers serializados em breve.
-* Overlay mostra "SAVING" / "LOADING" / erros.
-Limitações: APU ainda não persiste; alguns loads raros no meio da varredura reiniciam no início de frame (pequeno ajuste visual).
+Planejado (curto prazo): IRQ MMC3, áudio APU, timing avançado de sprite 0, save state v3, indicador turbo no HUD.
 
 ### Build
 Requer Java 17+ e Maven.
