@@ -855,6 +855,11 @@ public class Main {
         if (gui) {
             String title = (romFilePath != null) ? ("R2-NES - " + romFilePath.getFileName()) : "R2-NES (no ROM)";
             NesWindow window = new NesWindow(title, 3);
+            // Prevent automatic dispose so Alt+F4 / close button can confirm like ESC
+            try {
+                window.getFrame().setDefaultCloseOperation(javax.swing.JFrame.DO_NOTHING_ON_CLOSE);
+            } catch (Exception ignore) {
+            }
             // Apply fast-forward config (CLI override precedence)
             String effectiveFfKey = fastForwardKeyCli != null ? fastForwardKeyCli : fastForwardKey;
             if (fastForwardMaxFpsCli != null)
@@ -874,28 +879,43 @@ public class Main {
                 Log.info(GENERAL, "Borderless fullscreen: OFF");
             }
             // Autosave hook: attach window listener to save SRAM on close
-            if (romFilePath != null) { // só registrar autosave se houve ROM carregada
+            // Unified exit confirmation logic (ESC or Alt+F4 / window close)
+            Runnable exitConfirmed = () -> {
                 try {
-                    java.awt.event.WindowListener wl = new java.awt.event.WindowAdapter() {
-                        @Override
-                        public void windowClosing(java.awt.event.WindowEvent e) {
-                            if (emuRef[0] != null) {
-                                emuRef[0].forceAutoSave();
-                                Log.info(GENERAL, "AutoSave (.sav) disparado no fechamento da janela");
-                            }
-                        }
-
-                        @Override
-                        public void windowClosed(java.awt.event.WindowEvent e) {
-                            if (emuRef[0] != null) {
-                                emuRef[0].forceAutoSave();
-                            }
-                        }
-                    };
-                    window.getFrame().addWindowListener(wl);
+                    if (emuRef[0] != null) {
+                        emuRef[0].forceAutoSave();
+                        Log.info(GENERAL, "AutoSave (.sav) antes de sair");
+                    }
                 } catch (Exception ex) {
-                    Log.warn(GENERAL, "Falha ao registrar autosave window listener: %s", ex.getMessage());
+                    Log.warn(GENERAL, "Falha autosave na saída: %s", ex.getMessage());
                 }
+                System.exit(0);
+            };
+            // Pause state (moved earlier so window listener can access)
+            final boolean[] paused = new boolean[] { false };
+            // Stores previous pause state before showing an exit confirmation dialog
+            final boolean[] pausePrev = new boolean[] { false };
+            try {
+                java.awt.event.WindowListener wlConfirm = new java.awt.event.WindowAdapter() {
+                    @Override
+                    public void windowClosing(java.awt.event.WindowEvent e) {
+                        // Auto-pause before showing confirmation dialog, preserving prior state
+                        pausePrev[0] = paused[0];
+                        paused[0] = true;
+                        int res = javax.swing.JOptionPane.showConfirmDialog(window.getFrame(),
+                                "You really want exit?", "Confirm Exit",
+                                javax.swing.JOptionPane.YES_NO_OPTION);
+                        if (res == javax.swing.JOptionPane.YES_OPTION) {
+                            exitConfirmed.run();
+                        } else { // NO -> restore previous pause state
+                            paused[0] = pausePrev[0];
+                        }
+                        // NO_OPTION -> ignore (keep running)
+                    }
+                };
+                window.getFrame().addWindowListener(wlConfirm);
+            } catch (Exception ex) {
+                Log.warn(GENERAL, "Falha ao registrar window close confirm: %s", ex.getMessage());
             }
             final long[] resetMsgExpireNs = new long[] { 0L };
             final long[] stateMsgExpireNs = new long[] { 0L };
@@ -911,6 +931,34 @@ public class Main {
             // Runtime toggles (fullscreen/HUD) via additional key listener
             // Mutable HUD state wrapper for inner classes
             final boolean[] hudState = new boolean[] { hud };
+            final java.util.Set<String> pauseKeyTokens = new java.util.HashSet<>();
+            // Load pause-emulation tokens from INI (simple reload; negligible cost)
+            try {
+                var inputPath = Path.of("emulator.ini");
+                InputConfig tmpCfg;
+                if (Files.exists(inputPath))
+                    tmpCfg = InputConfig.load(inputPath);
+                else {
+                    var devPath = Path.of("src/main/java/com/nesemu/config/emulator.ini");
+                    if (Files.exists(devPath))
+                        tmpCfg = InputConfig.load(devPath);
+                    else
+                        tmpCfg = new InputConfig();
+                }
+                String pauseOptRaw = tmpCfg.getOption("pause-emulation");
+                if (pauseOptRaw != null && !pauseOptRaw.isBlank()) {
+                    for (String t : pauseOptRaw.split("/")) {
+                        t = t.trim().toLowerCase(Locale.ROOT);
+                        if (!t.isEmpty())
+                            pauseKeyTokens.add(t);
+                    }
+                    if (!pauseKeyTokens.isEmpty()) {
+                        Log.info(GENERAL, "Pause mapping tokens: %s", pauseKeyTokens);
+                    }
+                }
+            } catch (Exception ex) {
+                Log.warn(GENERAL, "Falha ao carregar pause-emulation: %s", ex.getMessage());
+            }
             if (toggleFullscreenKey != null || toggleHudKey != null || toggleFullscreenProportionKey != null
                     || saveStateKey != null || loadStateKey != null || effectiveFfKey != null) {
                 String fsKey = toggleFullscreenKey == null ? null : toggleFullscreenKey.toLowerCase(Locale.ROOT).trim();
@@ -925,21 +973,18 @@ public class Main {
                     public void keyPressed(java.awt.event.KeyEvent e) {
                         // ESC -> confirmação de saída (não configurável)
                         if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE) {
+                            // Auto-pause before confirmation dialog (store previous state)
+                            pausePrev[0] = paused[0];
+                            paused[0] = true;
                             int res = javax.swing.JOptionPane.showConfirmDialog(window.getFrame(),
                                     "You really want exit?", "Confirm Exit",
                                     javax.swing.JOptionPane.YES_NO_OPTION);
                             if (res == javax.swing.JOptionPane.YES_OPTION) {
-                                try {
-                                    if (emuRef[0] != null) {
-                                        emuRef[0].forceAutoSave();
-                                        Log.info(GENERAL, "AutoSave (.sav) antes de sair via ESC");
-                                    }
-                                } catch (Exception ex) {
-                                    Log.warn(GENERAL, "Falha autosave na saída: %s", ex.getMessage());
-                                }
-                                System.exit(0);
+                                exitConfirmed.run();
+                            } else { // restore previous state if user cancels
+                                paused[0] = pausePrev[0];
                             }
-                            return; // não propaga ESC para outros toggles
+                            return; // não propaga ESC
                         }
                         String tok = keyEventToToken(e);
                         if (tok == null)
@@ -1023,6 +1068,10 @@ public class Main {
                                 Log.info(GENERAL, "Fast-Forward ON");
                             }
                         }
+                        if (!pauseKeyTokens.isEmpty() && pauseKeyTokens.contains(tok)) {
+                            paused[0] = !paused[0];
+                            Log.info(GENERAL, "Pause -> %s", paused[0] ? "ON" : "OFF");
+                        }
                     }
 
                     @Override
@@ -1057,6 +1106,8 @@ public class Main {
                                 return "space";
                             case java.awt.event.KeyEvent.VK_ESCAPE:
                                 return "escape";
+                            case java.awt.event.KeyEvent.VK_PAUSE:
+                                return "pause";
                             case java.awt.event.KeyEvent.VK_TAB:
                                 return "tab";
                             case java.awt.event.KeyEvent.VK_F1:
@@ -1171,6 +1222,12 @@ public class Main {
                     g2.setColor(java.awt.Color.ORANGE);
                     g2.drawString(msg, 16, 216);
                 }
+                if (paused[0]) {
+                    g2.setColor(new java.awt.Color(0, 0, 0, 180));
+                    g2.fillRect(92, 140, 120, 28);
+                    g2.setColor(java.awt.Color.GREEN);
+                    g2.drawString("PAUSED", 108, 158);
+                }
             });
             window.show(emuRef[0].getPpu().getFrameBuffer());
             Log.info(GENERAL, "Iniciando GUI (Ctrl+C para sair)");
@@ -1183,7 +1240,16 @@ public class Main {
             } else {
                 Log.info(GENERAL, "BufferStrategy: DEFAULT(ON)");
             }
-            window.startRenderLoop(() -> emuRef[0].stepFrame(), 60, pm); // target 60 fps
+            window.startRenderLoop(() -> {
+                if (!paused[0]) {
+                    emuRef[0].stepFrame();
+                } else {
+                    try {
+                        Thread.sleep(5);
+                    } catch (InterruptedException ignore) {
+                    }
+                }
+            }, 60, pm); // target 60 fps
         } else {
             long start = System.nanoTime();
             if (untilVblank) {

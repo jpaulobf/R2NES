@@ -11,6 +11,24 @@
 
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
+
+### New (0.4)
+Scanlines overlay, pause system & unified exit confirmation:
+* CRT-style scanlines: enable with `scanlines=true` and set opacity via `scanlines-alpha=0.0..1.0` (default 0.04). Renders every other horizontal line with alpha (no framebuffer mutation / save-state impact).
+* Pause hotkey: configure `pause-emulation=` (multiple tokens separated by `/`, e.g. `pause-emulation=P/p/pause`). While paused the emulator halts frame stepping, shows a "PAUSED" overlay and yields CPU (low usage).
+* Pause/Break key supported (token `pause`).
+* Unified exit confirmation (ESC, Alt+F4, window close). Emulator auto-pauses before showing dialog; if user cancels, previous pause state is restored.
+* Turbo interaction: pausing freezes current turbo phase; resuming continues cadence (phase not yet serialized).
+
+Changed / Internal:
+* Key mapping extended for VK_PAUSE.
+* Render loop sleeps briefly while paused instead of busy ticking.
+
+Limitations / Next:
+* No single-frame advance while paused (planned).
+* Fixed 50% scanline density (future presets 25%/75% + toggle hotkey).
+* Pause flag & turbo phase not in save-state v2.
+* Roadmap: MMC3 IRQ, APU, HUD turbo indicator, zipped ROM loading.
  
 ### New (0.3.9.8)
 Turbo buttons (autofire) & no-ROM startup improvements:
@@ -205,6 +223,24 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
+
+### Novidade (0.4)
+Scanlines, pausa e saída unificada:
+* Scanlines estilo CRT: `scanlines=true` + opacidade `scanlines-alpha=0.0..1.0` (padrão 0.04). Desenha linhas horizontais alternadas (50%) com alpha (não altera framebuffer / save state).
+* Hotkey de pausa: `pause-emulation=` (múltiplos tokens separados por `/`, ex: `P/p/pause`). Em pausa o emulador não avança frames, mostra "PAUSED" e consome pouca CPU.
+* Tecla Pause/Break suportada (`pause`).
+* Confirmação de saída unificada (ESC, Alt+F4, botão fechar). O emulador pausa antes do diálogo; cancelando restaura o estado anterior.
+* Interação com turbo: pausar congela fase; retomar continua (fase ainda não serializada).
+
+Alterações Internas:
+* Mapeamento expandido para VK_PAUSE.
+* Loop dorme brevemente em pausa ao invés de girar.
+
+Limitações / Próximos:
+* Sem avanço de frame único (planejado).
+* Densidade fixa 50% (futuros presets 25%/75% e toggle em tempo real).
+* Flag de pausa e fase do turbo não estão no save-state v2.
+* Roadmap: IRQ MMC3, áudio APU, indicador HUD turbo, ROM zipada.
 
 ### Novidade (0.3.9.8)
 Botões turbo (autofire) & modo sem ROM:

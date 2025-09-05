@@ -1,6 +1,35 @@
 Changelog - R2NES
 ===================
 
+Version 0.4 – Scanlines, Pause & Unified Exit (2025-09-05)
+------------------------
+
+Added
+- Scanlines overlay via INI: `scanlines=true`, opacity with `scanlines-alpha=0.0..1.0` (draws every other horizontal line using alpha; purely cosmetic, no framebuffer mutation).
+- Pause system: `pause-emulation=` accepts one or more tokens separated by `/` (e.g. `P/p/pause`). Displays on-screen "PAUSED" and halts frame advancement with minimal CPU (sleep-based yield).
+- Pause/Break key support (token `pause`).
+- Automatic pause activation when exit confirmation dialog appears (ESC, Alt+F4, window close). Previous pause state restored if user cancels dialog.
+
+Changed
+- Unified ESC and window close confirmation logic; both share the same dialog + autosave path.
+- Key mapping extended to emit token for VK_PAUSE.
+- Render loop inserts short sleep while paused instead of ticking frames (reduces CPU usage).
+- README updated (EN/PT) documenting scanlines & pause features.
+
+Fixed
+- Canceling exit (dialog No) previously forced unpause; now restores prior pause state.
+
+Limitations
+- Pause flag and turbo cadence phase not serialized in save-state v2.
+- No single-frame step while paused (planned hotkey).
+- Scanlines density fixed at 5%; presets (25%/75%) and runtime toggle to be added.
+
+Planned / Next
+- MMC3 IRQ counter implementation; APU audio core.
+- Save-state v3 to include pause flag, turbo phase, mapper IRQ counters.
+- Frame-step hotkey; scanline density presets; HUD turbo indicator; scanlines toggle key.
+- Zipped/compressed ROM loading support.
+
 Version 0.3.9.8 – Turbo Buttons & No-ROM Mode (2025-09-04)
 ------------------------
 
