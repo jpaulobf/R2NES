@@ -8,11 +8,11 @@ import java.awt.Graphics2D;
 import java.util.function.Consumer;
 import javax.swing.JPanel;
 
-/** 
- * Simple panel that draws a 256x240 framebuffer (int ARGB array). 
+/**
+ * Simple panel that draws a 256x240 framebuffer (int ARGB array).
  */
 public class VideoRenderer extends JPanel {
-    
+
     // Backing image and data
     private final BufferedImage image;
     private final int[] imageData; // direct reference to underlying INT ARGB buffer
@@ -22,6 +22,7 @@ public class VideoRenderer extends JPanel {
 
     /**
      * Create renderer with given scale factor (1 = native 256x240).
+     * 
      * @param scale
      */
     public VideoRenderer(int scale) {
@@ -33,6 +34,7 @@ public class VideoRenderer extends JPanel {
 
     /**
      * Set source framebuffer (must be 256*240 length).
+     * 
      * @param argb
      */
     public void setFrameBuffer(int[] argb) {
@@ -73,6 +75,7 @@ public class VideoRenderer extends JPanel {
 
     /**
      * Set overlay drawing function (can be null to disable).
+     * 
      * @param overlay
      */
     public void setOverlay(Consumer<Graphics2D> overlay) {
@@ -81,6 +84,7 @@ public class VideoRenderer extends JPanel {
 
     /**
      * Get current scale factor.
+     * 
      * @return
      */
     public int getScale() {
@@ -89,6 +93,7 @@ public class VideoRenderer extends JPanel {
 
     /**
      * Get the backing image (for direct drawing or saving).
+     * 
      * @return
      */
     public BufferedImage getImage() {
@@ -97,6 +102,7 @@ public class VideoRenderer extends JPanel {
 
     /**
      * Get the overlay drawing function (can be null).
+     * 
      * @return
      */
     public Consumer<Graphics2D> getOverlay() {
@@ -106,12 +112,16 @@ public class VideoRenderer extends JPanel {
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        g.drawImage(image, 0, 0, 256 * scale, 240 * scale, null);
+        // Test: render with -8px offset on X and Y to reduce visible black borders
+        int ox = -8 * scale;
+        int oy = -8 * scale;
+        g.drawImage(image, ox, oy, 256 * scale, 240 * scale, null);
         Consumer<Graphics2D> ov = overlay;
         if (ov != null) {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.scale(scale, scale); // draw overlay in NES pixel space
+                g2.translate(-8, -8); // match the -8px NES offset
                 ov.accept(g2);
             } finally {
                 g2.dispose();

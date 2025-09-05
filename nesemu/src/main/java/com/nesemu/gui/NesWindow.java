@@ -639,13 +639,17 @@ public class NesWindow {
                         try {
                             g.setColor(Color.BLACK);
                             g.fillRect(0, 0, winW, winH);
-                            g.drawImage(renderer.getImage(), cx, cy, nesW, nesH, null);
+                            // Test: render with -8 NES px offset in both axes
+                            int offsetX = (int) Math.round(cx + (-8 * scaleX));
+                            int offsetY = (int) Math.round(cy + (-8 * scaleY));
+                            g.drawImage(renderer.getImage(), offsetX, offsetY, nesW, nesH, null);
                             var ov = renderer.getOverlay();
                             if (ov != null) {
                                 Graphics2D g2 = (Graphics2D) g.create();
                                 try {
-                                    g2.translate(cx, cy);
+                                    g2.translate(offsetX, offsetY);
                                     g2.scale(scaleX, scaleY);
+                                    g2.translate(-8, -8); // NES-space -8px offset for overlay
                                     ov.accept(g2);
                                 } finally {
                                     g2.dispose();

@@ -5,7 +5,6 @@ import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
-
 import com.nesemu.input.InputConfig;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
