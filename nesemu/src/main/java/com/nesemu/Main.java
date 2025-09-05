@@ -598,6 +598,28 @@ public class Main {
                     pad1.setTurboFast(true);
                     pad2.setTurboFast(true);
                 }
+                // Parse scanlines visual options
+                boolean scanlinesEnabled = false;
+                double scanlinesAlpha = 0.05;
+                String scanlinesOpt = cfgForPads.getOption("scanlines");
+                if (scanlinesOpt != null && scanlinesOpt.equalsIgnoreCase("true")) {
+                    scanlinesEnabled = true;
+                }
+                String scanlinesAlphaOpt = cfgForPads.getOption("scanlines-alpha");
+                if (scanlinesAlphaOpt != null) {
+                    try {
+                        double v = Double.parseDouble(scanlinesAlphaOpt.trim());
+                        if (v >= 0.0 && v <= 1.0)
+                            scanlinesAlpha = v;
+                    } catch (NumberFormatException ignore) {
+                    }
+                }
+                final boolean slEnabledFinal = scanlinesEnabled;
+                final float slAlphaFinal = (float) scanlinesAlpha;
+                // Store in static holders for later overlay lambda (via fields or closures).
+                // We'll place into system properties for now.
+                System.setProperty("r2nes.scanlines.enabled", String.valueOf(slEnabledFinal));
+                System.setProperty("r2nes.scanlines.alpha", String.valueOf(slAlphaFinal));
                 emuRef[0].getBus().attachControllers(pad1, pad2);
                 controllerPad1 = pad1;
                 controllerPad2 = pad2;
@@ -1090,7 +1112,23 @@ public class Main {
             // Unified overlay: HUD (optional) + transient reset message
             var ppu = emuRef[0].getPpu();
             // Use dynamic HUD state (reads hud variable each frame via array wrapper)
+            final boolean slEnabled = Boolean.parseBoolean(System.getProperty("r2nes.scanlines.enabled", "false"));
+            final float slAlpha = Float.parseFloat(System.getProperty("r2nes.scanlines.alpha", "0.5"));
             window.setOverlay(g2 -> {
+                // Scanlines (draw first so HUD/text draws above)
+                if (slEnabled) {
+                    java.awt.Composite oldComp = g2.getComposite();
+                    g2.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, slAlpha));
+                    g2.setColor(java.awt.Color.BLACK);
+                    java.awt.Rectangle clip = g2.getClipBounds();
+                    int h = clip != null ? clip.height : 240 * 3; // fallback
+                    int w = clip != null ? clip.width : 256 * 3;
+                    // Draw every other horizontal line (even indices dark) – simple 50% pattern
+                    for (int y = 0; y < h; y += 2) {
+                        g2.drawLine(0, y, w, y);
+                    }
+                    g2.setComposite(oldComp);
+                }
                 if (hudState[0]) {
                     int padLocal = 4;
                     String l1 = String.format("Frame:%d FPS:%.1f", ppu.getFrame(), window.getLastFps());
