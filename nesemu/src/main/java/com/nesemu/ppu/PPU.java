@@ -83,6 +83,18 @@ public class PPU implements NesPPU {
     // Single-shot NMI latch (prevent multiple nmi() calls inside same vblank entry)
     private boolean nmiFiredThisVblank = false;
 
+    // --- Instrumentation: $2002 (PPUSTATUS) read tracking & sprite0 hit debug ---
+    private int statusReadCountFrame = 0; // number of $2002 reads this frame
+    private int statusReadCountTotal = 0;
+    private final int[] statusReadRing = new int[8];
+    private int statusReadRingPos = 0;
+    private long sprite0HitSetFrame = -1; // frame when sprite0 hit last set
+    private int sprite0HitSetScanline = -1;
+    private int sprite0HitSetCycle = -1;
+    // Debug: force sprite0 hit every frame (set via CLI) for diagnostic bypass of
+    // polling loops
+    private boolean forceSprite0Hit = false;
+
     // Debug instrumentation for NMI vs VBlank timing
     private boolean debugNmiLog = false;
     private int debugNmiLogLimit = 200;
@@ -162,6 +174,12 @@ public class PPU implements NesPPU {
         scanline = -1; // pre-render
         frame = 0;
         nmiFiredThisVblank = false;
+        statusReadCountFrame = 0;
+        statusReadCountTotal = 0;
+        statusReadRingPos = 0;
+        sprite0HitSetFrame = -1;
+        sprite0HitSetScanline = -1;
+        sprite0HitSetCycle = -1;
         // Background fetch / rendering state
         patternLowShift = patternHighShift = 0;
         attributeLowShift = attributeHighShift = 0;
@@ -182,6 +200,30 @@ public class PPU implements NesPPU {
     public void clock() {
         // Advance one PPU cycle (3x CPU speed in real hardware, handled externally).
         cycle++;
+        // At start of pre-render scanline (-1), cycle 1: clear VBlank & sprite flags
+        // per NES spec
+        if (scanline == -1 && cycle == 1) {
+            regSTATUS &= 0x1F; // clear VBlank(7), sprite0 hit(6), overflow(5)
+            nmiFiredThisVblank = false;
+        }
+        // Entering VBlank: scanline 241 cycle 1
+        if (scanline == 241 && cycle == 1) {
+            regSTATUS |= 0x80; // set VBlank
+            if ((regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0 && !nmiFiredThisVblank) {
+                fireNmi();
+            }
+            if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
+                Log.debug(PPU, String.format("[PPU VBL] frame=%d scan=%d cyc=%d nmi=%s ctrl=%02X lastNmiFrame=%d",
+                        frame, scanline, cycle,
+                        ((regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0 ? "try" : "off"), regCTRL & 0xFF, lastNmiFrame));
+                debugNmiLogCount++;
+            }
+        }
+        // Late-edge NMI: if NMI was disabled at vblank entry and later enabled while
+        // still in vblank
+        else if (isInVBlank() && (regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0 && !nmiFiredThisVblank) {
+            fireNmi();
+        }
         if (cycle > 340) {
             cycle = 0;
             scanline++;
@@ -193,9 +235,28 @@ public class PPU implements NesPPU {
             }
             if (scanline > 260) {
                 scanline = -1; // wrap to pre-render
+                // --- Begin added: ensure VBlank cleared & NMI latch reset entering pre-render
+                // ---
+                regSTATUS &= 0x7F; // clear VBlank flag (bit7)
+                nmiFiredThisVblank = false; // allow next vblank to fire NMI
+                // If forcing sprite0 hit for diagnostics, clear the previous frame's hit
+                // so we can record a fresh timestamp each frame.
+                if (forceSprite0Hit) {
+                    regSTATUS &= ~PpuRegs.STATUS_SPR0_HIT;
+                }
+                // (Sprite0 hit & overflow bits intentionally left as-is until proper timing
+                // modeled)
+                if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
+                    Log.debug(PPU, String.format("[PPU PRE] frame=%d -> next frame=%d clrVBlank", frame, frame + 1));
+                }
+                // --- End added ---
                 // entering pre-render of next frame: reset prefetch state
                 prefetchHadFirstTile = false;
                 frame++;
+                statusReadCountFrame = 0; // reset per-frame counter at frame increment
+                if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
+                    Log.debug(PPU, String.format("[PPU FRAME END] frame=%d", frame - 1));
+                }
                 if (DEBUG) {
                     StringBuilder sb = new StringBuilder();
                     sb.append("[PPU] First scanline indices: ");
@@ -213,8 +274,19 @@ public class PPU implements NesPPU {
         if (isPreRender() && cycle == 339 && renderingEnabled() && (frame & 1) == 1) {
             cycle = 0; // start next scanline
             scanline = 0; // move to first visible scanline
+            // For completeness: clear VBlank very early on short-frame path too
+            regSTATUS &= 0x7F;
+            nmiFiredThisVblank = false;
             // frame counter NOT incremented here (increment happens when wrapping 260->-1)
             return;
+        }
+
+        // Debug: force sprite0 hit early each frame for diagnostic purposes
+        if (forceSprite0Hit && isVisibleScanline() && scanline == 0 && cycle == 8) {
+            regSTATUS |= PpuRegs.STATUS_SPR0_HIT;
+            sprite0HitSetFrame = frame;
+            sprite0HitSetScanline = scanline;
+            sprite0HitSetCycle = cycle;
         }
 
         // Sprite evaluation pipeline: prepare NEXT visible scanline at cycle 257
@@ -230,23 +302,8 @@ public class PPU implements NesPPU {
 
         // (No priming hack) – rely on pipeline latency.
 
-        // Enter vblank at scanline 241, cycle 1 (NES spec; some docs cite cycle 0)
-        if (scanline == 241 && cycle == 1) {
-            regSTATUS |= PpuRegs.STATUS_VBLANK; // set VBlank
-            nmiFiredThisVblank = false;
-            if ((regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0) {
-                fireNmi();
-            } else {
-                verboseLog("[PPU VBL NO-NMI] frame=%d scan=%d cyc=%d ctrl=%02X\n", frame, scanline, cycle,
-                        regCTRL & 0xFF);
-            }
-        } else if (scanline == -1 && cycle == 1) {
-            regSTATUS &= ~PpuRegs.STATUS_VBLANK; // clear VBlank
-            regSTATUS &= 0x1F; // keep lower status bits (clears sprite hit/overflow)
-            nmiFiredThisVblank = true;
-        } else if (isInVBlank() && (regCTRL & PpuRegs.CTRL_NMI_ENABLE) != 0 && !nmiFiredThisVblank) {
-            fireNmi();
-        }
+        // (Removed duplicated vblank / pre-render handling block to prevent double
+        // NMIs)
 
         // --- Rendering address logic (loopy v/t/x) ---
         // Only active when background or sprite rendering enabled (MASK bits 3 or 4)
@@ -291,6 +348,10 @@ public class PPU implements NesPPU {
                 // Reading status clears vblank bit and address latch
                 regSTATUS &= ~0x80;
                 addrLatchHigh = true;
+                statusReadCountFrame++;
+                statusReadCountTotal++;
+                statusReadRing[statusReadRingPos & 7] = value & 0xFF;
+                statusReadRingPos++;
                 return value;
             }
             case 4: { // OAMDATA (stub)
@@ -1339,8 +1400,14 @@ public class PPU implements NesPPU {
                     if ((regMASK & PpuRegs.MASK_BG_LEFT) == 0 || (regMASK & PpuRegs.MASK_SPR_LEFT) == 0)
                         allow = false;
                 }
-                if (allow)
+                if (allow) {
+                    if ((regSTATUS & PpuRegs.STATUS_SPR0_HIT) == 0) { // first time this frame
+                        sprite0HitSetFrame = frame;
+                        sprite0HitSetScanline = sl;
+                        sprite0HitSetCycle = cycle;
+                    }
                     regSTATUS |= PpuRegs.STATUS_SPR0_HIT;
+                }
             }
             if (spritePriorityFront || bgTransparent) {
                 frameIndexBuffer[sl * 256 + xPixel] = paletteIndex & 0x0F;
@@ -1357,6 +1424,7 @@ public class PPU implements NesPPU {
      */
     private void fireNmi() {
         nmiFiredThisVblank = true;
+        nmiCount++; // increment global NMI counter
         if (cpu != null) {
             if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
                 Log.debug(PPU, "[PPU NMI->CPU] frame=%d scan=%d cyc=%d", frame, scanline, cycle);
@@ -1366,6 +1434,49 @@ public class PPU implements NesPPU {
         }
         if (nmiCallback != null)
             nmiCallback.run();
+        lastNmiFrame = frame;
+    }
+
+    // --- Added simple public NMI counter for diagnostics ---
+    private long nmiCount = 0;
+
+    public long getNmiCount() {
+        return nmiCount;
+    }
+
+    private long lastNmiFrame = -1;
+
+    public long getLastNmiFrame() {
+        return lastNmiFrame;
+    }
+
+    // Instrumentation getters
+    public int getStatusReadCountFrame() {
+        return statusReadCountFrame;
+    }
+
+    public int getStatusReadCountTotal() {
+        return statusReadCountTotal;
+    }
+
+    public int[] getStatusReadRecent() {
+        return statusReadRing;
+    }
+
+    public long getSprite0HitSetFrame() {
+        return sprite0HitSetFrame;
+    }
+
+    public int getSprite0HitSetScanline() {
+        return sprite0HitSetScanline;
+    }
+
+    public int getSprite0HitSetCycle() {
+        return sprite0HitSetCycle;
+    }
+
+    public void setForceSprite0Hit(boolean v) {
+        this.forceSprite0Hit = v;
     }
 
     /**
@@ -1557,8 +1668,9 @@ public class PPU implements NesPPU {
         if (!isPreRender() && prefetchHadFirstTile && scanline == 0 && cycle == 0) {
             prefetchHadFirstTile = false;
         }
-        // Increment coarse X for every tile boundary except the vertical increment slot
-        if (cycle != 256) {
+        // Increment coarse X only on tile boundaries (every 8 cycles) except at the
+        // vertical increment slot (256)
+        if (cycle != 256 && (cycle & 7) == 0) {
             incrementCoarseX();
         }
         // Pipeline log after reload (same condition as before extraction)

@@ -20,9 +20,10 @@ public enum AddressingMode {
 
     /**
      * Gets the current status byte of the CPU.
+     * 
      * @return The status byte with the current flags.
      */
-    static AddressingMode getAddressingMode(int opcodeByte) {
+    public static AddressingMode getAddressingMode(int opcodeByte) {
         switch (opcodeByte) {
             // --- Immediate (#) ---
             case 0xA9: // LDA #imm

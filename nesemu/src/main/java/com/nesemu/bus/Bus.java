@@ -12,6 +12,7 @@ import com.nesemu.ppu.interfaces.NesPPU;
 import com.nesemu.rom.INesRom;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
+import java.util.function.IntConsumer;
 
 /**
  * NES system bus (CPU address space routing).
@@ -73,6 +74,13 @@ public class Bus implements NesBus {
     private boolean watchTriggered = false;
     private int watchTriggerCount = 0;
     private int watchReadLimit = 1;
+
+    // Spin watchdog read recorder (optional)
+    private IntConsumer spinReadRecorder;
+
+    public void setSpinReadRecorder(IntConsumer rec) {
+        this.spinReadRecorder = rec;
+    }
 
     /** Notify controllers that a frame has ended (for turbo timing). */
     public void onFrameEnd() {
@@ -145,6 +153,8 @@ public class Bus implements NesBus {
     @Override
     public int read(int address) {
         address &= 0xFFFF;
+        if (spinReadRecorder != null)
+            spinReadRecorder.accept(address);
         int value;
         if (address < 0x2000) { // 2KB internal RAM mirrored each 0x800
             value = memory.readInternalRam(address);

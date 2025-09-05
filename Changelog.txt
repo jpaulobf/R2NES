@@ -1,6 +1,37 @@
 Changelog - R2NES
 ===================
 
+Version 0.4.1 – Instrumentation & Timing Refinements (2025-09-05)
+------------------------
+
+Added
+- Spin watchdog (CLI/INI: `spin-watch=`) capturing snapshots when a PC repeats N cycles.
+- Hex opcode dump for first spin occurrence (`spin-dump-bytes=`) capped and bound to watchdog.
+- MMC1 bank/control write logging limit (`log-mmc1=`) for mapper state visibility.
+- NMI trace option (`trace-nmi=true`) logging each vblank edge (diagnostic only).
+- PPUSTATUS ($2002) read instrumentation: per-frame counter (SRS) + last 8 values ring (RS8) surfaced in snapshots.
+- Sprite 0 hit first-set timestamp triplet (frame/scanline/cycle) in snapshots.
+- Manual diagnostic snapshot hotkey (`log-warn-key=`) outputs a rich [SNAP] line at WARN level.
+- Inline disassembler segment (DISS[...]) in spin / manual snapshots (auto-disabled when instrumentation off).
+- Debug override `force-sprite0-hit` to quickly test game loops polling BIT $2002 without full accuracy implemented.
+- Central instrumentation gating flag to strip overhead when all debug features disabled.
+
+Changed
+- Disassembler now falls back to a minimal fast path when instrumentation is disabled (avoids per-instruction decode cost).
+- Spin watchdog histograms separated (general + IO subset) for clearer hot polling differentiation.
+- Snapshot / spin lines enriched with mapper (MMC1) bank state, NMI deltas and sprite0 hit telemetry.
+
+Fixed
+- Coarse X increment corrected to advance only on tile boundaries (every 8 pixels) instead of every pixel; improves background alignment affecting sprite0 collision timing.
+- Ensured vblank clear + NMI latch reset occurs exactly once on frame wrap (prevents duplicate late-edge NMIs under some edge cases).
+
+Performance
+- All heavy diagnostic code paths guarded; when no instrumentation flags are set, added logic is effectively cold (minimal string building or allocation).
+
+Notes
+- `force-sprite0-hit` is a temporary diagnostic and should remain disabled for normal gameplay.
+- Future work: refine natural sprite 0 hit timing (background fetch & sprite evaluation cycle accuracy) so override is unnecessary.
+
 Version 0.4 – Scanlines, Pause & Unified Exit (2025-09-05)
 ------------------------
 

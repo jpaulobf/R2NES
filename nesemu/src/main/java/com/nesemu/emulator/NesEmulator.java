@@ -11,6 +11,8 @@ import com.nesemu.mapper.Mapper5;
 import com.nesemu.mapper.Mapper4;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.ppu.PPU;
+import com.nesemu.cpu.Opcode;
+import com.nesemu.cpu.AddressingMode;
 import com.nesemu.rom.INesRom;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -46,6 +48,365 @@ public class NesEmulator {
     }
 
     private TimingMode timingMode = TimingMode.SIMPLE; // default compat
+
+    // ---- Spin / stall watchdog (optional, enabled via CLI) ----
+    // Global lightweight switch to allow JIT to strip most instrumentation when
+    // false.
+    // Set true automatically when any debug/instrumentation feature is enabled.
+    private boolean instrumentationEnabled = false;
+    private boolean spinWatchEnabled = false;
+    private long spinWatchThreshold = 0; // cycles with same PC before snapshot
+    private int spinWatchLastPc = -1;
+    private long spinWatchSameCount = 0;
+    private int spinWatchLastReportedPc = -1; // avoid duplicate reports for same PC run
+    // Simple read address histogram (top small set) during current spin window
+    private static final int SPIN_HIST_SIZE = 8;
+    private final int[] spinHistAddr = new int[SPIN_HIST_SIZE];
+    private final int[] spinHistCount = new int[SPIN_HIST_SIZE];
+    // Separate IO/RAM (<0x4020) address histogram
+    private static final int SPIN_IO_HIST_SIZE = 8;
+    private final int[] spinIoAddr = new int[SPIN_IO_HIST_SIZE];
+    private final int[] spinIoCount = new int[SPIN_IO_HIST_SIZE];
+    // NMI counter snapshot support
+    private long lastNmiCountSnapshot = -1;
+    // Hex dump bytes option
+    private int spinDumpBytes = 0; // 0 = disabled
+    private int spinDumpLastPc = -1;
+
+    /** Manual on-demand diagnostic snapshot (WARN level) for current state. */
+    public void dumpWarnSnapshot(String reason) {
+        if (!instrumentationEnabled)
+            return; // no-op when instrumentation off
+        StringBuilder sb = new StringBuilder();
+        int pc = cpu.getPC() & 0xFFFF;
+        sb.append(String.format("[SNAP] PC=%04X A=%02X X=%02X Y=%02X SP=%02X P=%02X CYC=%d NMIH=%d lastVec=%04X",
+                pc, cpu.getA() & 0xFF, cpu.getX() & 0xFF, cpu.getY() & 0xFF,
+                cpu.getSP() & 0xFF, cpu.getStatusByte() & 0xFF, cpu.getTotalCycles(),
+                cpu.getNmiHandlerCount(), cpu.getLastNmiHandlerVector()));
+        if (ppu != null) {
+            sb.append(String.format(" Frame=%d SL=%d CYC=%d STAT=%02X CTRL=%02X MASK=%02X NMI=%d lastNmiFrame=%d",
+                    ppu.getFrame(), ppu.getScanline(), ppu.getCycle(),
+                    ppu.getStatusRegister() & 0xFF, ppu.getCtrl() & 0xFF, ppu.getMaskRegister() & 0xFF,
+                    ppu.getNmiCount(), ppu.getLastNmiFrame()));
+            sb.append(String.format(" SRS=%d", ppu.getStatusReadCountFrame()));
+            int[] recent = ppu.getStatusReadRecent();
+            sb.append(" RS8=");
+            for (int i = 0; i < 8; i++) {
+                sb.append(String.format("%02X", recent[i] & 0xFF));
+                if (i < 7)
+                    sb.append('-');
+            }
+            long s0f = ppu.getSprite0HitSetFrame();
+            if (s0f >= 0) {
+                sb.append(String.format(" S0@F%d/%d/%d", s0f, ppu.getSprite0HitSetScanline(),
+                        ppu.getSprite0HitSetCycle()));
+            }
+        }
+        if (mapper instanceof com.nesemu.mapper.Mapper1 m1) {
+            sb.append(String.format(" MMC1:CTRL=%02X PRG=%02X CHR0=%02X CHR1=%02X",
+                    m1.getControl(), m1.getPrgBank(), m1.getChrBank0(), m1.getChrBank1()));
+        }
+        if (spinWatchEnabled) {
+            // Include partial histograms (top entries only)
+            sb.append(" HREADS[");
+            for (int i = 0; i < SPIN_HIST_SIZE; i++) {
+                if (spinHistCount[i] == 0)
+                    break;
+                sb.append(String.format("%04X:%d", spinHistAddr[i], spinHistCount[i]));
+                if (i + 1 < SPIN_HIST_SIZE && spinHistCount[i + 1] > 0)
+                    sb.append(',');
+            }
+            sb.append(']');
+        }
+        // Append short disassembly (up to 8 instructions) for context
+        if (instrumentationEnabled) {
+            sb.append(" DISS[");
+            sb.append(disassembleAround(pc, 8));
+            sb.append(']');
+        }
+        if (reason != null && !reason.isEmpty()) {
+            sb.append(" REASON=").append(reason);
+        }
+        com.nesemu.util.Log.warn(com.nesemu.util.Log.Cat.CPU, sb.toString());
+    }
+
+    /** Enable simple spin watchdog: logs snapshot if PC repeats for N cycles. */
+    public void enableSpinWatch(long threshold) {
+        if (threshold <= 0)
+            return;
+        instrumentationEnabled = true;
+        this.spinWatchEnabled = true;
+        this.spinWatchThreshold = threshold;
+        this.spinWatchLastPc = -1;
+        this.spinWatchSameCount = 0;
+        this.spinWatchLastReportedPc = -1;
+        for (int i = 0; i < SPIN_HIST_SIZE; i++) {
+            spinHistAddr[i] = 0;
+            spinHistCount[i] = 0;
+        }
+        for (int i = 0; i < SPIN_IO_HIST_SIZE; i++) {
+            spinIoAddr[i] = 0;
+            spinIoCount[i] = 0;
+        }
+        if (this.bus instanceof Bus b) {
+            b.setSpinReadRecorder(this::spinWatchRecordRead);
+        }
+    }
+
+    /**
+     * Configure number of opcode bytes to hex-dump on first spin report for a PC.
+     */
+    public void setSpinDumpBytes(int bytes) {
+        this.spinDumpBytes = Math.max(0, Math.min(64, bytes));
+        if (this.spinDumpBytes > 0)
+            instrumentationEnabled = true;
+    }
+
+    private void spinWatchTick() {
+        if (!spinWatchEnabled)
+            return;
+        int pc = cpu.getPC() & 0xFFFF;
+        if (pc == spinWatchLastPc) {
+            spinWatchSameCount++;
+        } else {
+            spinWatchLastPc = pc;
+            spinWatchSameCount = 1;
+        }
+        if (spinWatchSameCount == spinWatchThreshold && pc != spinWatchLastReportedPc) {
+            spinWatchLastReportedPc = pc;
+            // Snapshot CPU + PPU + Mapper1 (if present)
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format(
+                    "[SPIN] PC=%04X sameCycles=%d A=%02X X=%02X Y=%02X SP=%02X P=%02X NMIH=%d lastVec=%04X ",
+                    pc, spinWatchSameCount, cpu.getA() & 0xFF, cpu.getX() & 0xFF, cpu.getY() & 0xFF,
+                    cpu.getSP() & 0xFF, cpu.getStatusByte() & 0xFF,
+                    cpu.getNmiHandlerCount(), cpu.getLastNmiHandlerVector()));
+            if (ppu != null) {
+                sb.append(String.format("Frame=%d SL=%d CYC=%d ", ppu.getFrame(), ppu.getScanline(), ppu.getCycle()));
+                long nmis = ppu.getNmiCount();
+                if (lastNmiCountSnapshot >= 0) {
+                    sb.append(String.format("NMI=%d(+%d) ", nmis, (nmis - lastNmiCountSnapshot)));
+                } else {
+                    sb.append(String.format("NMI=%d ", nmis));
+                }
+                lastNmiCountSnapshot = nmis;
+            }
+            if (mapper instanceof com.nesemu.mapper.Mapper1 m1) {
+                sb.append(String.format("MMC1:CTRL=%02X PRG=%02X CHR0=%02X CHR1=%02X ",
+                        m1.getControl(), m1.getPrgBank(), m1.getChrBank0(), m1.getChrBank1()));
+            }
+            // Append histogram
+            sb.append("READS[");
+            for (int i = 0; i < SPIN_HIST_SIZE; i++) {
+                if (spinHistCount[i] == 0)
+                    break;
+                sb.append(String.format("%04X:%d", spinHistAddr[i], spinHistCount[i]));
+                if (i + 1 < SPIN_HIST_SIZE && spinHistCount[i + 1] > 0)
+                    sb.append(',');
+            }
+            sb.append(']');
+            // IO subset
+            boolean anyIo = false;
+            for (int i = 0; i < SPIN_IO_HIST_SIZE; i++)
+                if (spinIoCount[i] > 0) {
+                    anyIo = true;
+                    break;
+                }
+            if (anyIo) {
+                sb.append(" IO[");
+                for (int i = 0; i < SPIN_IO_HIST_SIZE; i++) {
+                    if (spinIoCount[i] == 0)
+                        break;
+                    sb.append(String.format("%04X:%d", spinIoAddr[i], spinIoCount[i]));
+                    if (i + 1 < SPIN_IO_HIST_SIZE && spinIoCount[i + 1] > 0)
+                        sb.append(',');
+                }
+                sb.append(']');
+            }
+            if (spinDumpBytes > 0 && spinDumpLastPc != pc) {
+                spinDumpLastPc = pc;
+                sb.append(" CODE=");
+                for (int i = 0; i < spinDumpBytes; i++) {
+                    int addr = (pc + i) & 0xFFFF;
+                    int val = bus.read(addr) & 0xFF; // safe read
+                    sb.append(String.format("%02X", val));
+                }
+            }
+            sb.append(" DISS[").append(disassembleAround(pc, 6)).append(']');
+            com.nesemu.util.Log.warn(com.nesemu.util.Log.Cat.CPU, sb.toString());
+        }
+    }
+
+    /**
+     * Record a CPU read address for spin histogram (called from Bus optionally).
+     */
+    public void spinWatchRecordRead(int address) {
+        if (!spinWatchEnabled)
+            return;
+        address &= 0xFFFF;
+        // find or insert
+        int slot = -1;
+        for (int i = 0; i < SPIN_HIST_SIZE; i++) {
+            if (spinHistCount[i] == 0) {
+                if (slot < 0)
+                    slot = i;
+                continue;
+            }
+            if (spinHistAddr[i] == address) {
+                spinHistCount[i]++;
+                return;
+            }
+        }
+        if (slot >= 0) {
+            spinHistAddr[slot] = address;
+            spinHistCount[slot] = 1;
+            return;
+        }
+        // simple replacement: replace smallest
+        int minIdx = 0;
+        for (int i = 1; i < SPIN_HIST_SIZE; i++)
+            if (spinHistCount[i] < spinHistCount[minIdx])
+                minIdx = i;
+        spinHistAddr[minIdx] = address;
+        spinHistCount[minIdx] = 1;
+        // IO classification (RAM/PPU/APU) < 0x4020
+        if (address < 0x4020) {
+            int slot2 = -1;
+            for (int i = 0; i < SPIN_IO_HIST_SIZE; i++) {
+                if (spinIoCount[i] == 0) {
+                    if (slot2 < 0)
+                        slot2 = i;
+                    continue;
+                }
+                if (spinIoAddr[i] == address) {
+                    spinIoCount[i]++;
+                    return;
+                }
+            }
+            if (slot2 >= 0) {
+                spinIoAddr[slot2] = address;
+                spinIoCount[slot2] = 1;
+                return;
+            }
+            int min2 = 0;
+            for (int i = 1; i < SPIN_IO_HIST_SIZE; i++)
+                if (spinIoCount[i] < spinIoCount[min2])
+                    min2 = i;
+            spinIoAddr[min2] = address;
+            spinIoCount[min2] = 1;
+        }
+    }
+
+    /** Mini disassembler: decode up to count instructions starting at startPc. */
+    private String disassembleAround(int startPc, int count) {
+        if (!instrumentationEnabled) {
+            // Minimal fast path: just return current opcode byte hex without decoding
+            // chain.
+            int opcodeByte = bus.read(startPc & 0xFFFF) & 0xFF;
+            return String.format("%04X:%02X", startPc & 0xFFFF, opcodeByte);
+        }
+        StringBuilder sb = new StringBuilder();
+        int pc = startPc & 0xFFFF;
+        for (int i = 0; i < count; i++) {
+            int opcodeByte = bus.read(pc) & 0xFF;
+            Opcode op = Opcode.fromByte(opcodeByte);
+            AddressingMode mode = AddressingMode.getAddressingMode(opcodeByte);
+            int len = 1;
+            String operandStr = "";
+            if (op == null) {
+                sb.append(String.format("%04X:DB %02X", pc, opcodeByte));
+                pc = (pc + 1) & 0xFFFF;
+            } else {
+                switch (mode) {
+                    case IMMEDIATE -> {
+                        int v = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        operandStr = String.format("#$%02X", v);
+                        len = 2;
+                    }
+                    case ZERO_PAGE -> {
+                        int a = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        operandStr = String.format("$%02X", a);
+                        len = 2;
+                    }
+                    case ZERO_PAGE_X -> {
+                        int a = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        operandStr = String.format("$%02X,X", a);
+                        len = 2;
+                    }
+                    case ZERO_PAGE_Y -> {
+                        int a = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        operandStr = String.format("$%02X,Y", a);
+                        len = 2;
+                    }
+                    case ABSOLUTE -> {
+                        int lo = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        int hi = bus.read((pc + 2) & 0xFFFF) & 0xFF;
+                        int a = (hi << 8) | lo;
+                        operandStr = String.format("$%04X", a);
+                        len = 3;
+                    }
+                    case ABSOLUTE_X -> {
+                        int lo = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        int hi = bus.read((pc + 2) & 0xFFFF) & 0xFF;
+                        int a = (hi << 8) | lo;
+                        operandStr = String.format("$%04X,X", a);
+                        len = 3;
+                    }
+                    case ABSOLUTE_Y -> {
+                        int lo = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        int hi = bus.read((pc + 2) & 0xFFFF) & 0xFF;
+                        int a = (hi << 8) | lo;
+                        operandStr = String.format("$%04X,Y", a);
+                        len = 3;
+                    }
+                    case INDIRECT -> {
+                        int lo = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        int hi = bus.read((pc + 2) & 0xFFFF) & 0xFF;
+                        int a = (hi << 8) | lo;
+                        operandStr = String.format("($%04X)", a);
+                        len = 3;
+                    }
+                    case INDIRECT_X -> {
+                        int zp = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        operandStr = String.format("($%02X,X)", zp);
+                        len = 2;
+                    }
+                    case INDIRECT_Y -> {
+                        int zp = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        operandStr = String.format("($%02X),Y", zp);
+                        len = 2;
+                    }
+                    case RELATIVE -> {
+                        int off = bus.read((pc + 1) & 0xFFFF) & 0xFF;
+                        int rel = (pc + 2 + (byte) off) & 0xFFFF;
+                        operandStr = String.format("$%04X", rel);
+                        len = 2;
+                    }
+                    case ACCUMULATOR -> {
+                        operandStr = "A";
+                        len = 1;
+                    }
+                    case IMPLIED -> {
+                        len = 1;
+                    }
+                }
+                // Raw bytes
+                String bytes;
+                if (len == 1)
+                    bytes = String.format("%02X", opcodeByte);
+                else if (len == 2)
+                    bytes = String.format("%02X %02X", opcodeByte, bus.read((pc + 1) & 0xFFFF) & 0xFF);
+                else
+                    bytes = String.format("%02X %02X %02X", opcodeByte, bus.read((pc + 1) & 0xFFFF) & 0xFF,
+                            bus.read((pc + 2) & 0xFFFF) & 0xFF);
+                sb.append(String.format("%04X:%-3s %-14s{%s}", pc, op.name(), operandStr, bytes));
+                pc = (pc + len) & 0xFFFF;
+            }
+            if (i + 1 < count)
+                sb.append(';');
+        }
+        return sb.toString();
+    }
 
     /**
      * Legacy path: build minimal stack with no PPU or mapper (for CPU unit tests).
@@ -179,6 +540,7 @@ public class NesEmulator {
         if (timingMode == TimingMode.SIMPLE) {
             for (long i = 0; i < cpuCycles; i++) {
                 cpu.clock();
+                spinWatchTick();
                 ppu.clock();
                 ppu.clock();
                 ppu.clock();
@@ -189,6 +551,7 @@ public class NesEmulator {
                 // 1º PPU antes da CPU para reduzir atraso de writes que afetam próximo pixel
                 ppu.clock();
                 cpu.clock();
+                spinWatchTick();
                 // 2 PPU restantes
                 ppu.clock();
                 ppu.clock();
@@ -239,6 +602,11 @@ public class NesEmulator {
     /** Obtém modo de temporização atual. */
     public TimingMode getTimingMode() {
         return this.timingMode;
+    }
+
+    /** Expose current mapper (read-only) for diagnostics. */
+    public Mapper getMapper() {
+        return this.mapper;
     }
 
     /**

@@ -9,19 +9,25 @@ import com.nesemu.emulator.Clockable;
 public interface NesCPU extends Clockable {
 
     /**
-     * Perform a hardware style reset (reload vectors, clear internal state, set PC to reset vector).
+     * Perform a hardware style reset (reload vectors, clear internal state, set PC
+     * to reset vector).
      */
     void reset();
+
     /**
      * Advance the CPU by one clock cycle (may or may not complete an instruction).
      */
     void clock();
+
     /**
-     * Signal a Non-Maskable Interrupt (triggered by PPU VBlank); should be edge processed at proper cycle boundary.
+     * Signal a Non-Maskable Interrupt (triggered by PPU VBlank); should be edge
+     * processed at proper cycle boundary.
      */
     void nmi();
+
     /**
-     * Signal a maskable IRQ (from APU / mapper); honored only if Interrupt Disable flag is clear.
+     * Signal a maskable IRQ (from APU / mapper); honored only if Interrupt Disable
+     * flag is clear.
      */
     void irq();
 
@@ -40,10 +46,15 @@ public interface NesCPU extends Clockable {
     /** Program Counter (16-bit). */
     int getPC();
 
-    /** PC value at the start of the last fully decoded instruction (helpful for tracing/debug). */
+    /**
+     * PC value at the start of the last fully decoded instruction (helpful for
+     * tracing/debug).
+     */
     int getLastInstrPC();
 
-    /** True if currently between instructions (no partial execution in progress). */
+    /**
+     * True if currently between instructions (no partial execution in progress).
+     */
     boolean isInstructionBoundary();
 
     /** Full processor status register packed into a byte (NV-BDIZC). */
@@ -55,7 +66,10 @@ public interface NesCPU extends Clockable {
     /** Execute exactly one full instruction (cycles until boundary). */
     void stepInstruction();
 
-    /** Cycles consumed by the current (or just finished) instruction so far (base+extra). */
+    /**
+     * Cycles consumed by the current (or just finished) instruction so far
+     * (base+extra).
+     */
     int getCycles();
 
     /** Carry flag C. */
@@ -85,10 +99,16 @@ public interface NesCPU extends Clockable {
     /** Opcode byte of the last executed instruction. */
     int getLastOpcodeByte();
 
-    /** Base cycle count for the last instruction (before page-cross / branch penalties). */
+    /**
+     * Base cycle count for the last instruction (before page-cross / branch
+     * penalties).
+     */
     int getLastBaseCycles();
 
-    /** Additional cycles added (page cross, branch taken, RMW, etc.) for last instruction. */
+    /**
+     * Additional cycles added (page cross, branch taken, RMW, etc.) for last
+     * instruction.
+     */
     int getLastExtraCycles();
 
     /** For read-modify-write ops: final value written (for debugging). */
@@ -153,4 +173,20 @@ public interface NesCPU extends Clockable {
 
     /** Set Negative flag. */
     void setNegative(boolean negative);
+
+    // --- Instrumentation additions ---
+    /**
+     * Total times an NMI handler sequence has been entered (after vector fetch).
+     */
+    default long getNmiHandlerCount() {
+        return 0L;
+    }
+
+    /**
+     * Last NMI handler vector PC loaded (address of first instruction executed in
+     * handler).
+     */
+    default int getLastNmiHandlerVector() {
+        return 0;
+    }
 }

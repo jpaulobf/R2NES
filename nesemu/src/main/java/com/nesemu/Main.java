@@ -79,6 +79,11 @@ public class Main {
         int fastForwardMaxFps = 0; // 0 = unlimited
         Integer fastForwardMaxFpsCli = null; // CLI override
         String leftColumnModeOpt = null; // --left-column-mode=hardware|always|crop (INI: left-column-mode)
+        long spinWatchThreshold = 0; // --spin-watch=cycles (PC repeat cycles)
+        int mmc1LogLimit = 0; // --log-mmc1[=N]
+        int spinDumpBytes = 0; // --spin-dump-bytes=N
+        String logWarnKey = null; // INI: log-warn-key (manual snapshot)
+        boolean forceSprite0Hit = false; // --force-sprite0-hit (debug)
 
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
@@ -177,6 +182,28 @@ public class Main {
                 }
             } else if (a.startsWith("--left-column-mode=")) {
                 leftColumnModeOpt = a.substring(19).trim().toLowerCase(Locale.ROOT);
+            } else if (a.startsWith("--spin-watch=")) {
+                try {
+                    spinWatchThreshold = Long.parseLong(a.substring(13).trim());
+                } catch (NumberFormatException e) {
+                    Log.warn(GENERAL, "Valor inválido em --spin-watch= (usar número)");
+                }
+            } else if (a.startsWith("--spin-dump-bytes=")) {
+                try {
+                    spinDumpBytes = Integer.parseInt(a.substring(18).trim());
+                } catch (NumberFormatException e) {
+                    Log.warn(GENERAL, "Valor inválido em --spin-dump-bytes= (usar número)");
+                }
+            } else if (a.equalsIgnoreCase("--force-sprite0-hit")) {
+                forceSprite0Hit = true;
+            } else if (a.equalsIgnoreCase("--log-mmc1")) {
+                mmc1LogLimit = 128; // default
+            } else if (a.startsWith("--log-mmc1=")) {
+                try {
+                    mmc1LogLimit = Integer.parseInt(a.substring(12).trim());
+                } catch (NumberFormatException e) {
+                    Log.warn(GENERAL, "Valor inválido em --log-mmc1= (usar número)");
+                }
             } else if (a.startsWith("--log-attr")) {
                 if (a.contains("=")) {
                     try {
@@ -433,6 +460,9 @@ public class Main {
             if (inputCfg.hasOption("toggle-hud")) {
                 toggleHudKey = inputCfg.getOption("toggle-hud");
             }
+            if (inputCfg.hasOption("log-warn-key")) {
+                logWarnKey = inputCfg.getOption("log-warn-key");
+            }
             if (inputCfg.hasOption("toogle-fullscreen-proportion")) { // note: key spelled 'toogle' per INI
                 toggleFullscreenProportionKey = inputCfg.getOption("toogle-fullscreen-proportion");
             }
@@ -464,6 +494,42 @@ public class Main {
                     timingModeOpt = v;
             }
             if (pacerModeOpt == null && inputCfg.hasOption("pacer")) {
+                if (traceInstrCount == 0 && inputCfg.hasOption("trace-cpu")) {
+                    try {
+                        traceInstrCount = Long.parseLong(inputCfg.getOption("trace-cpu").trim());
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (!forceSprite0Hit && inputCfg.hasOption("force-sprite0-hit")) {
+                    // Enable debug forced sprite0 hit via INI (boolean; true=enable)
+                    try {
+                        forceSprite0Hit = Boolean.parseBoolean(inputCfg.getOption("force-sprite0-hit").trim());
+                    } catch (Exception ignored) {
+                        /* fallback remains false */ }
+                }
+                if (spinWatchThreshold == 0 && inputCfg.hasOption("spin-watch")) {
+                    try {
+                        spinWatchThreshold = Long.parseLong(inputCfg.getOption("spin-watch").trim());
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (spinDumpBytes == 0 && inputCfg.hasOption("spin-dump-bytes")) {
+                    try {
+                        spinDumpBytes = Integer.parseInt(inputCfg.getOption("spin-dump-bytes").trim());
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (mmc1LogLimit == 0 && inputCfg.hasOption("log-mmc1")) {
+                    String v = inputCfg.getOption("log-mmc1").trim();
+                    if (v.isEmpty())
+                        mmc1LogLimit = 128;
+                    else {
+                        try {
+                            mmc1LogLimit = Integer.parseInt(v);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
                 String v = inputCfg.getOption("pacer").trim().toLowerCase(Locale.ROOT);
                 if (v.equals("legacy") || v.equals("hr"))
                     pacerModeOpt = v;
@@ -710,6 +776,18 @@ public class Main {
                 }
                 Log.info(GENERAL, "Timing mode: %s", timingModeOpt);
             }
+            if (spinWatchThreshold > 0) {
+                emuRef[0].enableSpinWatch(spinWatchThreshold);
+                Log.info(GENERAL, "Spin watch ativo: threshold=%d", spinWatchThreshold);
+                if (spinDumpBytes > 0) {
+                    emuRef[0].setSpinDumpBytes(spinDumpBytes);
+                    Log.info(GENERAL, "Spin dump bytes=%d", spinDumpBytes);
+                }
+            }
+            if (mmc1LogLimit > 0 && emuRef[0].getMapper() instanceof com.nesemu.mapper.Mapper1 m1) {
+                m1.enableBankLogging(mmc1LogLimit);
+                Log.info(GENERAL, "MMC1 logging ativo (limite=%d)", mmc1LogLimit);
+            }
         }
         if (!patternStandalone) {
             if (forceBg) {
@@ -733,6 +811,10 @@ public class Main {
                 boolean hw = spriteYMode.equals("hardware");
                 emuRef[0].getPpu().setSpriteYHardware(hw);
                 Log.info(PPU, "Sprite Y mode: %s", hw ? "HARDWARE(+1)" : "TEST(EXACT)");
+            }
+            if (forceSprite0Hit) {
+                emuRef[0].getPpu().setForceSprite0Hit(true);
+                Log.warn(PPU, "[DEBUG] Force sprite0 hit habilitado");
             }
         }
         if (!patternStandalone) {
@@ -960,7 +1042,7 @@ public class Main {
                 Log.warn(GENERAL, "Falha ao carregar pause-emulation: %s", ex.getMessage());
             }
             if (toggleFullscreenKey != null || toggleHudKey != null || toggleFullscreenProportionKey != null
-                    || saveStateKey != null || loadStateKey != null || effectiveFfKey != null) {
+                    || saveStateKey != null || loadStateKey != null || effectiveFfKey != null || logWarnKey != null) {
                 String fsKey = toggleFullscreenKey == null ? null : toggleFullscreenKey.toLowerCase(Locale.ROOT).trim();
                 String hudKey = toggleHudKey == null ? null : toggleHudKey.toLowerCase(Locale.ROOT).trim();
                 String propKey = toggleFullscreenProportionKey == null ? null
@@ -968,6 +1050,7 @@ public class Main {
                 String saveKey = saveStateKey == null ? null : saveStateKey.toLowerCase(Locale.ROOT).trim();
                 String loadKey = loadStateKey == null ? null : loadStateKey.toLowerCase(Locale.ROOT).trim();
                 String ffKey = effectiveFfKey == null ? null : effectiveFfKey.toLowerCase(Locale.ROOT).trim();
+                String warnKey = logWarnKey == null ? null : logWarnKey.toLowerCase(Locale.ROOT).trim();
                 java.awt.event.KeyAdapter adapter = new java.awt.event.KeyAdapter() {
                     @Override
                     public void keyPressed(java.awt.event.KeyEvent e) {
@@ -1066,6 +1149,11 @@ public class Main {
                             if (!window.isFastForward()) {
                                 window.setFastForward(true);
                                 Log.info(GENERAL, "Fast-Forward ON");
+                            }
+                        }
+                        if (warnKey != null && tok.equals(warnKey)) {
+                            if (emuRef[0] != null) {
+                                emuRef[0].dumpWarnSnapshot("manual-hotkey");
                             }
                         }
                         if (!pauseKeyTokens.isEmpty() && pauseKeyTokens.contains(tok)) {

@@ -69,6 +69,10 @@ public class CPU implements NesCPU {
     private boolean nmiPending = false;
     private boolean irqPending = false;
 
+    // Instrumentation: count NMI handler entries and record last handler vector PC
+    private long nmiHandlerCount = 0;
+    private int lastNmiHandlerVector = 0;
+
     // NES 6502 cycle table (official opcodes only, 256 entries)
     private static final int[] CYCLE_TABLE = new int[] {
             7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, // 0x00-0x0F
@@ -104,6 +108,7 @@ public class CPU implements NesCPU {
 
     /**
      * Constructor for the CPU class.
+     * 
      * @param bus
      */
     public CPU(NesBus bus) {
@@ -263,6 +268,9 @@ public class CPU implements NesCPU {
         int lo = busRef.read(0xFFFA);
         int hi = busRef.read(0xFFFB);
         registers.PC = (hi << 8) | lo;
+        // Instrumentation update
+        nmiHandlerCount++;
+        lastNmiHandlerVector = registers.PC & 0xFFFF;
     }
 
     /**
@@ -485,6 +493,7 @@ public class CPU implements NesCPU {
 
     /**
      * Triggers a DMA operation, stalling the CPU for the required cycles.
+     * 
      * @param mode
      * @param skipFinalRead
      * @return
@@ -576,6 +585,7 @@ public class CPU implements NesCPU {
 
     /**
      * Executes the given opcode with the provided addressing mode and operand.
+     * 
      * @param opcode
      * @param mode
      * @param operand
@@ -1295,6 +1305,16 @@ public class CPU implements NesCPU {
     }
 
     @Override
+    public long getNmiHandlerCount() {
+        return nmiHandlerCount;
+    }
+
+    @Override
+    public int getLastNmiHandlerVector() {
+        return lastNmiHandlerVector & 0xFFFF;
+    }
+
+    @Override
     public void addDmaStall(int cycles) {
         if (cycles <= 0)
             return;
@@ -1380,7 +1400,7 @@ public class CPU implements NesCPU {
         this.negative = negative;
     }
 
-    // ------------------------------  Inner classes  ------------------------------
+    // ------------------------------ Inner classes ------------------------------
 
     /**
      * Fetches the operand according to the addressing mode.
