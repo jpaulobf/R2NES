@@ -2,6 +2,11 @@ package com.nesemu.gui;
 
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
+import javax.swing.JMenuBar;
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
+import javax.swing.JFileChooser;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
@@ -12,6 +17,8 @@ import java.awt.Canvas;
 import java.awt.image.BufferStrategy;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.nio.file.Path;
+import java.io.File;
 
 /**
  * NES window with integrated rendering loop.
@@ -25,6 +32,8 @@ public class NesWindow {
     private final VideoRenderer renderer; // Swing path
     private final Canvas canvas; // Active rendering path
     private Rectangle windowedBounds = null;
+    // (legacy placeholder callback fields removed; replaced by explicit setters
+    // below)
 
     // Active rendering state
     private BufferStrategy bufferStrategy;
@@ -79,6 +88,7 @@ public class NesWindow {
         frame.setLocationRelativeTo(null);
         // Also disable traversal on frame to be safe
         frame.setFocusTraversalKeysEnabled(false);
+        buildMenuBar();
     }
 
     /**
@@ -108,6 +118,97 @@ public class NesWindow {
                 }
             }
         });
+    }
+
+    /**
+     * Update the framebuffer reference without altering visibility/state. Useful
+     * when a new ROM/emulator instance is loaded at runtime.
+     * 
+     * @param framebuffer int[256*240] ARGB buffer from PPU
+     */
+    public void setFrameBuffer(int[] framebuffer) {
+        renderer.setFrameBuffer(framebuffer);
+    }
+
+    // --------------------------- Menu Bar ------------------------------------
+    private Runnable onResetCallback; // optional external hook
+    private Runnable onExitCallback; // optional external hook (if null -> window dispose)
+    private java.util.function.Consumer<Path> onLoadRomCallback; // invoked with selected ROM path
+    private volatile File fileChooserStartDir; // preferred starting directory
+
+    /** Set callback invoked when user activates File->Reset. */
+    public void setOnReset(Runnable r) {
+        this.onResetCallback = r;
+    }
+
+    /** Set callback invoked when user activates File->Exit. */
+    public void setOnExit(Runnable r) {
+        this.onExitCallback = r;
+    }
+
+    /** Set callback for File->Load ROM (receives Path). */
+    public void setOnLoadRom(java.util.function.Consumer<Path> c) {
+        this.onLoadRomCallback = c;
+    }
+
+    /** Define diretório inicial preferido para o diálogo de Load ROM. */
+    public void setFileChooserStartDir(Path dir) {
+        try {
+            this.fileChooserStartDir = (dir != null) ? dir.toFile() : null;
+        } catch (Exception ignore) {
+        }
+    }
+
+    private void buildMenuBar() {
+        JMenuBar mb = new JMenuBar();
+        JMenu file = new JMenu("File");
+        JMenuItem load = new JMenuItem("Load ROM...");
+        load.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setFileFilter(new FileNameExtensionFilter("NES ROM (*.nes)", "nes"));
+            try {
+                if (fileChooserStartDir != null && fileChooserStartDir.isDirectory()) {
+                    fc.setCurrentDirectory(fileChooserStartDir);
+                }
+            } catch (Exception ignore) {
+            }
+            int res = fc.showOpenDialog(frame);
+            if (res == JFileChooser.APPROVE_OPTION && onLoadRomCallback != null) {
+                try {
+                    File sel = fc.getSelectedFile();
+                    if (sel != null) {
+                        try {
+                            fileChooserStartDir = sel.getParentFile();
+                        } catch (Exception ignore2) {
+                        }
+                        onLoadRomCallback.accept(sel.toPath());
+                    }
+                } catch (Exception ex) {
+                    javax.swing.JOptionPane.showMessageDialog(frame, "Failed to load ROM: " + ex.getMessage(),
+                            "Load ROM", javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            }
+            restoreFocus();
+        });
+        JMenuItem reset = new JMenuItem("Reset");
+        reset.addActionListener(e -> {
+            if (onResetCallback != null)
+                onResetCallback.run();
+            restoreFocus();
+        });
+        JMenuItem exit = new JMenuItem("Exit");
+        exit.addActionListener(e -> {
+            if (onExitCallback != null)
+                onExitCallback.run();
+            else
+                requestClose();
+        });
+        file.add(load);
+        file.add(reset);
+        file.addSeparator();
+        file.add(exit);
+        mb.add(file);
+        frame.setJMenuBar(mb);
     }
 
     /**

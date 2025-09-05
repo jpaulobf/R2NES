@@ -12,8 +12,14 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.4.1)
-Instrumentation, timing refinements and prior UX features consolidated.
+### Current Release (0.4.4)
+Minor refactor and docs polish; instrumentation and timing improvements from 0.4.1 remain current.
+
+What's new in 0.4.4:
+* CLI parsing extracted into dedicated classes; `Main` simplified.
+* Centralized config and key-token utilities; clearer precedence docs.
+* Flag documentation consolidated (Javadoc) and README tweaks.
+* Build targets Java 21.
 
 Key additions since earlier builds:
 * Spin watchdog + optional opcode hex dump (stall diagnostics).
@@ -38,7 +44,7 @@ Core Feature Summary:
 Planned (short list): MMC3 IRQ counter, APU audio core, enhanced sprite 0 timing, save state v3 (more internal latches), HUD turbo indicator.
 
 ### Build
-Requires Java 17+ and Maven.
+Requires Java 21+ and Maven.
 ```powershell
 mvn package
 ```
@@ -179,8 +185,14 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.4.1)
-Refinamentos de instrumentação, timing e consolidação de UX.
+### Versão Atual (0.4.4)
+Pequena refatoração e ajustes de documentação; melhorias de 0.4.1 seguem válidas.
+
+Novidades em 0.4.4:
+* Parsing da CLI extraído para classes dedicadas; `Main` simplificado.
+* Utilitários centralizados de configuração e tokens de teclas; documentação de precedência mais clara.
+* Documentação das flags consolidada (Javadoc) e ajustes no README.
+* Build agora mira Java 21.
 
 Principais adições recentes:
 * Spin watchdog + dump opcional de opcodes.
@@ -205,7 +217,7 @@ Resumo de Funcionalidades:
 Planejado (curto prazo): IRQ MMC3, áudio APU, timing avançado de sprite 0, save state v3, indicador turbo no HUD.
 
 ### Build
-Requer Java 17+ e Maven.
+Requer Java 21+ e Maven.
 ```powershell
 mvn package
 ```

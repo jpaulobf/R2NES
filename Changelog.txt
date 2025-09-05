@@ -1,6 +1,19 @@
 Changelog - R2NES
 ===================
 
+Version 0.4.4 – CLI Refactor & Docs (2025-09-05)
+------------------------
+
+Changed
+- Upgraded toolchain target to Java 21 in build (pom.xml) and docs.
+- Extracted CLI parsing from Main into dedicated classes (`CLIOptionsParser`, `AppOptions`).
+- Centralized configuration helpers (`ConfigUtils`) and key tokenization (`KeyTokens`).
+- Cleaned up `Main` responsibilities and improved internal docs/Javadoc for flags.
+
+Notes
+- Behavior preserved; INI vs CLI precedence remains: CLI > INI > defaults.
+- Further extractions (INI merge and GUI/headless bootstrap) planned for a future minor.
+
 Version 0.4.1 – Instrumentation & Timing Refinements (2025-09-05)
 ------------------------
 
