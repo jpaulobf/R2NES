@@ -12,14 +12,14 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.4.6)
-ZIP ROM support and minor UX improvements; previous refactors and instrumentation remain current.
+### Current Release (0.5)
+APU audio core (Pulse/Triangle/Noise), non-linear mixer, and JavaSound output. Audio starts automatically when a ROM is loaded.
 
-What's new in 0.4.6:
-* ROMs can be loaded from .zip archives containing exactly one .nes file (archive is validated; clear errors for none or multiple .nes files).
-* Headless directory scan now looks for both .nes and .zip, preferring .nes when both are present.
-* GUI file chooser filter accepts both NES ROM and ZIP files (*.nes; *.zip).
-* POM version is 0.4.6; target remains Java 21.
+What's new in 0.5:
+* APU: Pulse1/Pulse2 duty sequencers and sweep (with immediate divider reload on write), Triangle with linear counter and 32-step table, Noise with 15-bit LFSR (short/long modes).
+* Mixing: NES-style non-linear pulse combiner and TND mixer (Triangle + Noise; DMC pending).
+* Sampling & Playback: fixed-rate 44.1 kHz sample generation with a ring buffer, drained by a JavaSound player (PCM16 mono). Auto-starts on ROM load and restarts on ROM reload.
+* Tests expanded covering sweep timing, pulse mute threshold (timer <= 8), triangle gating, and noise shift/output basics.
 
 Key additions since earlier builds:
 * Spin watchdog + optional opcode hex dump (stall diagnostics).
@@ -31,6 +31,11 @@ Key additions since earlier builds:
 * Central instrumentation gating (minimal overhead when all debug flags off).
 * Existing recent features retained: scanlines overlay, pause + unified exit dialog, turbo buttons (normal & fast), fast‑forward with optional FPS cap, left column modes, interleaved timing mode, save states (v2), HUD overlay, unlimited sprites mode, test pattern rendering.
 
+### Audio
+* Output: PCM16 mono at 44.1 kHz via JavaSound. Starts automatically when a ROM is loaded; stops and restarts on ROM reload.
+* Configuration: sample rate and buffers are currently fixed; future versions may expose INI/CLI options for rate, latency, and gain.
+* Limitations: DMC channel not implemented yet; frame counter/IRQ details simplified. Minor glitches may be heard under heavy load.
+
 Core Feature Summary:
 * CPU: Complete official 6502 instruction set with tracing & breakpoints.
 * PPU: Background pipeline (nametable/attribute/pattern fetch), fine/coarse scroll logic, sprite evaluation & priority, basic sprite 0 hit, mirroring, palette handling.
@@ -41,7 +46,7 @@ Core Feature Summary:
 * UX: HUD, fullscreen & proportion cycling, scanlines, pause, turbo, fast-forward, configurable hotkeys.
 * Config: `emulator.ini` precedence (CLI > INI > defaults) with extensive toggles.
 
-Planned (short list): MMC3 IRQ counter, APU audio core, enhanced sprite 0 timing, save state v3 (more internal latches), HUD turbo indicator.
+Planned (short list): DMC channel, MMC3 IRQ counter, enhanced sprite 0 timing, save state v3 (more internal latches), HUD turbo indicator, audio configuration (rate/latency/gain).
 
 ### Build
 Requires Java 21+ and Maven.
@@ -185,14 +190,14 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.4.6)
-Suporte a ROM zipada e pequenas melhorias de UX; refatorações e instrumentação anteriores mantidas.
+### Versão Atual (0.5)
+Núcleo de áudio APU (Pulse/Triangle/Noise), mixer não-linear e saída via JavaSound. O áudio inicia automaticamente ao carregar uma ROM.
 
-Novidades em 0.4.6:
-* Carregamento de ROMs a partir de arquivos .zip contendo exatamente um arquivo .nes (validação do arquivo com erros claros para nenhum ou múltiplos .nes).
-* Varredura headless agora considera .nes e .zip, preferindo .nes quando ambos existem.
-* Filtro do seletor de arquivos na GUI aceita ROM NES e ZIP (*.nes; *.zip).
-* POM na versão 0.4.6; alvo continua Java 21.
+Novidades em 0.5:
+* APU: Pulse1/Pulse2 com sequenciadores de duty e sweep (reload imediato do divisor no write), Triangle com contador linear e tabela de 32 passos, e Noise com LFSR de 15 bits (modos curto/longo).
+* Mixagem: combinador não-linear para pulses e mixer TND (Triangle + Noise; DMC pendente).
+* Amostragem & Reprodução: geração fixa a 44,1 kHz com buffer circular, drenado por um player JavaSound (PCM16 mono). Inicia automaticamente ao carregar ROM e reinicia ao recarregar.
+* Testes ampliados para timing de sweep, threshold de mute do pulse (timer <= 8), gating do triangle e basics de shift/saída do noise.
 
 Principais adições recentes:
 * Spin watchdog + dump opcional de opcodes.
@@ -204,6 +209,11 @@ Principais adições recentes:
 * Gating central para minimizar custo quando sem debug ativo.
 * Recursos já presentes: scanlines, pausa + diálogo de saída, turbo (normal/rápido), fast‑forward com limite opcional, modos de coluna esquerda, timing interleaved, save states v2, HUD, modo unlimited sprites, padrões sintéticos.
 
+### Áudio
+* Saída: PCM16 mono a 44,1 kHz via JavaSound. Inicia automaticamente ao carregar ROM; para e reinicia ao recarregar.
+* Configuração: taxa e buffers ainda fixos; versões futuras podem expor opções INI/CLI para taxa, latência e ganho.
+* Limitações: canal DMC ainda não implementado; detalhes de frame counter/IRQ simplificados. Pequenos glitches podem ocorrer sob carga.
+
 Resumo de Funcionalidades:
 * CPU: 6502 completo, trace e breakpoints.
 * PPU: pipeline de background, scroll fino/grosso, sprites (prioridade, hit básico), mirroring, paleta.
@@ -214,7 +224,7 @@ Resumo de Funcionalidades:
 * UX: HUD, fullscreen, proporção, scanlines, pausa, turbo, fast-forward, hotkeys configuráveis.
 * Config: `emulator.ini` abrangente (precedência CLI > INI > default).
 
-Planejado (curto prazo): IRQ MMC3, áudio APU, timing avançado de sprite 0, save state v3, indicador turbo no HUD.
+Planejado (curto prazo): Canal DMC, IRQ MMC3, timing avançado de sprite 0, save state v3, indicador turbo no HUD, configuração de áudio (taxa/latência/ganho).
 
 ### Build
 Requer Java 21+ e Maven.

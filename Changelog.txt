@@ -1,6 +1,27 @@
 Changelog - R2NES
 ===================
 
+Version 0.5 – APU Audio Core (Pulse/Triangle/Noise), Mixer & JavaSound Output (2025-09-07)
+------------------------
+
+Added
+- APU audio core: Pulse1/Pulse2 (duty sequencer, sweep), Triangle (linear counter with 32-step table), and Noise (15-bit LFSR with short/long modes).
+- Non-linear mixing (NES-style): pulse combiner + TND (Triangle + Noise; DMC not yet included).
+- Fixed-rate sample generation with internal ring buffer; exposed APIs to read pending samples.
+- JavaSound playback: background AudioPlayer drains APU samples at 44.1 kHz and outputs PCM16 mono; auto-start on ROM load and restart on ROM reload.
+- Tests: sweep timing (period=1 immediate effect within one frame), pulse mute rule (timer <= 8), triangle gating, and noise shift/output basics.
+
+Changed
+- Sweep register write now reloads the divider immediately to allow the first sweep interval when period=1 (affects Pulse1/Pulse2 sweep behavior).
+- README updated with Audio section; documented auto-start behavior and limitations.
+- Project version bumped to 0.5 (pom.xml).
+
+Known Limitations / Notes
+- DMC channel is not implemented; TND mix currently uses Triangle + Noise only.
+- Frame counter/IRQ nuances are simplified; audible glitches may occur under load or timing edge cases.
+- Sample rate is fixed at 44.1 kHz for now; latency and buffer size are not yet configurable.
+- APU state is not yet included in save-states (planned for a future snapshot format revision).
+
 Version 0.4.6 – Zipped ROM Support (.zip) (2025-09-06)
 ------------------------
 
