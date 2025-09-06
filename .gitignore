@@ -10,3 +10,4 @@ nesemu/trace_long.txt
 background.ppm
 nesemu/roms/**
 TODO.md
+nesemu/.vscode/**
