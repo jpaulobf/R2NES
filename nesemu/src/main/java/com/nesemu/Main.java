@@ -18,6 +18,7 @@ import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
 import com.nesemu.io.NesController;
 import com.nesemu.ppu.PPU;
+import com.nesemu.audio.AudioPlayer;
 
 /**
  * Simple headless runner: loads a .nes ROM, executes a number of frames and
@@ -33,6 +34,7 @@ public class Main {
 
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
+        final AudioPlayer[] audioRef = new AudioPlayer[1];
         boolean patternStandalone = false; // modo especial: renderiza apenas padrão sintético sem ROM/CPU
 
         // Load configuration file and merge INI defaults/fallbacks into CLI options
@@ -115,9 +117,22 @@ public class Main {
                 }
                 if (saveDir != null) {
                     emuRef[0] = new NesEmulator(romRef[0], romFilePath, saveDir);
+                    // Start audio
+                    try {
+                        audioRef[0] = new AudioPlayer((com.nesemu.apu.Apu2A03) emuRef[0].getApu(), 44100);
+                        audioRef[0].start();
+                    } catch (Exception e) {
+                        Log.warn(GENERAL, "Audio init falhou: %s", e.getMessage());
+                    }
                     Log.info(GENERAL, "save-path override: %s", saveDir.toAbsolutePath());
                 } else {
                     emuRef[0] = new NesEmulator(romRef[0], romFilePath);
+                    try {
+                        audioRef[0] = new AudioPlayer((com.nesemu.apu.Apu2A03) emuRef[0].getApu(), 44100);
+                        audioRef[0].start();
+                    } catch (Exception e) {
+                        Log.warn(GENERAL, "Audio init falhou: %s", e.getMessage());
+                    }
                 }
             } else if (applicationOptions.gui) {
                 romRef[0] = null;
@@ -805,6 +820,18 @@ public class Main {
                     com.nesemu.config.EmulatorConfigurator.apply(newEmu, runtime);
                     // Point references to new emulator
                     emuRef[0] = newEmu;
+                    // Restart audio on ROM reload
+                    try {
+                        if (audioRef[0] != null)
+                            audioRef[0].stop();
+                    } catch (Exception ignore) {
+                    }
+                    try {
+                        audioRef[0] = new AudioPlayer((com.nesemu.apu.Apu2A03) newEmu.getApu(), 44100);
+                        audioRef[0].start();
+                    } catch (Exception e) {
+                        Log.warn(GENERAL, "Audio init falhou (reload): %s", e.getMessage());
+                    }
                     // Reattach controllers so $4016/$4017 read from the same pads used by the key
                     // listener
                     try {

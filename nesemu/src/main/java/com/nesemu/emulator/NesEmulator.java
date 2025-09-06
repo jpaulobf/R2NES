@@ -525,6 +525,11 @@ public class NesEmulator {
         return ppu;
     }
 
+    /** Get the APU instance (for audio wiring). */
+    public APU getApu() {
+        return apu;
+    }
+
     /**
      * Reset CPU and PPU to power-on state (PC from reset vector).
      */

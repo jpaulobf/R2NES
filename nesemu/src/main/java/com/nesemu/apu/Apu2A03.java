@@ -27,6 +27,15 @@ public class Apu2A03 implements APU {
     // APU main timers clock at CPU/2. We toggle this each CPU cycle.
     private boolean apuTickPhase;
 
+    // ---- Mixer / Sampling ----
+    private int sampleRate = 44100; // Hz
+    private int cpuClockHz = 1789773; // NTSC CPU clock
+    private int sampleInterval2xUnits; // number of 2x units between samples
+    private int sampleAccum2xUnits; // accumulator of 2x units
+    private float[] sampleBuf = new float[8192];
+    private int sampleWriteIdx = 0;
+    private int sampleReadIdx = 0;
+
     // Debug/testing counters
     private int quarterTickCount;
     private int halfTickCount;
@@ -128,6 +137,10 @@ public class Apu2A03 implements APU {
         p1Duty = p2Duty = 0;
         p1DutyStep = p2DutyStep = 0;
         p1TimerCounter = p2TimerCounter = 0;
+        // Mixer timing
+        recomputeSampleInterval();
+        sampleAccum2xUnits = 0;
+        sampleWriteIdx = sampleReadIdx = 0;
         scheduleNextEvent();
     }
 
@@ -145,6 +158,13 @@ public class Apu2A03 implements APU {
         while (cpuCycles2x >= nextEventAt2x) {
             onSequencerEvent(eventIndex);
             advanceSequencer();
+        }
+        // Sampling: generate samples at fixed rate based on 2x units
+        sampleAccum2xUnits += 2; // each CPU cycle adds two 2x units
+        if (sampleAccum2xUnits >= sampleInterval2xUnits) {
+            sampleAccum2xUnits -= sampleInterval2xUnits;
+            float s = mixOutputSample();
+            writeSample(s);
         }
     }
 
@@ -536,6 +556,75 @@ public class Apu2A03 implements APU {
             return 0;
         // Output even if linear is zero; sequencer halts but level remains last
         return TRI_TABLE[triStep];
+    }
+
+    // ---- Mixer helpers ----
+    private void recomputeSampleInterval() {
+        // 2x-units per second = 2 * cpuClockHz; interval per sample is that /
+        // sampleRate
+        double interval = (2.0 * cpuClockHz) / (double) sampleRate;
+        sampleInterval2xUnits = (int) Math.max(1, Math.round(interval));
+    }
+
+    private float mixOutputSample() {
+        // instantaneous DAC-like levels
+        int p1 = getPulse1OutputLevel(); // 0..15
+        int p2 = getPulse2OutputLevel(); // 0..15
+        int tri = getTriangleOutputLevel(); // 0..15
+        int noi = getNoiseOutputLevel(); // 0..15
+        double pulseSum = p1 + p2;
+        double pulseOut = (pulseSum > 0)
+                ? 95.88 / (8128.0 / pulseSum + 100.0)
+                : 0.0;
+        double tndDen = (tri / 8227.0) + (noi / 12241.0); // DMC ignored for now
+        double tndOut = (tndDen > 0)
+                ? 159.79 / (1.0 / tndDen + 100.0)
+                : 0.0;
+        double out = pulseOut + tndOut; // approx 0..1
+        // clamp to [0,1]
+        if (out < 0)
+            out = 0;
+        if (out > 1)
+            out = 1;
+        return (float) out;
+    }
+
+    private void writeSample(float s) {
+        int next = (sampleWriteIdx + 1) & (sampleBuf.length - 1);
+        if (next != sampleReadIdx) { // drop if buffer full
+            sampleBuf[sampleWriteIdx] = s;
+            sampleWriteIdx = next;
+        }
+    }
+
+    // Public sampling API for consumers/tests
+    public void setSampleRate(int hz) {
+        if (hz <= 1000)
+            return;
+        this.sampleRate = hz;
+        recomputeSampleInterval();
+    }
+
+    public void setCpuClockHz(int hz) {
+        if (hz <= 100000)
+            return;
+        this.cpuClockHz = hz;
+        recomputeSampleInterval();
+    }
+
+    public int getPendingSampleCount() {
+        int diff = sampleWriteIdx - sampleReadIdx;
+        if (diff < 0)
+            diff += sampleBuf.length;
+        return diff;
+    }
+
+    public float readSample() {
+        if (sampleReadIdx == sampleWriteIdx)
+            return 0f;
+        float v = sampleBuf[sampleReadIdx];
+        sampleReadIdx = (sampleReadIdx + 1) & (sampleBuf.length - 1);
+        return v;
     }
 
     // ---- Noise state ----
