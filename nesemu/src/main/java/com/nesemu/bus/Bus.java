@@ -40,8 +40,7 @@ public class Bus implements NesBus {
     // --- Connected devices ---
     private NesCPU cpuRef;
     private NesPPU ppu; // PPU (register interface via $2000-$2007)
-    @SuppressWarnings("unused")
-    private APU apu; // APU ($4000-$4017 subset) placeholder until APU implemented
+    private APU apu; // APU ($4000-$4017 subset)
     private Controller pad1; // Controller 1 ($4016)
     private Controller pad2; // Controller 2 ($4017, read side when not APU)
     private Mapper mapper; // Cartridge mapper for PRG / CHR
@@ -172,9 +171,14 @@ public class Bus implements NesBus {
             }
         } else if (address < 0x4016) { // APU + IO ($4000-$4015 before controllers)
             if (address >= 0x4000 && address <= 0x4013) {
-                value = apuRegs[address - 0x4000] & 0xFF;
+                if (apu != null) {
+                    // Write-only on hardware; return open-bus-like 0 for now
+                    value = 0;
+                } else {
+                    value = apuRegs[address - 0x4000] & 0xFF;
+                }
             } else if (address == 0x4015) {
-                value = apuRegs[0x15] & 0xFF;
+                value = (apu != null) ? (apu.readStatus() & 0xFF) : (apuRegs[0x15] & 0xFF);
             } else {
                 value = 0; // unused / frame counter $4017 handled later
             }
@@ -233,7 +237,11 @@ public class Bus implements NesBus {
         } else if (address < 0x4014) {
             // APU registers $4000-$4013
             if (address >= 0x4000 && address <= 0x4013) {
-                apuRegs[address - 0x4000] = value;
+                if (apu != null) {
+                    apu.writeRegister(address, value);
+                } else {
+                    apuRegs[address - 0x4000] = value;
+                }
             }
             return;
         } else if (address == 0x4014) {
@@ -246,7 +254,11 @@ public class Bus implements NesBus {
             performOamDma();
             return;
         } else if (address == 0x4015) {
-            apuRegs[0x15] = value; // APU status
+            if (apu != null) {
+                apu.writeRegister(0x4015, value);
+            } else {
+                apuRegs[0x15] = value; // APU status
+            }
             return;
         } else if (address == 0x4016) {
             // Controller strobe
@@ -256,7 +268,11 @@ public class Bus implements NesBus {
                 pad2.write(value);
             return;
         } else if (address == 0x4017) {
-            apuRegs[0x17] = value; // frame counter mode latch
+            if (apu != null) {
+                apu.writeRegister(0x4017, value); // frame counter
+            } else {
+                apuRegs[0x17] = value; // frame counter mode latch
+            }
             return;
         } else if (address < 0x4020) {
             // APU status / frame counter etc. (stub)

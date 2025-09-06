@@ -11,6 +11,8 @@ import com.nesemu.mapper.Mapper5;
 import com.nesemu.mapper.Mapper4;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.ppu.PPU;
+import com.nesemu.apu.APU;
+import com.nesemu.apu.Apu2A03;
 import com.nesemu.cpu.Opcode;
 import com.nesemu.cpu.AddressingMode;
 import com.nesemu.rom.INesRom;
@@ -28,6 +30,7 @@ public class NesEmulator {
     private final CPU cpu;
     private final NesBus bus; // system bus (CPU visible view via iBus)
     private final PPU ppu; // minimal PPU skeleton
+    private final APU apu; // APU (2A03) skeleton
     private final Mapper mapper; // current mapper (Mapper0 or Mapper3 for now)
     private Path romPath; // optional original ROM path for deriving .sav
     private Path autoSavePath;
@@ -414,6 +417,7 @@ public class NesEmulator {
     public NesEmulator() {
         this.bus = new Bus();
         this.ppu = null;
+        this.apu = null;
         this.mapper = null;
         this.cpu = new CPU(bus);
     }
@@ -462,6 +466,9 @@ public class NesEmulator {
         this.bus = new Bus();
         bus.attachPPU(ppu);
         bus.attachMapper(mapper, rom);
+        this.apu = new Apu2A03();
+        this.apu.reset();
+        bus.attachAPU(this.apu);
         this.cpu = new CPU(bus);
         this.ppu.attachCPU(this.cpu);
     }
@@ -540,6 +547,8 @@ public class NesEmulator {
         if (timingMode == TimingMode.SIMPLE) {
             for (long i = 0; i < cpuCycles; i++) {
                 cpu.clock();
+                if (apu != null)
+                    apu.clockCpuCycle();
                 spinWatchTick();
                 ppu.clock();
                 ppu.clock();
@@ -551,6 +560,8 @@ public class NesEmulator {
                 // 1º PPU antes da CPU para reduzir atraso de writes que afetam próximo pixel
                 ppu.clock();
                 cpu.clock();
+                if (apu != null)
+                    apu.clockCpuCycle();
                 spinWatchTick();
                 // 2 PPU restantes
                 ppu.clock();
