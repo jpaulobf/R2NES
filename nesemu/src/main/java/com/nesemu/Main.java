@@ -64,7 +64,19 @@ public class Main {
                     } else {
                         try {
                             var opt = Files.list(rp)
-                                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".nes"))
+                                    .filter(p -> {
+                                        String n = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                                        return n.endsWith(".nes") || n.endsWith(".zip");
+                                    })
+                                    .sorted((a, b) -> { // prefer .nes if both present
+                                        String an = a.getFileName().toString().toLowerCase(Locale.ROOT);
+                                        String bn = b.getFileName().toString().toLowerCase(Locale.ROOT);
+                                        boolean aesNes = an.endsWith(".nes");
+                                        boolean besNes = bn.endsWith(".nes");
+                                        if (aesNes == besNes)
+                                            return an.compareTo(bn);
+                                        return aesNes ? -1 : 1;
+                                    })
                                     .findFirst();
                             if (opt.isPresent()) {
                                 romFilePath = opt.get();
@@ -168,9 +180,11 @@ public class Main {
             try {
                 Log.setLevel(Log.Level.valueOf(applicationOptions.logLevelOpt.toUpperCase(Locale.ROOT)));
             } catch (IllegalArgumentException ex) {
-                Log.warn(GENERAL, "Nível de log inválido: %s (usar TRACE|DEBUG|INFO|WARN|ERROR)", applicationOptions.logLevelOpt);
+                Log.warn(GENERAL, "Nível de log inválido: %s (usar TRACE|DEBUG|INFO|WARN|ERROR)",
+                        applicationOptions.logLevelOpt);
             }
-        } else if (applicationOptions.verboseFlag != null && applicationOptions.verboseFlag && !applicationOptions.quiet) {
+        } else if (applicationOptions.verboseFlag != null && applicationOptions.verboseFlag
+                && !applicationOptions.quiet) {
             Log.setLevel(Log.Level.DEBUG);
         }
         // Configurar categorias
@@ -321,8 +335,10 @@ public class Main {
         }
         if (!patternStandalone) {
             if (applicationOptions.breakReadAddr >= 0) {
-                emuRef[0].getBus().setWatchReadAddress(applicationOptions.breakReadAddr, applicationOptions.breakReadCount);
-                Log.info(BUS, "Watch leitura %04X count=%d", applicationOptions.breakReadAddr, applicationOptions.breakReadCount);
+                emuRef[0].getBus().setWatchReadAddress(applicationOptions.breakReadAddr,
+                        applicationOptions.breakReadCount);
+                Log.info(BUS, "Watch leitura %04X count=%d", applicationOptions.breakReadAddr,
+                        applicationOptions.breakReadCount);
             }
         }
         if (!patternStandalone) {
@@ -376,7 +392,8 @@ public class Main {
         // por padrão)
         int initMask = (applicationOptions.initialMaskOverride != null) ? applicationOptions.initialMaskOverride : 0x08;
         emuRef[0].getBus().write(0x2001, initMask);
-        Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (applicationOptions.initialMaskOverride != null ? " (override)" : ""));
+        Log.info(PPU, "PPUMASK inicial=%02X%s", initMask,
+                (applicationOptions.initialMaskOverride != null ? " (override)" : ""));
         if (applicationOptions.leftColumnModeOpt != null) {
             com.nesemu.ppu.PPU.LeftColumnMode mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE;
             switch (applicationOptions.leftColumnModeOpt) {
@@ -411,7 +428,8 @@ public class Main {
                 Log.info(GENERAL, "Fast-Forward max FPS: %d", applicationOptions.fastForwardMaxFps);
             }
             final Path[] romFilePathHolder = new Path[] { romFilePath }; // may be null in black screen mode
-            final String[] savePathOverrideHolder = new String[] { applicationOptions.savePathOverride }; // mutable for menu reload
+            final String[] savePathOverrideHolder = new String[] { applicationOptions.savePathOverride }; // mutable for
+                                                                                                          // menu reload
             // If INI rom option points to a directory, use it as the initial chooser dir
             try {
                 if (applicationOptions.romPath != null) {
@@ -422,7 +440,8 @@ public class Main {
                 }
             } catch (Exception ignore) {
             }
-            final String[] saveStatePathHolder = new String[] { applicationOptions.saveStatePath }; // mutable wrapper for closures
+            final String[] saveStatePathHolder = new String[] { applicationOptions.saveStatePath }; // mutable wrapper
+                                                                                                    // for closures
             if (applicationOptions.borderlessFullscreen != null && applicationOptions.borderlessFullscreen) {
                 window.setBorderlessFullscreen(true);
                 Log.info(GENERAL, "Borderless fullscreen: ON");
@@ -494,18 +513,24 @@ public class Main {
             } catch (Exception ex) {
                 Log.warn(GENERAL, "Falha ao carregar pause-emulation: %s", ex.getMessage());
             }
-            if (applicationOptions.toggleFullscreenKey != null || applicationOptions.toggleHudKey != null || applicationOptions.toggleFullscreenProportionKey != null
-                    || applicationOptions.saveStateKey != null || applicationOptions.loadStateKey != null || effectiveFfKey != null
+            if (applicationOptions.toggleFullscreenKey != null || applicationOptions.toggleHudKey != null
+                    || applicationOptions.toggleFullscreenProportionKey != null
+                    || applicationOptions.saveStateKey != null || applicationOptions.loadStateKey != null
+                    || effectiveFfKey != null
                     || applicationOptions.logWarnKey != null) {
                 String fsKey = applicationOptions.toggleFullscreenKey == null ? null
                         : applicationOptions.toggleFullscreenKey.toLowerCase(Locale.ROOT).trim();
-                String hudKey = applicationOptions.toggleHudKey == null ? null : applicationOptions.toggleHudKey.toLowerCase(Locale.ROOT).trim();
+                String hudKey = applicationOptions.toggleHudKey == null ? null
+                        : applicationOptions.toggleHudKey.toLowerCase(Locale.ROOT).trim();
                 String propKey = applicationOptions.toggleFullscreenProportionKey == null ? null
                         : applicationOptions.toggleFullscreenProportionKey.toLowerCase(Locale.ROOT).trim();
-                String saveKey = applicationOptions.saveStateKey == null ? null : applicationOptions.saveStateKey.toLowerCase(Locale.ROOT).trim();
-                String loadKey = applicationOptions.loadStateKey == null ? null : applicationOptions.loadStateKey.toLowerCase(Locale.ROOT).trim();
+                String saveKey = applicationOptions.saveStateKey == null ? null
+                        : applicationOptions.saveStateKey.toLowerCase(Locale.ROOT).trim();
+                String loadKey = applicationOptions.loadStateKey == null ? null
+                        : applicationOptions.loadStateKey.toLowerCase(Locale.ROOT).trim();
                 String ffKey = effectiveFfKey == null ? null : effectiveFfKey.toLowerCase(Locale.ROOT).trim();
-                String warnKey = applicationOptions.logWarnKey == null ? null : applicationOptions.logWarnKey.toLowerCase(Locale.ROOT).trim();
+                String warnKey = applicationOptions.logWarnKey == null ? null
+                        : applicationOptions.logWarnKey.toLowerCase(Locale.ROOT).trim();
                 java.awt.event.KeyAdapter adapter = new java.awt.event.KeyAdapter() {
                     @Override
                     public void keyPressed(java.awt.event.KeyEvent e) {
@@ -705,22 +730,28 @@ public class Main {
             });
             window.show(emuRef[0].getPpu().getFrameBuffer());
             Log.info(GENERAL, "Iniciando GUI (Ctrl+C para sair)");
-            NesWindow.PacerMode pm = (applicationOptions.pacerModeOpt == null || applicationOptions.pacerModeOpt.equals("hr"))
-                    ? NesWindow.PacerMode.HR
-                    : NesWindow.PacerMode.LEGACY;
+            NesWindow.PacerMode pm = (applicationOptions.pacerModeOpt == null
+                    || applicationOptions.pacerModeOpt.equals("hr"))
+                            ? NesWindow.PacerMode.HR
+                            : NesWindow.PacerMode.LEGACY;
             Log.info(GENERAL, "Pacer mode: %s", pm);
             if (applicationOptions.bufferStrategyOpt != null) {
                 window.setUseBufferStrategy(applicationOptions.bufferStrategyOpt);
-                Log.info(GENERAL, "BufferStrategy: %s", applicationOptions.bufferStrategyOpt ? "ON" : "OFF (Swing repaint)");
+                Log.info(GENERAL, "BufferStrategy: %s",
+                        applicationOptions.bufferStrategyOpt ? "ON" : "OFF (Swing repaint)");
             } else {
                 Log.info(GENERAL, "BufferStrategy: DEFAULT(ON)");
             }
             // Capture runtime-config to reapply on ROM swap for consistent behavior
             RuntimeSettings runtime = new RuntimeSettings(applicationOptions.tileMatrixMode,
-                    applicationOptions.pipeLogLimit, applicationOptions.dbgBgSample, applicationOptions.dbgBgAll, applicationOptions.timingSimple,
-                    applicationOptions.timingModeOpt, applicationOptions.forceBg, applicationOptions.unlimitedSprites, applicationOptions.spriteYMode,
-                    applicationOptions.forceSprite0Hit, applicationOptions.leftColumnModeOpt, applicationOptions.logAttrLimit, applicationOptions.logNtLimit,
-                    applicationOptions.ntBaseline, applicationOptions.paletteLogLimit, applicationOptions.mmc1LogLimit, applicationOptions.spinWatchThreshold,
+                    applicationOptions.pipeLogLimit, applicationOptions.dbgBgSample, applicationOptions.dbgBgAll,
+                    applicationOptions.timingSimple,
+                    applicationOptions.timingModeOpt, applicationOptions.forceBg, applicationOptions.unlimitedSprites,
+                    applicationOptions.spriteYMode,
+                    applicationOptions.forceSprite0Hit, applicationOptions.leftColumnModeOpt,
+                    applicationOptions.logAttrLimit, applicationOptions.logNtLimit,
+                    applicationOptions.ntBaseline, applicationOptions.paletteLogLimit, applicationOptions.mmc1LogLimit,
+                    applicationOptions.spinWatchThreshold,
                     applicationOptions.spinDumpBytes, applicationOptions.initialMaskOverride);
 
             // Apply once (already applied above), but keep for completeness if needed later
@@ -822,7 +853,8 @@ public class Main {
             long start = System.nanoTime();
             if (applicationOptions.untilVblank) {
                 long executed = 0;
-                long maxInstr = (applicationOptions.traceInstrCount > 0) ? applicationOptions.traceInstrCount : 1_000_000;
+                long maxInstr = (applicationOptions.traceInstrCount > 0) ? applicationOptions.traceInstrCount
+                        : 1_000_000;
                 long startCpuCycles = emuRef[0].getCpu().getTotalCycles();
                 while (!emuRef[0].getPpu().isInVBlank() && executed < maxInstr) {
                     long before = emuRef[0].getCpu().getTotalCycles();
@@ -864,7 +896,8 @@ public class Main {
                         emuRef[0].getPpu().clock();
                     }
                     executed++;
-                    if (applicationOptions.breakAtPc != null && emuRef[0].getCpu().getPC() == (applicationOptions.breakAtPc & 0xFFFF)) {
+                    if (applicationOptions.breakAtPc != null
+                            && emuRef[0].getCpu().getPC() == (applicationOptions.breakAtPc & 0xFFFF)) {
                         Log.info(CPU, "BREAK PC=%04X após %d instruções", applicationOptions.breakAtPc, executed);
                         break;
                     }

@@ -5,6 +5,10 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Enumeration;
+import java.util.Locale;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 /**
  * Loads iNES (*.nes) files into {@link INesRom}.
@@ -13,18 +17,47 @@ public class RomLoader {
 
     /**
      * Load iNES ROM from file path.
+     * 
      * @param path
      * @return
      * @throws IOException
      */
     public static INesRom load(Path path) throws IOException {
-        try (InputStream in = Files.newInputStream(path)) {
-            return load(in);
+        String nameLc = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (nameLc.endsWith(".zip")) {
+            // Load from ZIP: must contain exactly one .nes file
+            try (ZipFile zf = new ZipFile(path.toFile())) {
+                ZipEntry found = null;
+                Enumeration<? extends ZipEntry> en = zf.entries();
+                while (en.hasMoreElements()) {
+                    ZipEntry e = en.nextElement();
+                    if (e.isDirectory())
+                        continue;
+                    String enLc = e.getName().toLowerCase(Locale.ROOT);
+                    if (enLc.endsWith(".nes")) {
+                        if (found != null) {
+                            throw new IOException("Invalid zipped ROM"); // multiple .nes entries
+                        }
+                        found = e;
+                    }
+                }
+                if (found == null) {
+                    throw new IOException("No NES file in ZIP");
+                }
+                try (InputStream in = zf.getInputStream(found)) {
+                    return load(in);
+                }
+            }
+        } else {
+            try (InputStream in = Files.newInputStream(path)) {
+                return load(in);
+            }
         }
     }
 
     /**
      * Load iNES ROM from input stream.
+     * 
      * @param in
      * @return
      * @throws IOException

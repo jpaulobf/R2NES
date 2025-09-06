@@ -165,7 +165,8 @@ public class NesWindow {
         JMenuItem load = new JMenuItem("Load ROM...");
         load.addActionListener(e -> {
             JFileChooser fc = new JFileChooser();
-            fc.setFileFilter(new FileNameExtensionFilter("NES ROM (*.nes)", "nes"));
+            fc.setFileFilter(
+                    new FileNameExtensionFilter("NES ROM / ZIP (*.nes; *.zip)", new String[] { "nes", "zip" }));
             try {
                 if (fileChooserStartDir != null && fileChooserStartDir.isDirectory()) {
                     fc.setCurrentDirectory(fileChooserStartDir);
