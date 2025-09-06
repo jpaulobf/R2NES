@@ -1,6 +1,19 @@
 Changelog - R2NES
 ===================
 
+Version 0.4.6 – Zipped ROM Support (.zip) (2025-09-06)
+------------------------
+
+Added
+- ROM loading from .zip archives containing exactly one .nes entry. Existing stream validation is reused; descriptive errors are thrown when no .nes is found or when multiple .nes files exist in the archive.
+
+Changed
+- Headless directory scan now considers both .nes and .zip; when both exist for the same base name, .nes is preferred.
+- GUI file chooser filter expanded to accept both NES ROM and ZIP files (*.nes; *.zip).
+
+Notes
+- Behavior for raw .nes files is unchanged. CLI/INI precedence and runtime parity mechanisms remain the same.
+
 Version 0.4.5 – INI Merge Extraction & Runtime Parity (2025-09-06)
 ------------------------
 

@@ -12,14 +12,14 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.4.5)
-INI merge extraction and startup/menu runtime parity; prior refactors and instrumentation remain current.
+### Current Release (0.4.6)
+ZIP ROM support and minor UX improvements; previous refactors and instrumentation remain current.
 
-What's new in 0.4.5:
-* INI merge moved from `Main` to `AppOptions.mergeFromIni(...)` for better modularity.
-* `Main` further simplified to focus on orchestration; config precedence unchanged (CLI > INI > defaults).
-* Guaranteed runtime parity when swapping ROMs via GUI menu by reapplying centralized `RuntimeSettings` through `EmulatorConfigurator`.
-* Version bumped to 0.4.5; target remains Java 21.
+What's new in 0.4.6:
+* ROMs can be loaded from .zip archives containing exactly one .nes file (archive is validated; clear errors for none or multiple .nes files).
+* Headless directory scan now looks for both .nes and .zip, preferring .nes when both are present.
+* GUI file chooser filter accepts both NES ROM and ZIP files (*.nes; *.zip).
+* POM version is 0.4.6; target remains Java 21.
 
 Key additions since earlier builds:
 * Spin watchdog + optional opcode hex dump (stall diagnostics).
@@ -185,14 +185,14 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.4.5)
-Extração do merge do INI e paridade de runtime entre startup e menu; refatorações e instrumentação anteriores mantidas.
+### Versão Atual (0.4.6)
+Suporte a ROM zipada e pequenas melhorias de UX; refatorações e instrumentação anteriores mantidas.
 
-Novidades em 0.4.5:
-* Merge do INI movido de `Main` para `AppOptions.mergeFromIni(...)`, melhor modularização.
-* `Main` ainda menor, focado apenas na orquestração; precedência de config mantida (CLI > INI > defaults).
-* Paridade garantida ao trocar ROMs pelo menu da GUI aplicando `RuntimeSettings` via `EmulatorConfigurator`.
-* Versão atualizada para 0.4.5; alvo de build continua Java 21.
+Novidades em 0.4.6:
+* Carregamento de ROMs a partir de arquivos .zip contendo exatamente um arquivo .nes (validação do arquivo com erros claros para nenhum ou múltiplos .nes).
+* Varredura headless agora considera .nes e .zip, preferindo .nes quando ambos existem.
+* Filtro do seletor de arquivos na GUI aceita ROM NES e ZIP (*.nes; *.zip).
+* POM na versão 0.4.6; alvo continua Java 21.
 
 Principais adições recentes:
 * Spin watchdog + dump opcional de opcodes.
