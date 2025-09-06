@@ -12,14 +12,14 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.4.4)
-Minor refactor and docs polish; instrumentation and timing improvements from 0.4.1 remain current.
+### Current Release (0.4.5)
+INI merge extraction and startup/menu runtime parity; prior refactors and instrumentation remain current.
 
-What's new in 0.4.4:
-* CLI parsing extracted into dedicated classes; `Main` simplified.
-* Centralized config and key-token utilities; clearer precedence docs.
-* Flag documentation consolidated (Javadoc) and README tweaks.
-* Build targets Java 21.
+What's new in 0.4.5:
+* INI merge moved from `Main` to `AppOptions.mergeFromIni(...)` for better modularity.
+* `Main` further simplified to focus on orchestration; config precedence unchanged (CLI > INI > defaults).
+* Guaranteed runtime parity when swapping ROMs via GUI menu by reapplying centralized `RuntimeSettings` through `EmulatorConfigurator`.
+* Version bumped to 0.4.5; target remains Java 21.
 
 Key additions since earlier builds:
 * Spin watchdog + optional opcode hex dump (stall diagnostics).
@@ -185,14 +185,14 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.4.4)
-Pequena refatoração e ajustes de documentação; melhorias de 0.4.1 seguem válidas.
+### Versão Atual (0.4.5)
+Extração do merge do INI e paridade de runtime entre startup e menu; refatorações e instrumentação anteriores mantidas.
 
-Novidades em 0.4.4:
-* Parsing da CLI extraído para classes dedicadas; `Main` simplificado.
-* Utilitários centralizados de configuração e tokens de teclas; documentação de precedência mais clara.
-* Documentação das flags consolidada (Javadoc) e ajustes no README.
-* Build agora mira Java 21.
+Novidades em 0.4.5:
+* Merge do INI movido de `Main` para `AppOptions.mergeFromIni(...)`, melhor modularização.
+* `Main` ainda menor, focado apenas na orquestração; precedência de config mantida (CLI > INI > defaults).
+* Paridade garantida ao trocar ROMs pelo menu da GUI aplicando `RuntimeSettings` via `EmulatorConfigurator`.
+* Versão atualizada para 0.4.5; alvo de build continua Java 21.
 
 Principais adições recentes:
 * Spin watchdog + dump opcional de opcodes.

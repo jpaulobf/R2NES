@@ -1,6 +1,20 @@
 Changelog - R2NES
 ===================
 
+Version 0.4.5 – INI Merge Extraction & Runtime Parity (2025-09-06)
+------------------------
+
+Changed
+- Bumped project version to 0.4.5 (pom.xml).
+- Extracted INI merge logic out of Main into `AppOptions.mergeFromIni(...)` for clearer separation of concerns.
+- Further reduced `Main` complexity by delegating configuration merging and keeping only orchestration logic.
+
+Fixed
+- Ensured runtime option parity when loading ROMs from the GUI menu matches INI/CLI startup. Centralized via `RuntimeSettings` + `EmulatorConfigurator` to apply all flags consistently on ROM swaps.
+
+Notes
+- Behavior and precedence remain: CLI > INI > defaults. Externalization of emulator.ini remains planned as a low‑risk follow‑up.
+
 Version 0.4.4 – CLI Refactor & Docs (2025-09-05)
 ------------------------
 
