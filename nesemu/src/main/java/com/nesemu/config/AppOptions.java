@@ -1,5 +1,10 @@
 package com.nesemu.config;
 
+import java.util.Locale;
+import com.nesemu.input.InputConfig;
+import com.nesemu.util.Log;
+import static com.nesemu.util.Log.Cat.*;
+
 /**
  * Holder for application options parsed from CLI. Defaults match Main.java.
  * INI merging still happens in Main; this object only captures CLI results.
@@ -173,4 +178,249 @@ public class AppOptions {
     public String logWarnKey = null; // INI only
     /** Force sprite0 hit (debug aid). CLI: --force-sprite0-hit. */
     public boolean forceSprite0Hit = false;
+    
+    /**
+     * Merge settings from emulator.ini into the provided options instance.
+     * Only fills values that are not explicitly set via CLI (keeps current values).
+     * Also supports INI-only options and ROM override if CLI didn't provide one.
+     */
+    public static void checkOptionsFromIni(AppOptions cli) {
+        try {
+            InputConfig inputCfg = ConfigUtils.loadInputConfig();
+            if (inputCfg.hasOption("quiet") && !cli.quiet)
+                cli.quiet = Boolean.parseBoolean(inputCfg.getOption("quiet"));
+            if (cli.romPath == null && inputCfg.hasOption("ROM")) {
+                String iniRom = inputCfg.getOption("ROM").trim();
+                if (!iniRom.isEmpty()) {
+                    cli.romPath = iniRom;
+                    Log.info(ROM, "ROM definida via INI: %s", cli.romPath);
+                }
+            }
+            if (!cli.guiCliSpecified && !cli.gui && inputCfg.hasOption("gui"))
+                cli.gui = Boolean.parseBoolean(inputCfg.getOption("gui"));
+            if (cli.verboseFlag == null && inputCfg.hasOption("verbose"))
+                cli.verboseFlag = Boolean.parseBoolean(inputCfg.getOption("verbose"));
+            if (!cli.hud && inputCfg.hasOption("hud"))
+                cli.hud = Boolean.parseBoolean(inputCfg.getOption("hud"));
+            if (cli.logLevelOpt == null && inputCfg.hasOption("log-level"))
+                cli.logLevelOpt = inputCfg.getOption("log-level");
+            if (cli.logCatsOpt == null && inputCfg.hasOption("log-cats"))
+                cli.logCatsOpt = inputCfg.getOption("log-cats");
+            if (!cli.logTimestamps && inputCfg.hasOption("log-ts"))
+                cli.logTimestamps = Boolean.parseBoolean(inputCfg.getOption("log-ts"));
+            if (cli.tileMatrixMode == null && inputCfg.hasOption("tile-matrix"))
+                cli.tileMatrixMode = inputCfg.getOption("tile-matrix");
+            if (!cli.chrLog && inputCfg.hasOption("chr-log"))
+                cli.chrLog = Boolean.parseBoolean(inputCfg.getOption("chr-log"));
+            if (!cli.dumpNt && inputCfg.hasOption("dump-nt"))
+                cli.dumpNt = Boolean.parseBoolean(inputCfg.getOption("dump-nt"));
+            if (cli.dumpPattern == null && inputCfg.hasOption("dump-pattern"))
+                try {
+                    cli.dumpPattern = Integer.parseInt(inputCfg.getOption("dump-pattern"), 16);
+                } catch (Exception ignore) {
+                }
+            if (cli.dumpPatternsList == null && inputCfg.hasOption("dump-patterns"))
+                cli.dumpPatternsList = inputCfg.getOption("dump-patterns");
+            if (!cli.traceNmi && inputCfg.hasOption("trace-nmi"))
+                cli.traceNmi = Boolean.parseBoolean(inputCfg.getOption("trace-nmi"));
+            if (!cli.logPpuReg && inputCfg.hasOption("log-ppu-reg"))
+                cli.logPpuReg = Boolean.parseBoolean(inputCfg.getOption("log-ppu-reg"));
+            if (cli.breakAtPc == null && inputCfg.hasOption("break-at"))
+                try {
+                    cli.breakAtPc = Integer.parseInt(inputCfg.getOption("break-at"), 16);
+                } catch (Exception ignore) {
+                }
+            if (cli.breakReadAddr < 0 && inputCfg.hasOption("break-read"))
+                try {
+                    var spec = inputCfg.getOption("break-read");
+                    var parts = spec.split(",");
+                    cli.breakReadAddr = Integer.parseInt(parts[0], 16);
+                    if (parts.length > 1)
+                        cli.breakReadCount = Integer.parseInt(parts[1]);
+                } catch (Exception ignore) {
+                }
+            if (!cli.untilVblank && inputCfg.hasOption("until-vblank"))
+                cli.untilVblank = Boolean.parseBoolean(inputCfg.getOption("until-vblank"));
+            if (cli.dbgBgSample == 0 && inputCfg.hasOption("dbg-bg-sample"))
+                try {
+                    cli.dbgBgSample = Integer.parseInt(inputCfg.getOption("dbg-bg-sample"));
+                } catch (Exception ignore) {
+                }
+            if (!cli.dbgBgAll && inputCfg.hasOption("dbg-bg-all"))
+                cli.dbgBgAll = Boolean.parseBoolean(inputCfg.getOption("dbg-bg-all"));
+            if (!cli.initScroll && inputCfg.hasOption("init-scroll"))
+                cli.initScroll = Boolean.parseBoolean(inputCfg.getOption("init-scroll"));
+            if (!cli.timingSimple && inputCfg.hasOption("timing-simple"))
+                cli.timingSimple = Boolean.parseBoolean(inputCfg.getOption("timing-simple"));
+            if (cli.logAttrLimit == 0 && inputCfg.hasOption("log-attr"))
+                try {
+                    cli.logAttrLimit = Integer.parseInt(inputCfg.getOption("log-attr"));
+                } catch (Exception ignore) {
+                }
+            if (cli.logNtLimit == 0 && inputCfg.hasOption("log-nt"))
+                try {
+                    cli.logNtLimit = Integer.parseInt(inputCfg.getOption("log-nt"));
+                } catch (Exception ignore) {
+                }
+            if (cli.ntBaseline == null && inputCfg.hasOption("nt-baseline")) {
+                try {
+                    cli.ntBaseline = Integer.parseInt(inputCfg.getOption("nt-baseline"), 16) & 0xFF;
+                } catch (Exception ignore) {
+                }
+            }
+            if (!cli.forceBg && inputCfg.hasOption("force-bg"))
+                cli.forceBg = Boolean.parseBoolean(inputCfg.getOption("force-bg"));
+            if (cli.leftColumnModeOpt == null && inputCfg.hasOption("left-column-mode"))
+                cli.leftColumnModeOpt = inputCfg.getOption("left-column-mode").trim().toLowerCase(Locale.ROOT);
+            if (!cli.bgColStats && inputCfg.hasOption("bg-col-stats"))
+                cli.bgColStats = Boolean.parseBoolean(inputCfg.getOption("bg-col-stats"));
+            if (cli.testPattern == null && inputCfg.hasOption("test-pattern"))
+                cli.testPattern = inputCfg.getOption("test-pattern");
+            if (cli.pipeLogLimit == 0 && inputCfg.hasOption("pipe-log"))
+                try {
+                    cli.pipeLogLimit = Integer.parseInt(inputCfg.getOption("pipe-log"));
+                } catch (Exception ignore) {
+                }
+            if (cli.frames == 60 && inputCfg.hasOption("frames"))
+                try {
+                    cli.frames = Integer.parseInt(inputCfg.getOption("frames"));
+                } catch (Exception ignore) {
+                }
+            if (cli.resetKeyToken == null && inputCfg.hasOption("reset")) {
+                cli.resetKeyToken = inputCfg.getOption("reset");
+            }
+            if (inputCfg.hasOption("toggle-fullscreen")) {
+                cli.toggleFullscreenKey = inputCfg.getOption("toggle-fullscreen");
+            }
+            if (inputCfg.hasOption("toggle-hud")) {
+                cli.toggleHudKey = inputCfg.getOption("toggle-hud");
+            }
+            if (inputCfg.hasOption("log-warn-key")) {
+                cli.logWarnKey = inputCfg.getOption("log-warn-key");
+            }
+            if (inputCfg.hasOption("toogle-fullscreen-proportion")) { // note: key spelled 'toogle' per INI
+                cli.toggleFullscreenProportionKey = inputCfg.getOption("toogle-fullscreen-proportion");
+            }
+            if (cli.paletteLogLimit == 0 && inputCfg.hasOption("log-palette")) {
+                try {
+                    cli.paletteLogLimit = Integer.parseInt(inputCfg.getOption("log-palette"));
+                } catch (Exception ignore) {
+                    cli.paletteLogLimit = 256;
+                }
+            }
+            if (cli.unlimitedSprites == null && inputCfg.hasOption("unlimited-sprites")) {
+                try {
+                    String v = inputCfg.getOption("unlimited-sprites").trim().toLowerCase(Locale.ROOT);
+                    if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
+                        cli.unlimitedSprites = Boolean.TRUE;
+                    else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
+                        cli.unlimitedSprites = Boolean.FALSE;
+                } catch (Exception ignore) {
+                }
+            }
+            if (cli.spriteYMode == null && inputCfg.hasOption("sprite-y")) {
+                String v = inputCfg.getOption("sprite-y").trim().toLowerCase(Locale.ROOT);
+                if (v.equals("hardware") || v.equals("test"))
+                    cli.spriteYMode = v;
+            }
+            if (cli.timingModeOpt == null && inputCfg.hasOption("timing-mode")) {
+                String v = inputCfg.getOption("timing-mode").trim().toLowerCase(Locale.ROOT);
+                if (v.equals("simple") || v.equals("interleaved"))
+                    cli.timingModeOpt = v;
+            }
+            if (cli.pacerModeOpt == null && inputCfg.hasOption("pacer")) {
+                if (cli.traceInstrCount == 0 && inputCfg.hasOption("trace-cpu")) {
+                    try {
+                        cli.traceInstrCount = Long.parseLong(inputCfg.getOption("trace-cpu").trim());
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (!cli.forceSprite0Hit && inputCfg.hasOption("force-sprite0-hit")) {
+                    try {
+                        cli.forceSprite0Hit = Boolean.parseBoolean(inputCfg.getOption("force-sprite0-hit").trim());
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (cli.spinWatchThreshold == 0 && inputCfg.hasOption("spin-watch")) {
+                    try {
+                        cli.spinWatchThreshold = Long.parseLong(inputCfg.getOption("spin-watch").trim());
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (cli.spinDumpBytes == 0 && inputCfg.hasOption("spin-dump-bytes")) {
+                    try {
+                        cli.spinDumpBytes = Integer.parseInt(inputCfg.getOption("spin-dump-bytes").trim());
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (cli.mmc1LogLimit == 0 && inputCfg.hasOption("log-mmc1")) {
+                    String v = inputCfg.getOption("log-mmc1").trim();
+                    if (v.isEmpty())
+                        cli.mmc1LogLimit = 128;
+                    else {
+                        try {
+                            cli.mmc1LogLimit = Integer.parseInt(v);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+                String v = inputCfg.getOption("pacer").trim().toLowerCase(Locale.ROOT);
+                if (v.equals("legacy") || v.equals("hr"))
+                    cli.pacerModeOpt = v;
+            }
+            if (cli.bufferStrategyOpt == null && inputCfg.hasOption("buffer-strategy")) {
+                try {
+                    String v = inputCfg.getOption("buffer-strategy").trim().toLowerCase(Locale.ROOT);
+                    if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
+                        cli.bufferStrategyOpt = Boolean.TRUE;
+                    else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
+                        cli.bufferStrategyOpt = Boolean.FALSE;
+                } catch (Exception ignore) {
+                }
+            }
+            if (cli.borderlessFullscreen == null && inputCfg.hasOption("borderless-fullscreen")) {
+                try {
+                    String v = inputCfg.getOption("borderless-fullscreen").trim().toLowerCase(Locale.ROOT);
+                    if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
+                        cli.borderlessFullscreen = Boolean.TRUE;
+                    else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
+                        cli.borderlessFullscreen = Boolean.FALSE;
+                } catch (Exception ignore) {
+                }
+            }
+            if (inputCfg.hasOption("save-path")) {
+                try {
+                    String sp = inputCfg.getOption("save-path").trim();
+                    if (!sp.isEmpty())
+                        cli.savePathOverride = sp;
+                } catch (Exception ignore) {
+                }
+            }
+            if (inputCfg.hasOption("save-state-path")) {
+                try {
+                    String sp = inputCfg.getOption("save-state-path").trim();
+                    if (!sp.isEmpty())
+                        cli.saveStatePath = sp;
+                } catch (Exception ignore) {
+                }
+            }
+            if (inputCfg.hasOption("save-state")) {
+                cli.saveStateKey = inputCfg.getOption("save-state");
+            }
+            if (inputCfg.hasOption("load-state")) {
+                cli.loadStateKey = inputCfg.getOption("load-state");
+            }
+            if (inputCfg.hasOption("fast-foward")) {
+                cli.fastForwardKey = inputCfg.getOption("fast-foward");
+            }
+            if (inputCfg.hasOption("fast-foward-max-fps")) {
+                try {
+                    cli.fastForwardMaxFps = Integer.parseInt(inputCfg.getOption("fast-foward-max-fps").trim());
+                } catch (Exception ignore) {
+                }
+            }
+        } catch (Exception ex) {
+            Log.warn(CONTROLLER, "Falha ao carregar configuração de input: %s", ex.getMessage());
+        }
+    }
 }

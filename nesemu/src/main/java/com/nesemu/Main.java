@@ -10,7 +10,10 @@ import static com.nesemu.util.Log.Cat.*;
 import com.nesemu.gui.NesWindow;
 import com.nesemu.gui.KeyTokens;
 import com.nesemu.input.InputConfig;
+import com.nesemu.config.AppOptions;
+import com.nesemu.config.CLIOptionsParser;
 import com.nesemu.config.ConfigUtils;
+import com.nesemu.config.RuntimeSettings;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
 import com.nesemu.io.NesController;
@@ -26,327 +29,26 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
         // Parse CLI into an options holder (smaller Main)
-        var cli = com.nesemu.config.CLIOptionsParser.parse(args);
-        boolean gui = cli.gui;
-        boolean guiCliSpecified = cli.guiCliSpecified; // registra se usuário definiu GUI explicitamente na CLI
-        String romPath = cli.romPath;
-        int frames = cli.frames;
-        boolean dumpNt = cli.dumpNt;
-        Integer dumpPattern = cli.dumpPattern; // tile opcional para dump
-        String dumpPatternsList = cli.dumpPatternsList; // lista separada por vírgula (hex)
-        boolean showHeader = cli.showHeader;
-        boolean chrLog = cli.chrLog;
-        String tileMatrixMode = cli.tileMatrixMode; // first|center|nonzero
-        long traceInstrCount = cli.traceInstrCount;
-        boolean traceNmi = cli.traceNmi;
-        boolean logPpuReg = cli.logPpuReg;
-        Integer breakAtPc = cli.breakAtPc;
-        int breakReadAddr = cli.breakReadAddr;
-        int breakReadCount = cli.breakReadCount;
-        boolean untilVblank = cli.untilVblank; // novo modo: roda até primeiro vblank
-        int dbgBgSample = cli.dbgBgSample; // N amostras de pixels de background para debug
-        boolean dbgBgAll = cli.dbgBgAll; // logar todos (até limite)
-        boolean initScroll = cli.initScroll; // inicializar scroll/addr manualmente
-        boolean timingSimple = cli.timingSimple; // modo simples de mapeamento ciclo->pixel
-        int logAttrLimit = cli.logAttrLimit; // ativa logging de attribute table writes
-        int logNtLimit = cli.logNtLimit; // logging de writes de nametable (tiles)
-        Integer ntBaseline = cli.ntBaseline; // filtrar valor repetitivo
-        boolean forceBg = cli.forceBg; // força bit 3 do PPUMASK
-        boolean bgColStats = cli.bgColStats; // imprime estatísticas de colunas
-        boolean hud = cli.hud; // exibe HUD na GUI
-        String testPattern = cli.testPattern; // modos: h, v, checker
-        int pipeLogLimit = cli.pipeLogLimit; // ativa log do pipeline de fetch de background
-        boolean quiet = cli.quiet; // desabilita logs verbosos
-        Boolean verboseFlag = cli.verboseFlag; // se usuário força verbose
-        String logLevelOpt = cli.logLevelOpt; // --log-level=TRACE|DEBUG|INFO|WARN|ERROR
-        String logCatsOpt = cli.logCatsOpt; // --log-cats=CPU,PPU,... or ALL
-        boolean logTimestamps = cli.logTimestamps; // --log-ts
-        String resetKeyToken = cli.resetKeyToken; // configurable reset key (from ini)
-        String toggleFullscreenKey = cli.toggleFullscreenKey; // INI/CLI
-        String toggleHudKey = cli.toggleHudKey; // INI/CLI
-        String toggleFullscreenProportionKey = cli.toggleFullscreenProportionKey; // INI/CLI
-        int paletteLogLimit = cli.paletteLogLimit; // --log-palette[=N]
-        Boolean unlimitedSprites = cli.unlimitedSprites; // --unlimited-sprites[=true|false]
-        String spriteYMode = cli.spriteYMode; // --sprite-y=hardware|test
-        String pacerModeOpt = cli.pacerModeOpt; // --pacer=legacy|hr
-        Boolean bufferStrategyOpt = cli.bufferStrategyOpt; // --buffer-strategy[=true|false]
-        Integer initialMaskOverride = cli.initialMaskOverride; // --initial-mask (none in CLI yet)
-        Boolean borderlessFullscreen = cli.borderlessFullscreen; // --borderless-fullscreen
-        String savePathOverride = cli.savePathOverride; // INI
-        String saveStatePath = cli.saveStatePath; // INI
-        String saveStateKey = cli.saveStateKey; // INI
-        String loadStateKey = cli.loadStateKey; // INI
-        String timingModeOpt = cli.timingModeOpt; // --timing-mode
-        String fastForwardKey = cli.fastForwardKey; // INI
-        String fastForwardKeyCli = cli.fastForwardKeyCli; // CLI override
-        int fastForwardMaxFps = cli.fastForwardMaxFps; // INI
-        Integer fastForwardMaxFpsCli = cli.fastForwardMaxFpsCli; // CLI override
-        String leftColumnModeOpt = cli.leftColumnModeOpt; // --left-column-mode
-        long spinWatchThreshold = cli.spinWatchThreshold; // --spin-watch
-        int mmc1LogLimit = cli.mmc1LogLimit; // --log-mmc1
-        int spinDumpBytes = cli.spinDumpBytes; // --spin-dump-bytes
-        String logWarnKey = cli.logWarnKey; // INI
-        boolean forceSprite0Hit = cli.forceSprite0Hit; // --force-sprite0-hit
+        AppOptions applicationOptions = CLIOptionsParser.parse(args);
 
         final INesRom[] romRef = new INesRom[1]; // referências mutáveis para uso em lambdas
         final NesEmulator[] emuRef = new NesEmulator[1];
         boolean patternStandalone = false; // modo especial: renderiza apenas padrão sintético sem ROM/CPU
-        // Load configuration file for controller + global option fallbacks (ROM
-        // override may occur here)
-        InputConfig inputCfg;
-        try {
-            inputCfg = ConfigUtils.loadInputConfig();
-            // Apply fallback options (only where CLI not specified)
-            if (inputCfg.hasOption("quiet") && !quiet)
-                quiet = Boolean.parseBoolean(inputCfg.getOption("quiet"));
-            // ROM override: only if user didn't pass ROM via CLI (romPath still null)
-            if (romPath == null && inputCfg.hasOption("ROM")) {
-                String iniRom = inputCfg.getOption("ROM").trim();
-                if (!iniRom.isEmpty()) {
-                    romPath = iniRom;
-                    Log.info(ROM, "ROM definida via INI: %s", romPath);
-                }
-            }
-            if (!guiCliSpecified && !gui && inputCfg.hasOption("gui"))
-                gui = Boolean.parseBoolean(inputCfg.getOption("gui"));
-            if (verboseFlag == null && inputCfg.hasOption("verbose"))
-                verboseFlag = Boolean.parseBoolean(inputCfg.getOption("verbose"));
-            if (!hud && inputCfg.hasOption("hud"))
-                hud = Boolean.parseBoolean(inputCfg.getOption("hud"));
-            if (logLevelOpt == null && inputCfg.hasOption("log-level"))
-                logLevelOpt = inputCfg.getOption("log-level");
-            if (logCatsOpt == null && inputCfg.hasOption("log-cats"))
-                logCatsOpt = inputCfg.getOption("log-cats");
-            if (!logTimestamps && inputCfg.hasOption("log-ts"))
-                logTimestamps = Boolean.parseBoolean(inputCfg.getOption("log-ts"));
-            if (tileMatrixMode == null && inputCfg.hasOption("tile-matrix"))
-                tileMatrixMode = inputCfg.getOption("tile-matrix");
-            if (!chrLog && inputCfg.hasOption("chr-log"))
-                chrLog = Boolean.parseBoolean(inputCfg.getOption("chr-log"));
-            if (!dumpNt && inputCfg.hasOption("dump-nt"))
-                dumpNt = Boolean.parseBoolean(inputCfg.getOption("dump-nt"));
-            if (dumpPattern == null && inputCfg.hasOption("dump-pattern"))
-                try {
-                    dumpPattern = Integer.parseInt(inputCfg.getOption("dump-pattern"), 16);
-                } catch (Exception ignore) {
-                }
-            if (dumpPatternsList == null && inputCfg.hasOption("dump-patterns"))
-                dumpPatternsList = inputCfg.getOption("dump-patterns");
-            if (!traceNmi && inputCfg.hasOption("trace-nmi"))
-                traceNmi = Boolean.parseBoolean(inputCfg.getOption("trace-nmi"));
-            if (!logPpuReg && inputCfg.hasOption("log-ppu-reg"))
-                logPpuReg = Boolean.parseBoolean(inputCfg.getOption("log-ppu-reg"));
-            if (breakAtPc == null && inputCfg.hasOption("break-at"))
-                try {
-                    breakAtPc = Integer.parseInt(inputCfg.getOption("break-at"), 16);
-                } catch (Exception ignore) {
-                }
-            if (breakReadAddr < 0 && inputCfg.hasOption("break-read"))
-                try {
-                    var spec = inputCfg.getOption("break-read");
-                    var parts = spec.split(",");
-                    breakReadAddr = Integer.parseInt(parts[0], 16);
-                    if (parts.length > 1)
-                        breakReadCount = Integer.parseInt(parts[1]);
-                } catch (Exception ignore) {
-                }
-            if (!untilVblank && inputCfg.hasOption("until-vblank"))
-                untilVblank = Boolean.parseBoolean(inputCfg.getOption("until-vblank"));
-            if (dbgBgSample == 0 && inputCfg.hasOption("dbg-bg-sample"))
-                try {
-                    dbgBgSample = Integer.parseInt(inputCfg.getOption("dbg-bg-sample"));
-                } catch (Exception ignore) {
-                }
-            if (!dbgBgAll && inputCfg.hasOption("dbg-bg-all"))
-                dbgBgAll = Boolean.parseBoolean(inputCfg.getOption("dbg-bg-all"));
-            if (!initScroll && inputCfg.hasOption("init-scroll"))
-                initScroll = Boolean.parseBoolean(inputCfg.getOption("init-scroll"));
-            if (!timingSimple && inputCfg.hasOption("timing-simple"))
-                timingSimple = Boolean.parseBoolean(inputCfg.getOption("timing-simple"));
-            if (logAttrLimit == 0 && inputCfg.hasOption("log-attr"))
-                try {
-                    logAttrLimit = Integer.parseInt(inputCfg.getOption("log-attr"));
-                } catch (Exception ignore) {
-                }
-            if (logNtLimit == 0 && inputCfg.hasOption("log-nt"))
-                try {
-                    logNtLimit = Integer.parseInt(inputCfg.getOption("log-nt"));
-                } catch (Exception ignore) {
-                }
-            // nt-baseline (apenas parsing – não deve conter lógica de ROM)
-            if (ntBaseline == null && inputCfg.hasOption("nt-baseline")) {
-                try {
-                    ntBaseline = Integer.parseInt(inputCfg.getOption("nt-baseline"), 16) & 0xFF;
-                } catch (Exception ignore) {
-                }
-            }
-            if (!forceBg && inputCfg.hasOption("force-bg"))
-                forceBg = Boolean.parseBoolean(inputCfg.getOption("force-bg"));
-            if (leftColumnModeOpt == null && inputCfg.hasOption("left-column-mode"))
-                leftColumnModeOpt = inputCfg.getOption("left-column-mode").trim().toLowerCase(Locale.ROOT);
-            if (!bgColStats && inputCfg.hasOption("bg-col-stats"))
-                bgColStats = Boolean.parseBoolean(inputCfg.getOption("bg-col-stats"));
-            if (testPattern == null && inputCfg.hasOption("test-pattern"))
-                testPattern = inputCfg.getOption("test-pattern");
-            if (pipeLogLimit == 0 && inputCfg.hasOption("pipe-log"))
-                try {
-                    pipeLogLimit = Integer.parseInt(inputCfg.getOption("pipe-log"));
-                } catch (Exception ignore) {
-                }
-            if (frames == 60 && inputCfg.hasOption("frames"))
-                try {
-                    frames = Integer.parseInt(inputCfg.getOption("frames"));
-                } catch (Exception ignore) {
-                }
-            if (resetKeyToken == null && inputCfg.hasOption("reset")) {
-                resetKeyToken = inputCfg.getOption("reset");
-            }
-            if (inputCfg.hasOption("toggle-fullscreen")) {
-                toggleFullscreenKey = inputCfg.getOption("toggle-fullscreen");
-            }
-            if (inputCfg.hasOption("toggle-hud")) {
-                toggleHudKey = inputCfg.getOption("toggle-hud");
-            }
-            if (inputCfg.hasOption("log-warn-key")) {
-                logWarnKey = inputCfg.getOption("log-warn-key");
-            }
-            if (inputCfg.hasOption("toogle-fullscreen-proportion")) { // note: key spelled 'toogle' per INI
-                toggleFullscreenProportionKey = inputCfg.getOption("toogle-fullscreen-proportion");
-            }
-            if (paletteLogLimit == 0 && inputCfg.hasOption("log-palette")) {
-                try {
-                    paletteLogLimit = Integer.parseInt(inputCfg.getOption("log-palette"));
-                } catch (Exception ignore) {
-                    paletteLogLimit = 256; // fallback default if present but not numeric
-                }
-            }
-            if (unlimitedSprites == null && inputCfg.hasOption("unlimited-sprites")) {
-                try {
-                    String v = inputCfg.getOption("unlimited-sprites").trim().toLowerCase(Locale.ROOT);
-                    if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
-                        unlimitedSprites = Boolean.TRUE;
-                    else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
-                        unlimitedSprites = Boolean.FALSE;
-                } catch (Exception ignore) {
-                }
-            }
-            if (spriteYMode == null && inputCfg.hasOption("sprite-y")) {
-                String v = inputCfg.getOption("sprite-y").trim().toLowerCase(Locale.ROOT);
-                if (v.equals("hardware") || v.equals("test"))
-                    spriteYMode = v;
-            }
-            if (timingModeOpt == null && inputCfg.hasOption("timing-mode")) {
-                String v = inputCfg.getOption("timing-mode").trim().toLowerCase(Locale.ROOT);
-                if (v.equals("simple") || v.equals("interleaved"))
-                    timingModeOpt = v;
-            }
-            if (pacerModeOpt == null && inputCfg.hasOption("pacer")) {
-                if (traceInstrCount == 0 && inputCfg.hasOption("trace-cpu")) {
-                    try {
-                        traceInstrCount = Long.parseLong(inputCfg.getOption("trace-cpu").trim());
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (!forceSprite0Hit && inputCfg.hasOption("force-sprite0-hit")) {
-                    // Enable debug forced sprite0 hit via INI (boolean; true=enable)
-                    try {
-                        forceSprite0Hit = Boolean.parseBoolean(inputCfg.getOption("force-sprite0-hit").trim());
-                    } catch (Exception ignored) {
-                        /* fallback remains false */ }
-                }
-                if (spinWatchThreshold == 0 && inputCfg.hasOption("spin-watch")) {
-                    try {
-                        spinWatchThreshold = Long.parseLong(inputCfg.getOption("spin-watch").trim());
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (spinDumpBytes == 0 && inputCfg.hasOption("spin-dump-bytes")) {
-                    try {
-                        spinDumpBytes = Integer.parseInt(inputCfg.getOption("spin-dump-bytes").trim());
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (mmc1LogLimit == 0 && inputCfg.hasOption("log-mmc1")) {
-                    String v = inputCfg.getOption("log-mmc1").trim();
-                    if (v.isEmpty())
-                        mmc1LogLimit = 128;
-                    else {
-                        try {
-                            mmc1LogLimit = Integer.parseInt(v);
-                        } catch (Exception ignored) {
-                        }
-                    }
-                }
-                String v = inputCfg.getOption("pacer").trim().toLowerCase(Locale.ROOT);
-                if (v.equals("legacy") || v.equals("hr"))
-                    pacerModeOpt = v;
-            }
-            if (bufferStrategyOpt == null && inputCfg.hasOption("buffer-strategy")) {
-                try {
-                    String v = inputCfg.getOption("buffer-strategy").trim().toLowerCase(Locale.ROOT);
-                    if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
-                        bufferStrategyOpt = Boolean.TRUE;
-                    else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
-                        bufferStrategyOpt = Boolean.FALSE;
-                } catch (Exception ignore) {
-                }
-            }
-            if (borderlessFullscreen == null && inputCfg.hasOption("borderless-fullscreen")) {
-                try {
-                    String v = inputCfg.getOption("borderless-fullscreen").trim().toLowerCase(Locale.ROOT);
-                    if (v.equals("true") || v.equals("1") || v.equals("yes") || v.equals("on"))
-                        borderlessFullscreen = Boolean.TRUE;
-                    else if (v.equals("false") || v.equals("0") || v.equals("no") || v.equals("off"))
-                        borderlessFullscreen = Boolean.FALSE;
-                } catch (Exception ignore) {
-                }
-            }
-            if (inputCfg.hasOption("save-path")) { // permite diretório alternativo para .sav
-                try {
-                    String sp = inputCfg.getOption("save-path").trim();
-                    if (!sp.isEmpty())
-                        savePathOverride = sp;
-                } catch (Exception ignore) {
-                }
-            }
-            if (inputCfg.hasOption("save-state-path")) {
-                try {
-                    String sp = inputCfg.getOption("save-state-path").trim();
-                    if (!sp.isEmpty())
-                        saveStatePath = sp;
-                } catch (Exception ignore) {
-                }
-            }
-            if (inputCfg.hasOption("save-state")) {
-                saveStateKey = inputCfg.getOption("save-state");
-            }
-            if (inputCfg.hasOption("load-state")) {
-                loadStateKey = inputCfg.getOption("load-state");
-            }
-            if (inputCfg.hasOption("fast-foward")) { // manter grafia conforme INI
-                fastForwardKey = inputCfg.getOption("fast-foward");
-            }
-            if (inputCfg.hasOption("fast-foward-max-fps")) { // INI throttle
-                try {
-                    fastForwardMaxFps = Integer.parseInt(inputCfg.getOption("fast-foward-max-fps").trim());
-                } catch (Exception ignore) {
-                }
-            }
-            // (Adia attach de controllers até após criação do emu)
-        } catch (Exception ex) {
-            Log.warn(CONTROLLER, "Falha ao carregar configuração de input: %s", ex.getMessage());
-        }
+
+        // Load configuration file and merge INI defaults/fallbacks into CLI options
+        // (ROM override may occur here)
+        AppOptions.checkOptionsFromIni(applicationOptions);
 
         // Resolve caminho da ROM (precedência: CLI > INI > default)
-        if (testPattern != null) {
+        if (applicationOptions.testPattern != null) {
             // Sempre isola test-pattern para não sofrer efeitos de ROM / CPU / mappers
             patternStandalone = true;
             Log.info(ROM, "Modo test-pattern standalone: ignorando carregamento de ROM");
         }
         Path romFilePath = null;
         if (!patternStandalone) {
-            if (romPath == null || romPath.isBlank()) {
-                if (!gui) {
+            if (applicationOptions.romPath == null || applicationOptions.romPath.isBlank()) {
+                if (!applicationOptions.gui) {
                     Log.error(ROM, "Nenhuma ROM especificada. Use argumento CLI ou defina 'rom=' no emulator.ini");
                     Log.error(ROM, "Execução abortada (headless requer ROM ou test-pattern)");
                     return;
@@ -354,15 +56,12 @@ public class Main {
                     Log.warn(ROM, "Nenhuma ROM especificada. Iniciando GUI em tela preta (PPU idle)");
                 }
             } else {
-                Path rp = Path.of(romPath);
+                Path rp = Path.of(applicationOptions.romPath);
                 if (Files.isDirectory(rp)) {
-                    if (gui) {
-                        // Não tente carregar diretório como ROM. GUI iniciará com tela preta e o
-                        // File->Load ROM abrirá diretamente neste diretório (configurado adiante).
+                    if (applicationOptions.gui) {
                         Log.info(ROM, "INI rom aponta para diretório: %s (GUI usará como pasta inicial)", rp);
-                        romFilePath = null; // tela preta + chooser naquela pasta
+                        romFilePath = null;
                     } else {
-                        // Headless: tenta escolher a primeira .nes dentro do diretório.
                         try {
                             var opt = Files.list(rp)
                                     .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".nes"))
@@ -382,12 +81,12 @@ public class Main {
                 } else {
                     romFilePath = rp;
                     if (!Files.exists(romFilePath)) {
-                        if (!gui) {
-                            Log.error(ROM, "ROM não encontrada: %s", romPath);
+                        if (!applicationOptions.gui) {
+                            Log.error(ROM, "ROM não encontrada: %s", applicationOptions.romPath);
                             return;
                         } else {
-                            Log.warn(ROM, "ROM inexistente: %s. Iniciando em tela preta.", romPath);
-                            romFilePath = null; // força tela preta
+                            Log.warn(ROM, "ROM inexistente: %s. Iniciando em tela preta.", applicationOptions.romPath);
+                            romFilePath = null;
                         }
                     }
                 }
@@ -396,9 +95,9 @@ public class Main {
                 Log.info(ROM, "Carregando ROM: %s", romFilePath.toAbsolutePath());
                 romRef[0] = RomLoader.load(romFilePath);
                 Path saveDir = null;
-                if (savePathOverride != null) {
+                if (applicationOptions.savePathOverride != null) {
                     try {
-                        saveDir = Path.of(savePathOverride);
+                        saveDir = Path.of(applicationOptions.savePathOverride);
                     } catch (Exception ignore) {
                     }
                 }
@@ -408,8 +107,7 @@ public class Main {
                 } else {
                     emuRef[0] = new NesEmulator(romRef[0], romFilePath);
                 }
-            } else if (gui) {
-                // Criar emulador "vazio" apenas com PPU para tela preta (HUD/ESC funcionam)
+            } else if (applicationOptions.gui) {
                 romRef[0] = null;
                 emuRef[0] = NesEmulator.createBlackScreenInstance();
             }
@@ -458,30 +156,30 @@ public class Main {
             }
         }
         // Aplicar política de verbosidade
-        if (quiet) {
+        if (applicationOptions.quiet) {
             com.nesemu.ppu.PPU.setVerboseLogging(false);
             Bus.setGlobalVerbose(false);
-        } else if (verboseFlag != null && verboseFlag) {
+        } else if (applicationOptions.verboseFlag != null && applicationOptions.verboseFlag) {
             com.nesemu.ppu.PPU.setVerboseLogging(true);
             Bus.setGlobalVerbose(true);
         }
         // Configurar nível de log se fornecido
-        if (logLevelOpt != null) {
+        if (applicationOptions.logLevelOpt != null) {
             try {
-                Log.setLevel(Log.Level.valueOf(logLevelOpt.toUpperCase(Locale.ROOT)));
+                Log.setLevel(Log.Level.valueOf(applicationOptions.logLevelOpt.toUpperCase(Locale.ROOT)));
             } catch (IllegalArgumentException ex) {
-                Log.warn(GENERAL, "Nível de log inválido: %s (usar TRACE|DEBUG|INFO|WARN|ERROR)", logLevelOpt);
+                Log.warn(GENERAL, "Nível de log inválido: %s (usar TRACE|DEBUG|INFO|WARN|ERROR)", applicationOptions.logLevelOpt);
             }
-        } else if (verboseFlag != null && verboseFlag && !quiet) {
+        } else if (applicationOptions.verboseFlag != null && applicationOptions.verboseFlag && !applicationOptions.quiet) {
             Log.setLevel(Log.Level.DEBUG);
         }
         // Configurar categorias
-        if (logCatsOpt != null) {
-            if (logCatsOpt.equalsIgnoreCase("ALL")) {
+        if (applicationOptions.logCatsOpt != null) {
+            if (applicationOptions.logCatsOpt.equalsIgnoreCase("ALL")) {
                 Log.setCategories(EnumSet.allOf(Log.Cat.class));
             } else {
                 EnumSet<Log.Cat> set = EnumSet.noneOf(Log.Cat.class);
-                for (String c : logCatsOpt.split(",")) {
+                for (String c : applicationOptions.logCatsOpt.split(",")) {
                     c = c.trim();
                     if (c.isEmpty())
                         continue;
@@ -498,113 +196,112 @@ public class Main {
                 }
             }
         }
-        if (logTimestamps) {
+        if (applicationOptions.logTimestamps) {
             Log.setTimestamps(true);
         }
         if (!patternStandalone) {
-            if (tileMatrixMode != null) {
-                emuRef[0].getPpu().setTileMatrixMode(tileMatrixMode);
-                Log.info(PPU, "Tile matrix mode: %s", tileMatrixMode);
+            if (applicationOptions.tileMatrixMode != null) {
+                emuRef[0].getPpu().setTileMatrixMode(applicationOptions.tileMatrixMode);
+                Log.info(PPU, "Tile matrix mode: %s", applicationOptions.tileMatrixMode);
             }
         }
         // Se solicitou pipe-log e nenhum modo de tile matrix foi especificado, usar
         // 'center'
         if (!patternStandalone) {
-            if (pipeLogLimit > 0 && tileMatrixMode == null) {
+            if (applicationOptions.pipeLogLimit > 0 && applicationOptions.tileMatrixMode == null) {
                 emuRef[0].getPpu().setTileMatrixMode("center");
                 Log.debug(PPU, "PIPE-LOG ajustando tileMatrixMode=center");
             }
-            if (pipeLogLimit > 0) {
-                emuRef[0].getPpu().enablePipelineLog(pipeLogLimit);
-                Log.info(PPU, "PIPE-LOG habilitado limite=%d", pipeLogLimit);
+            if (applicationOptions.pipeLogLimit > 0) {
+                emuRef[0].getPpu().enablePipelineLog(applicationOptions.pipeLogLimit);
+                Log.info(PPU, "PIPE-LOG habilitado limite=%d", applicationOptions.pipeLogLimit);
             }
         }
         if (!patternStandalone) {
-            if (dbgBgSample > 0) {
-                if (dbgBgAll)
-                    emuRef[0].getPpu().enableBackgroundSampleDebugAll(dbgBgSample);
+            if (applicationOptions.dbgBgSample > 0) {
+                if (applicationOptions.dbgBgAll)
+                    emuRef[0].getPpu().enableBackgroundSampleDebugAll(applicationOptions.dbgBgSample);
                 else
-                    emuRef[0].getPpu().enableBackgroundSampleDebug(dbgBgSample);
+                    emuRef[0].getPpu().enableBackgroundSampleDebug(applicationOptions.dbgBgSample);
             }
         }
         if (!patternStandalone) {
-            if (timingSimple) {
-                emuRef[0].getPpu().setSimpleTiming(true); // deprecated path retained
+            if (applicationOptions.timingSimple) {
+                emuRef[0].getPpu().setSimpleTiming(true);
             }
-            // Aplica modo de temporização se definido (default SIMPLE já é padrão)
-            if (timingModeOpt != null) {
-                if (timingModeOpt.equals("interleaved")) {
+            if (applicationOptions.timingModeOpt != null) {
+                if (applicationOptions.timingModeOpt.equals("interleaved")) {
                     emuRef[0].setTimingMode(NesEmulator.TimingMode.INTERLEAVED);
                 } else {
                     emuRef[0].setTimingMode(NesEmulator.TimingMode.SIMPLE);
                 }
-                Log.info(GENERAL, "Timing mode: %s", timingModeOpt);
+                Log.info(GENERAL, "Timing mode: %s", applicationOptions.timingModeOpt);
             }
-            if (spinWatchThreshold > 0) {
-                emuRef[0].enableSpinWatch(spinWatchThreshold);
-                Log.info(GENERAL, "Spin watch ativo: threshold=%d", spinWatchThreshold);
-                if (spinDumpBytes > 0) {
-                    emuRef[0].setSpinDumpBytes(spinDumpBytes);
-                    Log.info(GENERAL, "Spin dump bytes=%d", spinDumpBytes);
+            if (applicationOptions.spinWatchThreshold > 0) {
+                emuRef[0].enableSpinWatch(applicationOptions.spinWatchThreshold);
+                Log.info(GENERAL, "Spin watch ativo: threshold=%d", applicationOptions.spinWatchThreshold);
+                if (applicationOptions.spinDumpBytes > 0) {
+                    emuRef[0].setSpinDumpBytes(applicationOptions.spinDumpBytes);
+                    Log.info(GENERAL, "Spin dump bytes=%d", applicationOptions.spinDumpBytes);
                 }
             }
-            if (mmc1LogLimit > 0 && emuRef[0].getMapper() instanceof com.nesemu.mapper.Mapper1 m1) {
-                m1.enableBankLogging(mmc1LogLimit);
-                Log.info(GENERAL, "MMC1 logging ativo (limite=%d)", mmc1LogLimit);
+            if (applicationOptions.mmc1LogLimit > 0 && emuRef[0].getMapper() instanceof com.nesemu.mapper.Mapper1 m1) {
+                m1.enableBankLogging(applicationOptions.mmc1LogLimit);
+                Log.info(GENERAL, "MMC1 logging ativo (limite=%d)", applicationOptions.mmc1LogLimit);
             }
         }
         if (!patternStandalone) {
-            if (forceBg) {
+            if (applicationOptions.forceBg) {
                 emuRef[0].getPpu().setForceBackgroundEnable(true);
                 Log.info(PPU, "FORCE-BG bit3 PPUMASK");
             }
         }
         // Test pattern: se standalone, aplicaremos em PPU isolada depois
         if (!patternStandalone) {
-            if (testPattern != null) {
-                emuRef[0].getPpu().setTestPatternMode(testPattern);
-                Log.info(PPU, "TEST-PATTERN modo=%s", testPattern);
+            if (applicationOptions.testPattern != null) {
+                emuRef[0].getPpu().setTestPatternMode(applicationOptions.testPattern);
+                Log.info(PPU, "TEST-PATTERN modo=%s", applicationOptions.testPattern);
             }
         }
         if (!patternStandalone) {
-            if (unlimitedSprites != null) {
-                emuRef[0].getPpu().setUnlimitedSprites(unlimitedSprites);
-                Log.info(PPU, "Unlimited sprites: %s", unlimitedSprites ? "ON" : "OFF");
+            if (applicationOptions.unlimitedSprites != null) {
+                emuRef[0].getPpu().setUnlimitedSprites(applicationOptions.unlimitedSprites);
+                Log.info(PPU, "Unlimited sprites: %s", applicationOptions.unlimitedSprites ? "ON" : "OFF");
             }
-            if (spriteYMode != null) {
-                boolean hw = spriteYMode.equals("hardware");
+            if (applicationOptions.spriteYMode != null) {
+                boolean hw = applicationOptions.spriteYMode.equals("hardware");
                 emuRef[0].getPpu().setSpriteYHardware(hw);
                 Log.info(PPU, "Sprite Y mode: %s", hw ? "HARDWARE(+1)" : "TEST(EXACT)");
             }
-            if (forceSprite0Hit) {
+            if (applicationOptions.forceSprite0Hit) {
                 emuRef[0].getPpu().setForceSprite0Hit(true);
                 Log.warn(PPU, "[DEBUG] Force sprite0 hit habilitado");
             }
         }
         if (!patternStandalone) {
-            if (logAttrLimit > 0) {
-                emuRef[0].getPpu().enableAttributeRuntimeLog(logAttrLimit);
+            if (applicationOptions.logAttrLimit > 0) {
+                emuRef[0].getPpu().enableAttributeRuntimeLog(applicationOptions.logAttrLimit);
             }
-            if (logNtLimit > 0) {
-                emuRef[0].getPpu().enableNametableRuntimeLog(logNtLimit, ntBaseline == null ? -1 : ntBaseline);
+            if (applicationOptions.logNtLimit > 0) {
+                emuRef[0].getPpu().enableNametableRuntimeLog(applicationOptions.logNtLimit,
+                        applicationOptions.ntBaseline == null ? -1 : applicationOptions.ntBaseline);
             }
-            if (paletteLogLimit > 0) {
-                emuRef[0].getPpu().enablePaletteWriteLog(paletteLogLimit);
+            if (applicationOptions.paletteLogLimit > 0) {
+                emuRef[0].getPpu().enablePaletteWriteLog(applicationOptions.paletteLogLimit);
             }
         }
         if (!patternStandalone) {
-            if (initScroll) {
-                // Configura scroll e VRAM address iniciais (coarse/fine = 0, nametable 0)
-                emuRef[0].getBus().write(0x2000, 0x10); // background pattern table = $1000
-                emuRef[0].getBus().write(0x2005, 0x00); // X scroll
-                emuRef[0].getBus().write(0x2005, 0x00); // Y scroll
-                emuRef[0].getBus().write(0x2006, 0x20); // high byte (0x2000)
-                emuRef[0].getBus().write(0x2006, 0x00); // low byte
+            if (applicationOptions.initScroll) {
+                emuRef[0].getBus().write(0x2000, 0x10);
+                emuRef[0].getBus().write(0x2005, 0x00);
+                emuRef[0].getBus().write(0x2005, 0x00);
+                emuRef[0].getBus().write(0x2006, 0x20);
+                emuRef[0].getBus().write(0x2006, 0x00);
                 Log.debug(PPU, "INIT-SCROLL VRAM inicializada nametable0 pattern $1000");
             }
         }
         if (!patternStandalone) {
-            if (showHeader) {
+            if (applicationOptions.showHeader) {
                 var h = romRef[0].getHeader();
                 Log.info(ROM, "Header: PRG=%d x16KB (%d bytes) CHR=%d x8KB (%d bytes) Mapper=%d Mirroring=%s",
                         h.getPrgRomPages(), h.getPrgRomPages() * 16384, h.getChrRomPages(), h.getChrRomPages() * 8192,
@@ -613,23 +310,23 @@ public class Main {
             }
         }
         if (!patternStandalone) {
-            if (chrLog) {
+            if (applicationOptions.chrLog) {
                 emuRef[0].getBus().getMapper0().enableChrLogging(256);
             }
         }
         if (!patternStandalone) {
-            if (logPpuReg) {
+            if (applicationOptions.logPpuReg) {
                 emuRef[0].getBus().enablePpuRegLogging(800);
             }
         }
         if (!patternStandalone) {
-            if (breakReadAddr >= 0) {
-                emuRef[0].getBus().setWatchReadAddress(breakReadAddr, breakReadCount);
-                Log.info(BUS, "Watch leitura %04X count=%d", breakReadAddr, breakReadCount);
+            if (applicationOptions.breakReadAddr >= 0) {
+                emuRef[0].getBus().setWatchReadAddress(applicationOptions.breakReadAddr, applicationOptions.breakReadCount);
+                Log.info(BUS, "Watch leitura %04X count=%d", applicationOptions.breakReadAddr, applicationOptions.breakReadCount);
             }
         }
         if (!patternStandalone) {
-            if (traceNmi) {
+            if (applicationOptions.traceNmi) {
                 emuRef[0].getPpu().setNmiCallback(() -> {
                     int pc = emuRef[0].getCpu().getPC();
                     Log.debug(PPU, "NMI frame=%d PC=%04X cycles=%d", emuRef[0].getFrame(), pc,
@@ -638,20 +335,20 @@ public class Main {
             }
         }
         if (patternStandalone) {
-            if (!gui) {
+            if (!applicationOptions.gui) {
                 Log.info(GENERAL, "Standalone test-pattern headless (sem GUI)");
             }
             // Modo puro de padrão: instância isolada de PPU
             PPU ppu = new PPU();
             ppu.reset();
-            ppu.setTestPatternMode(testPattern); // já validado não-nulo
+            ppu.setTestPatternMode(applicationOptions.testPattern); // já validado não-nulo
             // Habilita background (bit 3) para permitir pipeline & render (necessário para
             // passar renderingEnabled())
             // Habilita background (bit3) e garante BG_LEFT (bit1) para visualizar primeiros
             // 8 pixels
             ppu.writeRegister(1, 0x08 | 0x02);
-            if (gui) {
-                NesWindow window = new NesWindow("R2-NES TestPattern-" + testPattern, 3);
+            if (applicationOptions.gui) {
+                NesWindow window = new NesWindow("R2-NES TestPattern-" + applicationOptions.testPattern, 3);
                 window.show(ppu.getFrameBuffer());
                 Log.info(GENERAL, "Iniciando GUI TestPattern (Ctrl+C para sair)");
                 window.startRenderLoop(() -> {
@@ -661,7 +358,7 @@ public class Main {
                     }
                 }, 60, NesWindow.PacerMode.HR);
             } else {
-                for (int i = 0; i < frames; i++) {
+                for (int i = 0; i < applicationOptions.frames; i++) {
                     long f = ppu.getFrame();
                     while (ppu.getFrame() == f) {
                         ppu.clock();
@@ -677,13 +374,12 @@ public class Main {
         // Optionally force background enable early (most games set this quickly anyway)
         // Escreve PPUMASK inicial para acelerar primeiros frames (BG + coluna esquerda
         // por padrão)
-        int initMask = (initialMaskOverride != null) ? initialMaskOverride : 0x08; // default: BG only (left column
-                                                                                   // blanked)
+        int initMask = (applicationOptions.initialMaskOverride != null) ? applicationOptions.initialMaskOverride : 0x08;
         emuRef[0].getBus().write(0x2001, initMask);
-        Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (initialMaskOverride != null ? " (override)" : ""));
-        if (leftColumnModeOpt != null) {
+        Log.info(PPU, "PPUMASK inicial=%02X%s", initMask, (applicationOptions.initialMaskOverride != null ? " (override)" : ""));
+        if (applicationOptions.leftColumnModeOpt != null) {
             com.nesemu.ppu.PPU.LeftColumnMode mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE;
-            switch (leftColumnModeOpt) {
+            switch (applicationOptions.leftColumnModeOpt) {
                 case "always":
                     mode = com.nesemu.ppu.PPU.LeftColumnMode.ALWAYS;
                     break;
@@ -698,7 +394,7 @@ public class Main {
             ((PPU) emuRef[0].getPpu()).setLeftColumnMode(mode);
             Log.info(PPU, "Left-column-mode=%s", mode.name().toLowerCase(Locale.ROOT));
         }
-        if (gui) {
+        if (applicationOptions.gui) {
             String title = (romFilePath != null) ? ("R2-NES - " + romFilePath.getFileName()) : "R2-NES (no ROM)";
             NesWindow window = new NesWindow(title, 3);
             // Prevent automatic dispose so Alt+F4 / close button can confirm like ESC
@@ -707,32 +403,30 @@ public class Main {
             } catch (Exception ignore) {
             }
             // Apply fast-forward config (CLI override precedence)
-            String effectiveFfKey = fastForwardKeyCli != null ? fastForwardKeyCli : fastForwardKey;
-            if (fastForwardMaxFpsCli != null)
-                fastForwardMaxFps = fastForwardMaxFpsCli;
-            if (fastForwardMaxFps < 0)
-                fastForwardMaxFps = 0;
-            if (fastForwardMaxFps > 0) {
-                window.setFastForwardMaxFps(fastForwardMaxFps);
-                Log.info(GENERAL, "Fast-Forward max FPS: %d", fastForwardMaxFps);
+            String effectiveFfKey = applicationOptions.fastForwardKey;
+            if (applicationOptions.fastForwardMaxFps < 0)
+                applicationOptions.fastForwardMaxFps = 0;
+            if (applicationOptions.fastForwardMaxFps > 0) {
+                window.setFastForwardMaxFps(applicationOptions.fastForwardMaxFps);
+                Log.info(GENERAL, "Fast-Forward max FPS: %d", applicationOptions.fastForwardMaxFps);
             }
             final Path[] romFilePathHolder = new Path[] { romFilePath }; // may be null in black screen mode
-            final String[] savePathOverrideHolder = new String[] { savePathOverride }; // mutable for menu reload
+            final String[] savePathOverrideHolder = new String[] { applicationOptions.savePathOverride }; // mutable for menu reload
             // If INI rom option points to a directory, use it as the initial chooser dir
             try {
-                if (romPath != null) {
-                    Path rp = Path.of(romPath);
+                if (applicationOptions.romPath != null) {
+                    Path rp = Path.of(applicationOptions.romPath);
                     if (Files.isDirectory(rp)) {
                         window.setFileChooserStartDir(rp);
                     }
                 }
             } catch (Exception ignore) {
             }
-            final String[] saveStatePathHolder = new String[] { saveStatePath }; // mutable wrapper for closures
-            if (borderlessFullscreen != null && borderlessFullscreen) {
+            final String[] saveStatePathHolder = new String[] { applicationOptions.saveStatePath }; // mutable wrapper for closures
+            if (applicationOptions.borderlessFullscreen != null && applicationOptions.borderlessFullscreen) {
                 window.setBorderlessFullscreen(true);
                 Log.info(GENERAL, "Borderless fullscreen: ON");
-            } else if (borderlessFullscreen != null) {
+            } else if (applicationOptions.borderlessFullscreen != null) {
                 Log.info(GENERAL, "Borderless fullscreen: OFF");
             }
             // Autosave hook: attach window listener to save SRAM on close
@@ -778,7 +472,8 @@ public class Main {
             final long[] stateMsgExpireNs = new long[] { 0L };
             final String[] stateMsg = new String[] { null };
             if (controllerPad1 != null) {
-                final String resetTok = resetKeyToken == null ? null : resetKeyToken.toLowerCase(Locale.ROOT).trim();
+                final String resetTok = applicationOptions.resetKeyToken == null ? null
+                        : applicationOptions.resetKeyToken.toLowerCase(Locale.ROOT).trim();
                 window.installControllerKeyListener(controllerPad1, controllerPad2, resetTok, () -> {
                     Log.info(GENERAL, "RESET key pressed (%s)", resetTok);
                     emuRef[0].reset();
@@ -787,7 +482,7 @@ public class Main {
             }
             // Runtime toggles (fullscreen/HUD) via additional key listener
             // Mutable HUD state wrapper for inner classes
-            final boolean[] hudState = new boolean[] { hud };
+            final boolean[] hudState = new boolean[] { applicationOptions.hud };
             final java.util.Set<String> pauseKeyTokens = new java.util.HashSet<>();
             // Load pause-emulation tokens from INI (simple reload; negligible cost)
             try {
@@ -799,16 +494,18 @@ public class Main {
             } catch (Exception ex) {
                 Log.warn(GENERAL, "Falha ao carregar pause-emulation: %s", ex.getMessage());
             }
-            if (toggleFullscreenKey != null || toggleHudKey != null || toggleFullscreenProportionKey != null
-                    || saveStateKey != null || loadStateKey != null || effectiveFfKey != null || logWarnKey != null) {
-                String fsKey = toggleFullscreenKey == null ? null : toggleFullscreenKey.toLowerCase(Locale.ROOT).trim();
-                String hudKey = toggleHudKey == null ? null : toggleHudKey.toLowerCase(Locale.ROOT).trim();
-                String propKey = toggleFullscreenProportionKey == null ? null
-                        : toggleFullscreenProportionKey.toLowerCase(Locale.ROOT).trim();
-                String saveKey = saveStateKey == null ? null : saveStateKey.toLowerCase(Locale.ROOT).trim();
-                String loadKey = loadStateKey == null ? null : loadStateKey.toLowerCase(Locale.ROOT).trim();
+            if (applicationOptions.toggleFullscreenKey != null || applicationOptions.toggleHudKey != null || applicationOptions.toggleFullscreenProportionKey != null
+                    || applicationOptions.saveStateKey != null || applicationOptions.loadStateKey != null || effectiveFfKey != null
+                    || applicationOptions.logWarnKey != null) {
+                String fsKey = applicationOptions.toggleFullscreenKey == null ? null
+                        : applicationOptions.toggleFullscreenKey.toLowerCase(Locale.ROOT).trim();
+                String hudKey = applicationOptions.toggleHudKey == null ? null : applicationOptions.toggleHudKey.toLowerCase(Locale.ROOT).trim();
+                String propKey = applicationOptions.toggleFullscreenProportionKey == null ? null
+                        : applicationOptions.toggleFullscreenProportionKey.toLowerCase(Locale.ROOT).trim();
+                String saveKey = applicationOptions.saveStateKey == null ? null : applicationOptions.saveStateKey.toLowerCase(Locale.ROOT).trim();
+                String loadKey = applicationOptions.loadStateKey == null ? null : applicationOptions.loadStateKey.toLowerCase(Locale.ROOT).trim();
                 String ffKey = effectiveFfKey == null ? null : effectiveFfKey.toLowerCase(Locale.ROOT).trim();
-                String warnKey = logWarnKey == null ? null : logWarnKey.toLowerCase(Locale.ROOT).trim();
+                String warnKey = applicationOptions.logWarnKey == null ? null : applicationOptions.logWarnKey.toLowerCase(Locale.ROOT).trim();
                 java.awt.event.KeyAdapter adapter = new java.awt.event.KeyAdapter() {
                     @Override
                     public void keyPressed(java.awt.event.KeyEvent e) {
@@ -1008,20 +705,29 @@ public class Main {
             });
             window.show(emuRef[0].getPpu().getFrameBuffer());
             Log.info(GENERAL, "Iniciando GUI (Ctrl+C para sair)");
-            NesWindow.PacerMode pm = (pacerModeOpt == null || pacerModeOpt.equals("hr")) ? NesWindow.PacerMode.HR
+            NesWindow.PacerMode pm = (applicationOptions.pacerModeOpt == null || applicationOptions.pacerModeOpt.equals("hr"))
+                    ? NesWindow.PacerMode.HR
                     : NesWindow.PacerMode.LEGACY;
             Log.info(GENERAL, "Pacer mode: %s", pm);
-            if (bufferStrategyOpt != null) {
-                window.setUseBufferStrategy(bufferStrategyOpt);
-                Log.info(GENERAL, "BufferStrategy: %s", bufferStrategyOpt ? "ON" : "OFF (Swing repaint)");
+            if (applicationOptions.bufferStrategyOpt != null) {
+                window.setUseBufferStrategy(applicationOptions.bufferStrategyOpt);
+                Log.info(GENERAL, "BufferStrategy: %s", applicationOptions.bufferStrategyOpt ? "ON" : "OFF (Swing repaint)");
             } else {
                 Log.info(GENERAL, "BufferStrategy: DEFAULT(ON)");
             }
+            // Capture runtime-config to reapply on ROM swap for consistent behavior
+            RuntimeSettings runtime = new RuntimeSettings(applicationOptions.tileMatrixMode,
+                    applicationOptions.pipeLogLimit, applicationOptions.dbgBgSample, applicationOptions.dbgBgAll, applicationOptions.timingSimple,
+                    applicationOptions.timingModeOpt, applicationOptions.forceBg, applicationOptions.unlimitedSprites, applicationOptions.spriteYMode,
+                    applicationOptions.forceSprite0Hit, applicationOptions.leftColumnModeOpt, applicationOptions.logAttrLimit, applicationOptions.logNtLimit,
+                    applicationOptions.ntBaseline, applicationOptions.paletteLogLimit, applicationOptions.mmc1LogLimit, applicationOptions.spinWatchThreshold,
+                    applicationOptions.spinDumpBytes, applicationOptions.initialMaskOverride);
+
+            // Apply once (already applied above), but keep for completeness if needed later
+            // com.nesemu.config.EmulatorConfigurator.apply(emuRef[0], runtime);
+
             // ---------------- Menu callback wiring (after overlay & show)
             // -----------------
-            final boolean forceSprite0HitFinal = forceSprite0Hit; // capture config for reloads
-            final Boolean unlimitedSpritesFinal = unlimitedSprites;
-            final String leftColumnModeOptFinal = leftColumnModeOpt;
             window.setOnReset(() -> {
                 Log.info(GENERAL, "Menu Reset invoked");
                 emuRef[0].reset();
@@ -1064,22 +770,8 @@ public class Main {
                     } else {
                         newEmu = new NesEmulator(newRom, path);
                     }
-                    // Re-apply runtime flags
-                    if (forceSprite0HitFinal) {
-                        newEmu.getPpu().setForceSprite0Hit(true);
-                    }
-                    if (unlimitedSpritesFinal != null) {
-                        newEmu.getPpu().setUnlimitedSprites(unlimitedSpritesFinal);
-                    }
-                    if (leftColumnModeOptFinal != null) {
-                        com.nesemu.ppu.PPU.LeftColumnMode mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE;
-                        switch (leftColumnModeOptFinal) {
-                            case "always" -> mode = com.nesemu.ppu.PPU.LeftColumnMode.ALWAYS;
-                            case "crop" -> mode = com.nesemu.ppu.PPU.LeftColumnMode.CROP;
-                            case "hardware" -> mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE;
-                        }
-                        ((PPU) newEmu.getPpu()).setLeftColumnMode(mode);
-                    }
+                    // Re-apply all runtime flags consistently (matches startup path)
+                    com.nesemu.config.EmulatorConfigurator.apply(newEmu, runtime);
                     // Point references to new emulator
                     emuRef[0] = newEmu;
                     // Reattach controllers so $4016/$4017 read from the same pads used by the key
@@ -1128,9 +820,9 @@ public class Main {
             }, 60, pm); // target 60 fps
         } else {
             long start = System.nanoTime();
-            if (untilVblank) {
+            if (applicationOptions.untilVblank) {
                 long executed = 0;
-                long maxInstr = (traceInstrCount > 0) ? traceInstrCount : 1_000_000; // guarda de segurança
+                long maxInstr = (applicationOptions.traceInstrCount > 0) ? applicationOptions.traceInstrCount : 1_000_000;
                 long startCpuCycles = emuRef[0].getCpu().getTotalCycles();
                 while (!emuRef[0].getPpu().isInVBlank() && executed < maxInstr) {
                     long before = emuRef[0].getCpu().getTotalCycles();
@@ -1153,21 +845,17 @@ public class Main {
                             maxInstr, emuRef[0].getPpu().getScanline(), emuRef[0].getPpu().getCycle(),
                             emuRef[0].getPpu().getFrame());
                 }
-                // Depois roda frames solicitados (se frames>0)
-                for (int i = 0; i < frames; i++)
+                for (int i = 0; i < applicationOptions.frames; i++)
                     emuRef[0].stepFrame();
-            } else if (traceInstrCount > 0) {
-                // Trace N instruções ignorando frames, depois continua frames restantes se
-                // definido
+            } else if (applicationOptions.traceInstrCount > 0) {
                 long executed = 0;
-                while (executed < traceInstrCount) {
+                while (executed < applicationOptions.traceInstrCount) {
                     int pc = emuRef[0].getCpu().getPC();
                     int opcode = emuRef[0].getBus().read(pc);
                     Log.trace(CPU, "TRACE PC=%04X OP=%02X A=%02X X=%02X Y=%02X P=%02X SP=%02X CYC=%d",
                             pc, opcode, emuRef[0].getCpu().getA(), emuRef[0].getCpu().getX(), emuRef[0].getCpu().getY(),
                             emuRef[0].getCpu().getStatusByte(), emuRef[0].getCpu().getSP(),
                             emuRef[0].getCpu().getTotalCycles());
-                    // Executa instrução enquanto alimenta PPU com 3 ciclos por ciclo de CPU gasto.
                     long before = emuRef[0].getCpu().getTotalCycles();
                     emuRef[0].getCpu().stepInstruction();
                     long after = emuRef[0].getCpu().getTotalCycles();
@@ -1176,56 +864,53 @@ public class Main {
                         emuRef[0].getPpu().clock();
                     }
                     executed++;
-                    if (breakAtPc != null && emuRef[0].getCpu().getPC() == (breakAtPc & 0xFFFF)) {
-                        Log.info(CPU, "BREAK PC=%04X após %d instruções", breakAtPc, executed);
+                    if (applicationOptions.breakAtPc != null && emuRef[0].getCpu().getPC() == (applicationOptions.breakAtPc & 0xFFFF)) {
+                        Log.info(CPU, "BREAK PC=%04X após %d instruções", applicationOptions.breakAtPc, executed);
                         break;
                     }
-                    if (breakReadAddr >= 0 && emuRef[0].getBus().isWatchTriggered()) {
+                    if (applicationOptions.breakReadAddr >= 0 && emuRef[0].getBus().isWatchTriggered()) {
                         Log.info(BUS, "BREAK leitura %04X atingida count=%d após %d instr",
-                                breakReadAddr, breakReadCount, executed);
+                                applicationOptions.breakReadAddr, applicationOptions.breakReadCount, executed);
                         break;
                     }
-                    if (traceNmi && executed % 5000 == 0) {
+                    if (applicationOptions.traceNmi && executed % 5000 == 0) {
                         Log.debug(CPU, "trace progress instr=%d", executed);
                     }
                 }
-                // Depois roda frames solicitados (se frames>0)
-                for (int i = 0; i < frames; i++)
+                for (int i = 0; i < applicationOptions.frames; i++)
                     emuRef[0].stepFrame();
             } else {
-                for (int i = 0; i < frames; i++) {
+                for (int i = 0; i < applicationOptions.frames; i++) {
                     emuRef[0].stepFrame();
                 }
             }
             long elapsedNs = System.nanoTime() - start;
-            double fpsSim = frames / (elapsedNs / 1_000_000_000.0);
-            Log.info(GENERAL, "Frames simulados: %d (%.2f fps)", frames, fpsSim);
-            if (pipeLogLimit > 0) {
+            double fpsSim = applicationOptions.frames / (elapsedNs / 1_000_000_000.0);
+            Log.info(GENERAL, "Frames simulados: %d (%.2f fps)", applicationOptions.frames, fpsSim);
+            if (applicationOptions.pipeLogLimit > 0) {
                 Log.info(PPU, "--- PIPELINE LOG ---");
                 Log.info(PPU, "%s", emuRef[0].getPpu().consumePipelineLog());
             }
-            if (dbgBgSample > 0) {
-                emuRef[0].getPpu().dumpFirstBackgroundSamples(Math.min(dbgBgSample, 50));
+            if (applicationOptions.dbgBgSample > 0) {
+                emuRef[0].getPpu().dumpFirstBackgroundSamples(Math.min(applicationOptions.dbgBgSample, 50));
             }
-            // Dump ASCII matrix (first pixel per tile)
             Log.info(PPU, "--- Tile index matrix (hex of first pixel per tile) ---");
             emuRef[0].getPpu().printTileIndexMatrix();
             emuRef[0].getPpu().printBackgroundIndexHistogram();
-            if (bgColStats) {
+            if (applicationOptions.bgColStats) {
                 emuRef[0].getPpu().printBackgroundColumnStats();
             }
-            // Dump PPM (palette index grayscale)
             Path out = Path.of("background.ppm");
             emuRef[0].getPpu().dumpBackgroundToPpm(out);
             Log.info(PPU, "PPM gerado: %s", out.toAbsolutePath());
-            if (dumpNt) {
+            if (applicationOptions.dumpNt) {
                 emuRef[0].getPpu().printNameTableTileIds(0);
             }
-            if (dumpPattern != null) {
-                emuRef[0].getPpu().dumpPatternTile(dumpPattern);
+            if (applicationOptions.dumpPattern != null) {
+                emuRef[0].getPpu().dumpPatternTile(applicationOptions.dumpPattern);
             }
-            if (dumpPatternsList != null) {
-                for (String part : dumpPatternsList.split(",")) {
+            if (applicationOptions.dumpPatternsList != null) {
+                for (String part : applicationOptions.dumpPatternsList.split(",")) {
                     part = part.trim();
                     if (part.isEmpty())
                         continue;
