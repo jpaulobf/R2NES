@@ -537,9 +537,14 @@ public class Main {
                 final String resetTok = applicationOptions.resetKeyToken == null ? null
                         : applicationOptions.resetKeyToken.toLowerCase(Locale.ROOT).trim();
                 window.installControllerKeyListener(controllerPad1, controllerPad2, resetTok, () -> {
-                    Log.info(GENERAL, "RESET key pressed (%s)", resetTok);
-                    emuRef[0].reset();
-                    resetMsgExpireNs[0] = System.nanoTime() + 2_000_000_000L; // show for ~2s
+                    // Only allow RESET when a ROM is loaded
+                    if (romFilePathHolder[0] != null) {
+                        Log.info(GENERAL, "RESET key pressed (%s)", resetTok);
+                        emuRef[0].reset();
+                        resetMsgExpireNs[0] = System.nanoTime() + 2_000_000_000L; // show for ~2s
+                    } else {
+                        Log.debug(GENERAL, "RESET ignored (no ROM loaded)");
+                    }
                 });
             }
             // Runtime toggles (fullscreen/HUD) via additional key listener
@@ -620,6 +625,10 @@ public class Main {
                             Log.info(GENERAL, "Proportion mode -> %s", label);
                         }
                         if (saveKey != null && tok.equals(saveKey)) {
+                            if (romFilePathHolder[0] == null) {
+                                Log.debug(GENERAL, "SaveState ignored (no ROM loaded)");
+                                return;
+                            }
                             // Build state filename (ROM base + .state) in save-state-path or ROM directory
                             try {
                                 Path dir;
@@ -647,6 +656,10 @@ public class Main {
                             }
                         }
                         if (loadKey != null && tok.equals(loadKey)) {
+                            if (romFilePathHolder[0] == null) {
+                                Log.debug(GENERAL, "LoadState ignored (no ROM loaded)");
+                                return;
+                            }
                             try {
                                 Path dir;
                                 if (saveStatePathHolder[0] != null)
@@ -673,7 +686,8 @@ public class Main {
                             }
                         }
                         if (ffKey != null && tok.equals(ffKey)) {
-                            if (!window.isFastForward()) {
+                            // Only allow fast-forward when a ROM is loaded
+                            if (romFilePathHolder[0] != null && !window.isFastForward()) {
                                 window.setFastForward(true);
                                 Log.info(GENERAL, "Fast-Forward ON");
                             }
@@ -759,6 +773,8 @@ public class Main {
                 }
                 java.awt.FontMetrics fm = g2.getFontMetrics();
                 int baseY = c.y + c.height / 2; // screen vertical center
+                int offsetX = 12;
+                
                 // RESET (slightly above center)
                 if (System.nanoTime() < resetMsgExpireNs[0]) {
                     String msg = "RESET";
@@ -768,7 +784,7 @@ public class Main {
                     int padX = 10, padY = 6;
                     int boxW = Math.max(textW + padX * 2, 96);
                     int boxH = textH + padY * 2;
-                    int x = c.x + (c.width - boxW) / 2;
+                    int x = offsetX + c.x + (c.width - boxW) / 2;
                     int y = baseY - boxH / 2; // centered vertically
                     g2.setColor(new java.awt.Color(0, 0, 0, 170));
                     g2.fillRect(x, y, boxW, boxH);
@@ -786,7 +802,7 @@ public class Main {
                     int padX = 10, padY = 6;
                     int boxW = Math.max(textW + padX * 2, 110);
                     int boxH = textH + padY * 2;
-                    int x = c.x + (c.width - boxW) / 2;
+                    int x = offsetX + c.x + (c.width - boxW) / 2;
                     int y = baseY - boxH / 2; // centered vertically
                     g2.setColor(new java.awt.Color(0, 0, 0, 170));
                     g2.fillRect(x, y, boxW, boxH);
@@ -795,8 +811,8 @@ public class Main {
                     int ty = y + (boxH - textFullH) / 2 + fm.getAscent();
                     g2.drawString(msg, tx, ty);
                 }
-                // Fast-forward indicator (below center a bit more)
-                if (window.isFastForward()) {
+                // Fast-forward indicator (only when ROM is loaded)
+                if (window.isFastForward() && romFilePathHolder[0] != null) {
                     double factor = window.getLastFps() / 60.0;
                     if (factor < 0.01)
                         factor = 0.01;
@@ -807,7 +823,7 @@ public class Main {
                     int padX = 10, padY = 6;
                     int boxW = Math.max(textW + padX * 2, 110);
                     int boxH = textH + padY * 2;
-                    int x = c.x + (c.width - boxW) / 2;
+                    int x = offsetX + c.x + (c.width - boxW) / 2;
                     int y = baseY - boxH / 2; // centered vertically
                     g2.setColor(new java.awt.Color(0, 0, 0, 170));
                     g2.fillRect(x, y, boxW, boxH);
@@ -825,7 +841,7 @@ public class Main {
                     int padX = 12, padY = 8;
                     int boxW = Math.max(textW + padX * 2, 128);
                     int boxH = textH + padY * 2;
-                    int x = c.x + (c.width - boxW) / 2;
+                    int x = offsetX + c.x + (c.width - boxW) / 2;
                     int y = baseY - boxH / 2; // centered
                     g2.setColor(new java.awt.Color(0, 0, 0, 180));
                     g2.fillRect(x, y, boxW, boxH);
@@ -867,9 +883,13 @@ public class Main {
             // ---------------- Menu callback wiring (after overlay & show)
             // -----------------
             window.setOnReset(() -> {
-                Log.info(GENERAL, "Menu Reset invoked");
-                emuRef[0].reset();
-                resetMsgExpireNs[0] = System.nanoTime() + 2_000_000_000L;
+                if (romFilePathHolder[0] != null) {
+                    Log.info(GENERAL, "Menu Reset invoked");
+                    emuRef[0].reset();
+                    resetMsgExpireNs[0] = System.nanoTime() + 2_000_000_000L;
+                } else {
+                    Log.debug(GENERAL, "Menu Reset ignored (no ROM loaded)");
+                }
             });
             window.setOnExit(() -> {
                 // Reuse same confirmation logic as ESC / window close
