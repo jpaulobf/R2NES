@@ -481,6 +481,8 @@ public class Main {
             } else if (applicationOptions.borderlessFullscreen != null) {
                 Log.info(GENERAL, "Borderless fullscreen: OFF");
             }
+            // Initial enable/disable of ROM-sensitive menu items
+            window.setRomActionsEnabled(romFilePathHolder[0] != null);
             // Autosave hook: attach window listener to save SRAM on close
             // Unified exit confirmation logic (ESC or Alt+F4 / window close)
             Runnable exitConfirmed = () -> {
@@ -774,7 +776,7 @@ public class Main {
                 java.awt.FontMetrics fm = g2.getFontMetrics();
                 int baseY = c.y + c.height / 2; // screen vertical center
                 int offsetX = 12;
-                
+
                 // RESET (slightly above center)
                 if (System.nanoTime() < resetMsgExpireNs[0]) {
                     String msg = "RESET";
@@ -908,6 +910,51 @@ public class Main {
                         paused[0] = pausePrev[0];
                 }
             });
+            // Close ROM: unload current ROM and return to black screen
+            window.setOnCloseRom(() -> {
+                if (romFilePathHolder[0] == null) {
+                    Log.debug(GENERAL, "Close ROM ignored (no ROM loaded)");
+                    return;
+                }
+                try {
+                    // Attempt autosave before closing
+                    if (emuRef[0] != null) {
+                        try {
+                            emuRef[0].forceAutoSave();
+                        } catch (Exception ignore) {
+                        }
+                    }
+                    // Stop audio
+                    try {
+                        if (audioRef[0] != null) {
+                            audioRef[0].stop();
+                            audioRef[0] = null;
+                        }
+                    } catch (Exception ignore) {
+                    }
+                    // Swap to black screen emulator (no ROM)
+                    NesEmulator black = NesEmulator.createBlackScreenInstance();
+                    emuRef[0] = black;
+                    window.setFrameBuffer(black.getPpu().getFrameBuffer());
+                    // Clear ROM holders
+                    romRef[0] = null;
+                    romFilePathHolder[0] = null;
+                    // Disable menu items that require a ROM
+                    window.setRomActionsEnabled(false);
+                    // Update title to reflect no ROM
+                    try {
+                        window.getFrame().setTitle("R2-NES (no ROM)");
+                    } catch (Exception ignore) {
+                    }
+                    // Clear transient messages
+                    resetMsgExpireNs[0] = 0L;
+                    stateMsg[0] = null;
+                    stateMsgExpireNs[0] = 0L;
+                    Log.info(GENERAL, "ROM closed; returned to black screen");
+                } catch (Exception ex) {
+                    Log.warn(GENERAL, "Falha ao fechar ROM: %s", ex.getMessage());
+                }
+            });
             window.setOnLoadRom(path -> {
                 Log.info(GENERAL, "Menu Load ROM: %s", path);
                 paused[0] = true; // pause while swapping
@@ -963,6 +1010,8 @@ public class Main {
                         window.getFrame().setTitle("R2-NES - " + path.getFileName());
                     } catch (Exception ignore) {
                     }
+                    // Enable ROM-sensitive menu items
+                    window.setRomActionsEnabled(true);
                     try {
                         if (path.getParent() != null)
                             window.setFileChooserStartDir(path.getParent());

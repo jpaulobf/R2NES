@@ -133,8 +133,12 @@ public class NesWindow {
     // --------------------------- Menu Bar ------------------------------------
     private Runnable onResetCallback; // optional external hook
     private Runnable onExitCallback; // optional external hook (if null -> window dispose)
+    private Runnable onCloseRomCallback; // optional external hook for closing current ROM
     private java.util.function.Consumer<Path> onLoadRomCallback; // invoked with selected ROM path
     private volatile File fileChooserStartDir; // preferred starting directory
+    // Keep references to menu items we may toggle at runtime
+    private javax.swing.JMenuItem resetMenuItem;
+    private javax.swing.JMenuItem closeRomMenuItem;
 
     /** Set callback invoked when user activates File->Reset. */
     public void setOnReset(Runnable r) {
@@ -144,6 +148,11 @@ public class NesWindow {
     /** Set callback invoked when user activates File->Exit. */
     public void setOnExit(Runnable r) {
         this.onExitCallback = r;
+    }
+
+    /** Set callback invoked when user activates File->Close ROM. */
+    public void setOnCloseRom(Runnable r) {
+        this.onCloseRomCallback = r;
     }
 
     /** Set callback for File->Load ROM (receives Path). */
@@ -191,8 +200,14 @@ public class NesWindow {
             }
             restoreFocus();
         });
-        JMenuItem reset = new JMenuItem("Reset");
-        reset.addActionListener(e -> {
+        closeRomMenuItem = new JMenuItem("Close ROM");
+        closeRomMenuItem.addActionListener(e -> {
+            if (onCloseRomCallback != null)
+                onCloseRomCallback.run();
+            restoreFocus();
+        });
+        resetMenuItem = new JMenuItem("Reset");
+        resetMenuItem.addActionListener(e -> {
             if (onResetCallback != null)
                 onResetCallback.run();
             restoreFocus();
@@ -205,7 +220,8 @@ public class NesWindow {
                 requestClose();
         });
         file.add(load);
-        file.add(reset);
+        file.add(closeRomMenuItem);
+        file.add(resetMenuItem);
         file.addSeparator();
         file.add(exit);
         mb.add(file);
@@ -222,6 +238,28 @@ public class NesWindow {
         options.add(miMisc);
         mb.add(options);
         frame.setJMenuBar(mb);
+    }
+
+    /** Enable/disable Reset menu item. Safe to call from any thread. */
+    public void setResetEnabled(boolean enabled) {
+        SwingUtilities.invokeLater(() -> {
+            if (resetMenuItem != null)
+                resetMenuItem.setEnabled(enabled);
+        });
+    }
+
+    /** Enable/disable Close ROM menu item. Safe to call from any thread. */
+    public void setCloseRomEnabled(boolean enabled) {
+        SwingUtilities.invokeLater(() -> {
+            if (closeRomMenuItem != null)
+                closeRomMenuItem.setEnabled(enabled);
+        });
+    }
+
+    /** Convenience to toggle both Reset and Close ROM at once. */
+    public void setRomActionsEnabled(boolean enabled) {
+        setResetEnabled(enabled);
+        setCloseRomEnabled(enabled);
     }
 
     /**
