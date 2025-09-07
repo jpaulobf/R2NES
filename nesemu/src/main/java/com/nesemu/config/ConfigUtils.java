@@ -30,7 +30,7 @@ public final class ConfigUtils {
             Path inputPath = Path.of("emulator.ini");
             if (Files.exists(inputPath))
                 return InputConfig.load(inputPath);
-            Path devPath = Path.of("src/main/java/com/nesemu/config/emulator.ini");
+            Path devPath = Path.of("src/main/java/com/nesemu/emulator.ini");
             if (Files.exists(devPath))
                 return InputConfig.load(devPath);
         } catch (Exception ex) {
