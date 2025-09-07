@@ -209,6 +209,18 @@ public class NesWindow {
         file.addSeparator();
         file.add(exit);
         mb.add(file);
+
+        // Options menu (placeholders, no functionality yet)
+        JMenu options = new JMenu("Options");
+        JMenuItem miInput = new JMenuItem("Input");
+        JMenuItem miVideo = new JMenuItem("Video");
+        JMenuItem miAudio = new JMenuItem("Audio");
+        JMenuItem miMisc = new JMenuItem("Misc");
+        options.add(miInput);
+        options.add(miVideo);
+        options.add(miAudio);
+        options.add(miMisc);
+        mb.add(options);
         frame.setJMenuBar(mb);
     }
 
@@ -651,7 +663,11 @@ public class NesWindow {
                                     g2.translate(offsetX, offsetY);
                                     g2.scale(scaleX, scaleY);
                                     g2.translate(-8, -8); // NES-space -8px offset for overlay
-                                    ov.accept(g2);
+                                    try {
+                                        ov.accept(g2);
+                                    } catch (Throwable overlayErr) {
+                                        // Keep rendering even if overlay fails; avoids black screen
+                                    }
                                 } finally {
                                     g2.dispose();
                                 }

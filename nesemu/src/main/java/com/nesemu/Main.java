@@ -181,10 +181,12 @@ public class Main {
                 controllerPad1 = pad1;
                 controllerPad2 = pad2;
 
-                // Optional: start LWJGL gamepad poller when enabled in emulator.ini (gamepad=true)
+                // Optional: start LWJGL gamepad poller when enabled in emulator.ini
+                // (gamepad=true)
                 boolean gamepadEnabled = false;
                 String gamepadOpt = cfgForPads.getOption("gamepad");
-                if (gamepadOpt != null && gamepadOpt.equalsIgnoreCase("true")) gamepadEnabled = true;
+                if (gamepadOpt != null && gamepadOpt.equalsIgnoreCase("true"))
+                    gamepadEnabled = true;
                 if (gamepadEnabled) {
                     try {
                         gamepadPoller = new GamepadPoller(controllerPad1);
@@ -490,7 +492,11 @@ public class Main {
                 } catch (Exception ex) {
                     Log.warn(GENERAL, "Falha autosave na saída: %s", ex.getMessage());
                 }
-                try { if (gamepadPoller != null) gamepadPoller.stop(); } catch (Exception ignore) {}
+                try {
+                    if (gamepadPoller != null)
+                        gamepadPoller.stop();
+                } catch (Exception ignore) {
+                }
                 System.exit(0);
             };
             // Pause state (moved earlier so window listener can access)
@@ -501,16 +507,21 @@ public class Main {
                 java.awt.event.WindowListener wlConfirm = new java.awt.event.WindowAdapter() {
                     @Override
                     public void windowClosing(java.awt.event.WindowEvent e) {
-                        // Auto-pause before showing confirmation dialog, preserving prior state
-                        pausePrev[0] = paused[0];
-                        paused[0] = true;
+                        // Auto-pause before showing confirmation dialog ONLY when a ROM is loaded
+                        // In no-ROM mode, do NOT enable pause, but still ask for confirmation
+                        boolean romLoaded = (romFilePathHolder[0] != null);
+                        if (romLoaded) {
+                            pausePrev[0] = paused[0];
+                            paused[0] = true;
+                        }
                         int res = javax.swing.JOptionPane.showConfirmDialog(window.getFrame(),
                                 "You really want exit?", "Confirm Exit",
                                 javax.swing.JOptionPane.YES_NO_OPTION);
                         if (res == javax.swing.JOptionPane.YES_OPTION) {
                             exitConfirmed.run();
-                        } else { // NO -> restore previous pause state
-                            paused[0] = pausePrev[0];
+                        } else { // NO -> restore previous pause state (only if we altered it)
+                            if (romLoaded)
+                                paused[0] = pausePrev[0];
                         }
                         // NO_OPTION -> ignore (keep running)
                     }
@@ -568,16 +579,20 @@ public class Main {
                     public void keyPressed(java.awt.event.KeyEvent e) {
                         // ESC -> confirmação de saída (não configurável)
                         if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE) {
-                            // Auto-pause before confirmation dialog (store previous state)
-                            pausePrev[0] = paused[0];
-                            paused[0] = true;
+                            // Auto-pause only when a ROM is loaded; otherwise don't enable pause
+                            boolean romLoaded = (romFilePathHolder[0] != null);
+                            if (romLoaded) {
+                                pausePrev[0] = paused[0];
+                                paused[0] = true;
+                            }
                             int res = javax.swing.JOptionPane.showConfirmDialog(window.getFrame(),
                                     "You really want exit?", "Confirm Exit",
                                     javax.swing.JOptionPane.YES_NO_OPTION);
                             if (res == javax.swing.JOptionPane.YES_OPTION) {
                                 exitConfirmed.run();
                             } else { // restore previous state if user cancels
-                                paused[0] = pausePrev[0];
+                                if (romLoaded)
+                                    paused[0] = pausePrev[0];
                             }
                             return; // não propaga ESC
                         }
@@ -669,8 +684,11 @@ public class Main {
                             }
                         }
                         if (!pauseKeyTokens.isEmpty() && pauseKeyTokens.contains(tok)) {
-                            paused[0] = !paused[0];
-                            Log.info(GENERAL, "Pause -> %s", paused[0] ? "ON" : "OFF");
+                            // Pause hotkey only works when a ROM is loaded
+                            if (romFilePathHolder[0] != null) {
+                                paused[0] = !paused[0];
+                                Log.info(GENERAL, "Pause -> %s", paused[0] ? "ON" : "OFF");
+                            }
                         }
                     }
 
@@ -712,6 +730,9 @@ public class Main {
                     g2.setComposite(oldComp);
                 }
                 if (hudState[0]) {
+                    // HUD offset to compensate render area shift (-8,-8)
+                    final int hudOffX = 12;
+                    final int hudOffY = 8;
                     int padLocal = 4;
                     String l1 = String.format("Frame:%d FPS:%.1f", ppu.getFrame(), window.getLastFps());
                     String l2 = String.format("Scan:%d Cyc:%d VRAM:%04X", ppu.getScanline(), ppu.getCycle(),
@@ -722,42 +743,96 @@ public class Main {
                     String l4 = "Pad1: " + btns;
                     int boxH = 56;
                     g2.setColor(new java.awt.Color(0, 0, 0, 160));
-                    g2.fillRect(0, 0, 260, boxH);
+                    g2.fillRect(hudOffX, hudOffY, 260, boxH);
                     g2.setColor(java.awt.Color.WHITE);
-                    g2.drawString(l1, padLocal, 12);
-                    g2.drawString(l2, padLocal, 24);
-                    g2.drawString(l3, padLocal, 36);
-                    g2.drawString(l4, padLocal, 48);
+                    g2.drawString(l1, padLocal + hudOffX, 12 + hudOffY);
+                    g2.drawString(l2, padLocal + hudOffX, 24 + hudOffY);
+                    g2.drawString(l3, padLocal + hudOffX, 36 + hudOffY);
+                    g2.drawString(l4, padLocal + hudOffX, 48 + hudOffY);
                 }
+                // Centered message overlays (non-HUD). We use clip bounds to center within
+                // NES-space.
+                java.awt.Rectangle c = g2.getClipBounds();
+                if (c == null) {
+                    // Fallback to NES logical size if clip not provided
+                    c = new java.awt.Rectangle(0, 0, 256, 240);
+                }
+                java.awt.FontMetrics fm = g2.getFontMetrics();
+                int baseY = c.y + c.height / 2; // screen vertical center
+                // RESET (slightly above center)
                 if (System.nanoTime() < resetMsgExpireNs[0]) {
                     String msg = "RESET";
+                    int textW = fm.stringWidth(msg);
+                    int textH = fm.getAscent();
+                    int textFullH = fm.getHeight();
+                    int padX = 10, padY = 6;
+                    int boxW = Math.max(textW + padX * 2, 96);
+                    int boxH = textH + padY * 2;
+                    int x = c.x + (c.width - boxW) / 2;
+                    int y = baseY - boxH / 2; // centered vertically
                     g2.setColor(new java.awt.Color(0, 0, 0, 170));
-                    g2.fillRect(90, 80, 100, 24);
+                    g2.fillRect(x, y, boxW, boxH);
                     g2.setColor(java.awt.Color.YELLOW);
-                    g2.drawString(msg, 100, 96);
+                    int tx = x + (boxW - textW) / 2;
+                    int ty = y + (boxH - textFullH) / 2 + fm.getAscent();
+                    g2.drawString(msg, tx, ty);
                 }
+                // State message (SAVING / LOADING / ERRORS) slightly below center
                 if (System.nanoTime() < stateMsgExpireNs[0] && stateMsg[0] != null) {
                     String msg = stateMsg[0];
+                    int textW = fm.stringWidth(msg);
+                    int textH = fm.getAscent();
+                    int textFullH = fm.getHeight();
+                    int padX = 10, padY = 6;
+                    int boxW = Math.max(textW + padX * 2, 110);
+                    int boxH = textH + padY * 2;
+                    int x = c.x + (c.width - boxW) / 2;
+                    int y = baseY - boxH / 2; // centered vertically
                     g2.setColor(new java.awt.Color(0, 0, 0, 170));
-                    g2.fillRect(80, 110, 120, 24);
+                    g2.fillRect(x, y, boxW, boxH);
                     g2.setColor(java.awt.Color.CYAN);
-                    g2.drawString(msg, 92, 126);
+                    int tx = x + (boxW - textW) / 2;
+                    int ty = y + (boxH - textFullH) / 2 + fm.getAscent();
+                    g2.drawString(msg, tx, ty);
                 }
+                // Fast-forward indicator (below center a bit more)
                 if (window.isFastForward()) {
                     double factor = window.getLastFps() / 60.0;
                     if (factor < 0.01)
                         factor = 0.01;
                     String msg = String.format("FFWD x%.1f", factor);
+                    int textW = fm.stringWidth(msg);
+                    int textH = fm.getAscent();
+                    int textFullH = fm.getHeight();
+                    int padX = 10, padY = 6;
+                    int boxW = Math.max(textW + padX * 2, 110);
+                    int boxH = textH + padY * 2;
+                    int x = c.x + (c.width - boxW) / 2;
+                    int y = baseY - boxH / 2; // centered vertically
                     g2.setColor(new java.awt.Color(0, 0, 0, 170));
-                    g2.fillRect(8, 200, 120, 24);
+                    g2.fillRect(x, y, boxW, boxH);
                     g2.setColor(java.awt.Color.ORANGE);
-                    g2.drawString(msg, 16, 216);
+                    int tx = x + (boxW - textW) / 2;
+                    int ty = y + (boxH - textFullH) / 2 + fm.getAscent();
+                    g2.drawString(msg, tx, ty);
                 }
-                if (paused[0]) {
+                // PAUSED overlay (centered). Show only when a ROM is loaded.
+                if (paused[0] && romFilePathHolder[0] != null) {
+                    String msg = "PAUSED";
+                    int textW = fm.stringWidth(msg);
+                    int textH = fm.getAscent();
+                    int textFullH = fm.getHeight();
+                    int padX = 12, padY = 8;
+                    int boxW = Math.max(textW + padX * 2, 128);
+                    int boxH = textH + padY * 2;
+                    int x = c.x + (c.width - boxW) / 2;
+                    int y = baseY - boxH / 2; // centered
                     g2.setColor(new java.awt.Color(0, 0, 0, 180));
-                    g2.fillRect(92, 140, 120, 28);
+                    g2.fillRect(x, y, boxW, boxH);
                     g2.setColor(java.awt.Color.GREEN);
-                    g2.drawString("PAUSED", 108, 158);
+                    int tx = x + (boxW - textW) / 2;
+                    int ty = y + (boxH - textFullH) / 2 + fm.getAscent();
+                    g2.drawString(msg, tx, ty);
                 }
             });
             window.show(emuRef[0].getPpu().getFrameBuffer());
@@ -798,15 +873,19 @@ public class Main {
             });
             window.setOnExit(() -> {
                 // Reuse same confirmation logic as ESC / window close
-                pausePrev[0] = paused[0];
-                paused[0] = true;
+                boolean romLoaded = (romFilePathHolder[0] != null);
+                if (romLoaded) {
+                    pausePrev[0] = paused[0];
+                    paused[0] = true;
+                }
                 int res = javax.swing.JOptionPane.showConfirmDialog(window.getFrame(),
                         "You really want exit?", "Confirm Exit",
                         javax.swing.JOptionPane.YES_NO_OPTION);
                 if (res == javax.swing.JOptionPane.YES_OPTION) {
                     exitConfirmed.run();
                 } else {
-                    paused[0] = pausePrev[0];
+                    if (romLoaded)
+                        paused[0] = pausePrev[0];
                 }
             });
             window.setOnLoadRom(path -> {
