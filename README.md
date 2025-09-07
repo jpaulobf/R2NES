@@ -12,7 +12,7 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.5.6)
+### Current Release (0.5.6.1)
 UX/QoL polish around overlays and ROM lifecycle.
 
 What's new in 0.5.6:
@@ -206,7 +206,7 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.5.6)
+### Versão Atual (0.5.6.1)
 Polimento de UX/QoL em overlays e ciclo de vida da ROM.
 
 Novidades em 0.5.6:

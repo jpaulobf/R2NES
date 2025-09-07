@@ -1,6 +1,12 @@
 Changelog - R2NES
 ===================
 
+Version 0.5.6.1 – Refactory and Cleaning
+
+- No functionality has been added/changed.
+
+------------------------
+
 Version 0.5.6 – UX/QoL: Centered Overlays, Close ROM, Safer No‑ROM Mode (2025-09-07)
 ------------------------
 
