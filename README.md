@@ -12,10 +12,16 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.5.5)
-Optional gamepad support (LWJGL/GLFW) and improved packaging with runtime libs under `target/lib`. Audio (0.5) remains as described below.
+### Current Release (0.5.6)
+UX/QoL polish around overlays and ROM lifecycle.
 
-What's new in 0.5.5:
+What's new in 0.5.6:
+* Centered overlays: all non-HUD message windows (RESET, save/load feedback, fast-forward indicator, PAUSED) are now centered; text is centered within each box. HUD unchanged.
+* Safer no-ROM mode: when no ROM is loaded, save/load state, pause, fast-forward, and reset actions are disabled/ignored; fast-forward overlay is hidden.
+* File → Close ROM: unloads the current ROM, performs PRG RAM autosave, stops audio, and returns to the black-screen emulator. Window title reflects the no-ROM state.
+* Load ROM auto-pause: if a game is running, the emulator auto-pauses while the file chooser is open and restores the prior pause state if canceled.
+
+Highlights from 0.5.5:
 * Gamepad (optional): enable with `gamepad=true` in `emulator.ini`. Standard mapping to NES buttons (A/B/Start/Select + D-Pad), fallback to left stick axes.
 * Packaging: dependencies are copied to `target/lib` and Jar manifest uses Class-Path to load them automatically.
 
@@ -200,10 +206,16 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.5.5)
-Suporte opcional a gamepad (LWJGL/GLFW) e empacotamento com dependências em `target/lib`. Áudio (0.5) permanece conforme abaixo.
+### Versão Atual (0.5.6)
+Polimento de UX/QoL em overlays e ciclo de vida da ROM.
 
-Novidades em 0.5.5:
+Novidades em 0.5.6:
+* Overlays centralizados: todas as janelas de mensagens que não são HUD (RESET, feedback de save/load, indicador de fast-forward, PAUSED) agora ficam centralizadas; o texto fica centralizado dentro de cada caixa. HUD inalterado.
+* Modo sem ROM mais seguro: quando não há ROM carregada, as ações de save/load state, pausa, fast-forward e reset ficam desabilitadas/ignoradas; o overlay de fast-forward é oculto.
+* File → Close ROM: descarrega a ROM atual, faz autosave da PRG RAM, para o áudio e retorna para a tela preta. O título da janela indica o estado sem ROM.
+* Auto-pause ao carregar ROM: se um jogo estiver rodando, o emulador entra em pausa automaticamente enquanto o seletor de arquivos está aberto e restaura o estado anterior se houver cancelamento.
+
+Destaques do 0.5.5:
 * Gamepad (opcional): habilite com `gamepad=true` no `emulator.ini`. Mapeamento padrão para NES (A/B/Start/Select + D-Pad), com fallback para o stick esquerdo.
 * Empacotamento: dependências são copiadas para `target/lib` e o manifest do JAR usa Class-Path para carregá-las automaticamente.
 

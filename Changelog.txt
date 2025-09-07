@@ -1,6 +1,24 @@
 Changelog - R2NES
 ===================
 
+Version 0.5.6 – UX/QoL: Centered Overlays, Close ROM, Safer No‑ROM Mode (2025-09-07)
+------------------------
+
+Added
+- File → Close ROM menu action to unload the current cartridge, stop audio, and return to the black‑screen emulator state. Performs PRG RAM autosave and updates the window title to indicate no ROM.
+- Auto‑pause when opening the Load ROM dialog if a game is running; the prior pause state is restored if the dialog is canceled. After a successful load, the emulator resumes as expected.
+- Menu state reflection: Reset and Close ROM menu items are disabled when no ROM is loaded.
+
+Changed
+- All non‑HUD message overlays (RESET notice, save/load state feedback, fast‑forward indicator, and PAUSED) are now centered on the screen, and their text is centered within each message box. The HUD remains unchanged.
+- Fast‑forward overlay is hidden when no ROM is loaded.
+
+Fixed
+- Prevented accidental actions when no ROM is loaded: hotkeys for save/load state, pause, fast‑forward, and reset are ignored in no‑ROM mode.
+
+Notes
+- Complements the black‑screen no‑ROM startup behavior introduced in 0.3.9.8.
+
 Version 0.5.5 – Optional Gamepad (LWJGL/GLFW) + Runtime Lib Packaging (2025-09-07)
 ------------------------
 

@@ -135,6 +135,8 @@ public class NesWindow {
     private Runnable onExitCallback; // optional external hook (if null -> window dispose)
     private Runnable onCloseRomCallback; // optional external hook for closing current ROM
     private java.util.function.Consumer<Path> onLoadRomCallback; // invoked with selected ROM path
+    private Runnable onBeforeOpenLoadRomDialog; // optional hook to pause gameplay before dialog
+    private Runnable onAfterLoadRomDialogCancelled; // optional hook to restore state when user cancels
     private volatile File fileChooserStartDir; // preferred starting directory
     // Keep references to menu items we may toggle at runtime
     private javax.swing.JMenuItem resetMenuItem;
@@ -160,6 +162,16 @@ public class NesWindow {
         this.onLoadRomCallback = c;
     }
 
+    /** Set callback invoked right before showing the Load ROM dialog. */
+    public void setOnBeforeOpenLoadRomDialog(Runnable r) {
+        this.onBeforeOpenLoadRomDialog = r;
+    }
+
+    /** Set callback invoked after closing Load ROM dialog when user cancels. */
+    public void setOnAfterLoadRomDialogCancelled(Runnable r) {
+        this.onAfterLoadRomDialogCancelled = r;
+    }
+
     /** Define diretório inicial preferido para o diálogo de Load ROM. */
     public void setFileChooserStartDir(Path dir) {
         try {
@@ -182,6 +194,13 @@ public class NesWindow {
                 }
             } catch (Exception ignore) {
             }
+            // Allow clients (Main) to pause before blocking dialog
+            if (onBeforeOpenLoadRomDialog != null) {
+                try {
+                    onBeforeOpenLoadRomDialog.run();
+                } catch (Exception ignore) {
+                }
+            }
             int res = fc.showOpenDialog(frame);
             if (res == JFileChooser.APPROVE_OPTION && onLoadRomCallback != null) {
                 try {
@@ -196,6 +215,21 @@ public class NesWindow {
                 } catch (Exception ex) {
                     javax.swing.JOptionPane.showMessageDialog(frame, "Failed to load ROM: " + ex.getMessage(),
                             "Load ROM", javax.swing.JOptionPane.ERROR_MESSAGE);
+                    // Consider this a cancel for pause restoration purposes
+                    if (onAfterLoadRomDialogCancelled != null) {
+                        try {
+                            onAfterLoadRomDialogCancelled.run();
+                        } catch (Exception ignore) {
+                        }
+                    }
+                }
+            } else {
+                // User cancelled
+                if (onAfterLoadRomDialogCancelled != null) {
+                    try {
+                        onAfterLoadRomDialogCancelled.run();
+                    } catch (Exception ignore) {
+                    }
                 }
             }
             restoreFocus();

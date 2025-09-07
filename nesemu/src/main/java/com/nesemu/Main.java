@@ -910,6 +910,20 @@ public class Main {
                         paused[0] = pausePrev[0];
                 }
             });
+            // Auto-pause around Load ROM dialog when a ROM is loaded
+            window.setOnBeforeOpenLoadRomDialog(() -> {
+                boolean romLoaded = (romFilePathHolder[0] != null);
+                if (romLoaded) {
+                    pausePrev[0] = paused[0];
+                    paused[0] = true;
+                }
+            });
+            window.setOnAfterLoadRomDialogCancelled(() -> {
+                boolean romLoaded = (romFilePathHolder[0] != null);
+                if (romLoaded) {
+                    paused[0] = pausePrev[0];
+                }
+            });
             // Close ROM: unload current ROM and return to black screen
             window.setOnCloseRom(() -> {
                 if (romFilePathHolder[0] == null) {
@@ -957,7 +971,7 @@ public class Main {
             });
             window.setOnLoadRom(path -> {
                 Log.info(GENERAL, "Menu Load ROM: %s", path);
-                paused[0] = true; // pause while swapping
+                paused[0] = true; // keep paused during swap
                 try {
                     if (emuRef[0] != null) {
                         try {
