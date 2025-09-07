@@ -6,7 +6,6 @@ import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.ppu.PPU;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.rom.RomLoader;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;

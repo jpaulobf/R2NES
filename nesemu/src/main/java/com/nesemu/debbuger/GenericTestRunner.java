@@ -11,7 +11,6 @@ import com.nesemu.mapper.Mapper5;
 import com.nesemu.ppu.PPU;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
-
 import java.nio.file.Path;
 import java.util.Locale;
 import com.nesemu.util.Log;

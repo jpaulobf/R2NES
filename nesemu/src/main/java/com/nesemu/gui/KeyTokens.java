@@ -2,11 +2,22 @@ package com.nesemu.gui;
 
 import java.awt.event.KeyEvent;
 
-/** Utility to convert AWT KeyEvent to our lowercase token strings. */
+/**
+ * Utility class for converting KeyEvent instances to string tokens
+ */
 public final class KeyTokens {
+
+    /**
+     * Private constructor to prevent instantiation
+     */
     private KeyTokens() {
     }
 
+    /**
+     * Convert a KeyEvent to its corresponding string token.
+     * @param e
+     * @return
+     */
     public static String from(KeyEvent e) {
         int code = e.getKeyCode();
         switch (code) {

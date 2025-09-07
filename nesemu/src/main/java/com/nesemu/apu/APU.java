@@ -7,6 +7,7 @@ import com.nesemu.apu.interfaces.NesAPU;
  * This is a minimal starting point; it does not generate audio yet.
  */
 public class APU implements NesAPU {
+
     // Register latches ($4000-$4017)
     private final int[] regs = new int[0x18];
 
@@ -19,11 +20,11 @@ public class APU implements NesAPU {
     private boolean irqInhibit; // bit 6
     private int frameCycle; // CPU cycles since last frame step (conceptual)
 
-    // Timing: maintain a double-speed CPU cycle counter so we can hit .5 cycle
-    // events
+    // Timing: maintain a double-speed CPU cycle counter so we can hit .5 cycle events
     private int cpuCycles2x; // increments by +2 per CPU cycle
     private int eventIndex; // current event within sequence
     private int nextEventAt2x; // absolute time (2x cycles) for next event
+
     // APU main timers clock at CPU/2. We toggle this each CPU cycle.
     private boolean apuTickPhase;
 
@@ -36,48 +37,7 @@ public class APU implements NesAPU {
     private int sampleWriteIdx = 0;
     private int sampleReadIdx = 0;
 
-    // Debug/testing counters
-    private int quarterTickCount;
-    private int halfTickCount;
-
-    // ---- Envelope generators (pulse1, pulse2, noise) ----
-    private static class Envelope {
-        int period; // 0..15 from reg low nibble
-        boolean constantVolume; // bit4
-        boolean loop; // bit5 (also halts length when set on pulse/noise)
-        boolean start;
-        int divider;
-        int decay; // 0..15
-
-        int getOutput() {
-            return constantVolume ? period : decay;
-        }
-
-        void quarterTick() {
-            if (start) {
-                start = false;
-                decay = 15;
-                divider = period;
-            } else {
-                if (divider == 0) {
-                    divider = period;
-                    if (decay > 0)
-                        decay--;
-                    else if (loop)
-                        decay = 15;
-                } else {
-                    divider--;
-                }
-            }
-        }
-
-        void reloadFromReg(int regVal) {
-            period = regVal & 0x0F;
-            constantVolume = (regVal & 0x10) != 0;
-            loop = (regVal & 0x20) != 0;
-        }
-    }
-
+    // ---- Envelope generators ----
     private final Envelope envP1 = new Envelope();
     private final Envelope envP2 = new Envelope();
     private final Envelope envNoise = new Envelope();
@@ -91,6 +51,67 @@ public class APU implements NesAPU {
             12, 16, 24, 18, 48, 20, 96, 22,
             192, 24, 72, 26, 16, 28, 32, 30
     };
+
+    // ---- Triangle linear counter fields ----
+    private int triLinearValue;
+    private boolean triLinearControl;
+    private boolean triLinearReloadFlag;
+    private int triLinearCounter;
+
+    // ---- Pulse timers and sweep ----
+    private int p1Timer, p2Timer; // 11-bit timers
+    private boolean p1Muted, p2Muted;
+    private Sweep sw1, sw2;
+
+    // Pulse duty/phase and downcounters
+    private int p1Duty, p2Duty; // 0..3
+    private int p1DutyStep, p2DutyStep; // 0..7
+    private int p1TimerCounter, p2TimerCounter; // downcounter
+
+    // ---- Triangle state ----
+    private int triTimer; // 11-bit
+    private int triTimerCounter; // downcounter
+    private int triStep; // 0..31
+
+    // ---- Noise state ----
+    private int noisePeriodIdx; // 0..15
+    private boolean noiseModeShort; // true => short mode (tap 6)
+    private int noiseTimerCounter; // downcounter
+    private int noiseLfsr; // 15-bit LFSR
+
+    // Duty cycle table for pulse channels
+    private static final int[][] DUTY_TABLE = new int[][] {
+            // 8-step sequences per NES spec
+            { 0, 1, 0, 0, 0, 0, 0, 0 }, // 12.5%
+            { 0, 1, 1, 0, 0, 0, 0, 0 }, // 25%
+            { 0, 1, 1, 1, 1, 0, 0, 0 }, // 50%
+            { 1, 0, 0, 1, 1, 1, 1, 1 } // 75%
+    };
+
+    // Triangle output levels (0..15)
+    private static final int[] TRI_TABLE = new int[] {
+            15, 14, 13, 12, 11, 10, 9, 8,
+            7, 6, 5, 4, 3, 2, 1, 0,
+            0, 1, 2, 3, 4, 5, 6, 7,
+            8, 9, 10, 11, 12, 13, 14, 15
+    };
+
+    // Noise periods in CPU/2 cycles (NTSC)
+    private static final int[] NOISE_PERIODS = new int[] {
+            4, 8, 16, 32, 64, 96, 128, 160,
+            202, 254, 380, 508, 762, 1016, 2034, 4068
+    };
+
+    // Event times in 2x CPU cycles (handles .5 cycle resolution)
+    // 4-step: 3729.5, 7456.5, 11186.5, 14915.5
+    private static final int[] FOUR_STEP_EVENTS_2X = { 7459, 14913, 22373, 29831 };
+
+    // 5-step: 3729.5, 7456.5, 11186.5, 14916.5, 18641.5 (no IRQ)
+    private static final int[] FIVE_STEP_EVENTS_2X = { 7459, 14913, 22373, 29833, 37283 };
+
+    // ------ Debug/testing counters
+    private int quarterTickCount;
+    private int halfTickCount;
 
     @Override
     public void reset() {
@@ -175,8 +196,7 @@ public class APU implements NesAPU {
             return;
         regs[idx] = value & 0xFF;
         if (address == 0x4015) {
-            // Channel enables + DMC enable. For now only latch; clearing length counters
-            // later.
+            // Channel enables + DMC enable. For now only latch; clearing length counters later.
             // Writing 0 clears DMC IRQ; writing 1 enables DMC (to be implemented).
             dmcIrq = false; // $4015 write clears DMC IRQ
             enaP1 = (value & 0x01) != 0;
@@ -306,19 +326,18 @@ public class APU implements NesAPU {
         return status & 0xFF;
     }
 
-    // ----- Frame sequencer helpers -----
-
-    // Event times in 2x CPU cycles (handles .5 cycle resolution)
-    // 4-step: 3729.5, 7456.5, 11186.5, 14915.5
-    private static final int[] FOUR_STEP_EVENTS_2X = { 7459, 14913, 22373, 29831 };
-    // 5-step: 3729.5, 7456.5, 11186.5, 14916.5, 18641.5 (no IRQ)
-    private static final int[] FIVE_STEP_EVENTS_2X = { 7459, 14913, 22373, 29833, 37283 };
-
+    /**
+     * Schedule next event time based on current mode and event index.
+     */
     private void scheduleNextEvent() {
         int[] table = fiveStepMode ? FIVE_STEP_EVENTS_2X : FOUR_STEP_EVENTS_2X;
         nextEventAt2x = table[eventIndex];
     }
 
+    /**
+     * Advance to next event in sequence, wrapping and handling end-of-sequence
+     * actions.
+     */
     private void advanceSequencer() {
         int[] table = fiveStepMode ? FIVE_STEP_EVENTS_2X : FOUR_STEP_EVENTS_2X;
         eventIndex++;
@@ -334,6 +353,10 @@ public class APU implements NesAPU {
         scheduleNextEvent();
     }
 
+    /**
+     * Handle a sequencer event at given index.
+     * @param idx
+     */
     private void onSequencerEvent(int idx) {
         if (fiveStepMode) {
             switch (idx) {
@@ -354,6 +377,10 @@ public class APU implements NesAPU {
         }
     }
 
+    /**
+     * Handle quarter-frame tick: envelope and triangle linear counter
+     * updates.
+     */
     private void quarterFrameTick() {
         quarterTickCount++;
         envP1.quarterTick();
@@ -370,6 +397,9 @@ public class APU implements NesAPU {
         }
     }
 
+    /**
+     * Handle half-frame tick: length counter and sweep updates.
+     */
     private void halfFrameTick() {
         halfTickCount++;
         // Length counters decrement when >0 and not halted
@@ -392,73 +422,9 @@ public class APU implements NesAPU {
             sw2.halfTick();
     }
 
-    // ---- Test helpers (expose counters) ----
-    public int getQuarterTickCount() {
-        return quarterTickCount;
-    }
-
-    public int getHalfTickCount() {
-        return halfTickCount;
-    }
-
-    public boolean isFrameIrq() {
-        return frameIrq;
-    }
-
-    // Test helpers
-    public int getPulse1EnvelopeVolume() {
-        return envP1.getOutput();
-    }
-
-    public int getPulse1Length() {
-        return lenP1;
-    }
-
-    // ---- Additional test helpers ----
-    public int getTriangleLinearCounter() {
-        return triLinearCounter;
-    }
-
-    public int getPulse1Timer() {
-        return p1Timer & 0x7FF;
-    }
-
-    public boolean isPulse1Muted() {
-        return p1Muted;
-    }
-
-    public boolean isPulse2Muted() {
-        return p2Muted;
-    }
-
-    // ---- Triangle linear counter fields ----
-    private int triLinearValue;
-    private boolean triLinearControl;
-    private boolean triLinearReloadFlag;
-    private int triLinearCounter;
-
-    // ---- Pulse timers and sweep ----
-    private int p1Timer, p2Timer; // 11-bit timers
-    private boolean p1Muted, p2Muted;
-    private Sweep sw1, sw2;
-    // Pulse duty/phase and downcounters
-    private int p1Duty, p2Duty; // 0..3
-    private int p1DutyStep, p2DutyStep; // 0..7
-    private int p1TimerCounter, p2TimerCounter; // downcounter
-
-    private void updatePulseMuteFlags() {
-        p1Muted = (p1Timer <= 8) || (p1Timer > 0x7FF);
-        p2Muted = (p2Timer <= 8) || (p2Timer > 0x7FF);
-    }
-
-    private static final int[][] DUTY_TABLE = new int[][] {
-            // 8-step sequences per NES spec
-            { 0, 1, 0, 0, 0, 0, 0, 0 }, // 12.5%
-            { 0, 1, 1, 0, 0, 0, 0, 0 }, // 25%
-            { 0, 1, 1, 1, 1, 0, 0, 0 }, // 50%
-            { 1, 0, 0, 1, 1, 1, 1, 1 } // 75%
-    };
-
+    /**
+     * Clock the channel timers (called at CPU/2 rate).
+     */
     private void clockChannelTimers() {
         // Pulse 1
         if (!p1Muted && lenP1 > 0) {
@@ -506,59 +472,9 @@ public class APU implements NesAPU {
         }
     }
 
-    // Minimal test helper outputs
-    public int getPulse1DutyStep() {
-        return p1DutyStep;
-    }
-
-    public int getPulse2DutyStep() {
-        return p2DutyStep;
-    }
-
-    public int getPulse1OutputLevel() {
-        // Returns the instantaneous DAC level for Pulse1 (without mixer curve)
-        if (p1Muted || lenP1 == 0)
-            return 0;
-        int bit = DUTY_TABLE[p1Duty][p1DutyStep];
-        return bit == 1 ? envP1.getOutput() : 0;
-    }
-
-    public int getPulse2OutputLevel() {
-        if (p2Muted || lenP2 == 0)
-            return 0;
-        int bit = DUTY_TABLE[p2Duty][p2DutyStep];
-        return bit == 1 ? envP2.getOutput() : 0;
-    }
-
-    // ---- Triangle state ----
-    private int triTimer; // 11-bit
-    private int triTimerCounter; // downcounter
-    private int triStep; // 0..31
-
-    private static final int[] TRI_TABLE = new int[] {
-            15, 14, 13, 12, 11, 10, 9, 8,
-            7, 6, 5, 4, 3, 2, 1, 0,
-            0, 1, 2, 3, 4, 5, 6, 7,
-            8, 9, 10, 11, 12, 13, 14, 15
-    };
-
-    // Minimal test helper for triangle
-    public int getTriangleTimer() {
-        return triTimer & 0x7FF;
-    }
-
-    public int getTriangleStep() {
-        return triStep & 31;
-    }
-
-    public int getTriangleOutputLevel() {
-        if (lenTri == 0 || (triTimer & 0x7FF) < 2)
-            return 0;
-        // Output even if linear is zero; sequencer halts but level remains last
-        return TRI_TABLE[triStep];
-    }
-
-    // ---- Mixer helpers ----
+    /**
+     * Recompute sample interval in 2x units based on current sample rate and CPU
+     */
     private void recomputeSampleInterval() {
         // 2x-units per second = 2 * cpuClockHz; interval per sample is that /
         // sampleRate
@@ -566,6 +482,10 @@ public class APU implements NesAPU {
         sampleInterval2xUnits = (int) Math.max(1, Math.round(interval));
     }
 
+    /**
+     * Mix the current output sample from all channels, applying the NES APU mixer
+     * @return
+     */
     private float mixOutputSample() {
         // instantaneous DAC-like levels
         int p1 = getPulse1OutputLevel(); // 0..15
@@ -589,6 +509,10 @@ public class APU implements NesAPU {
         return (float) out;
     }
 
+    /**
+     * Write a sample to the ring buffer, dropping if full.
+     * @param s
+     */
     private void writeSample(float s) {
         int next = (sampleWriteIdx + 1) & (sampleBuf.length - 1);
         if (next != sampleReadIdx) { // drop if buffer full
@@ -597,7 +521,54 @@ public class APU implements NesAPU {
         }
     }
 
-    // Public sampling API for consumers/tests
+    /**
+     * Update pulse mute flags based on current timer values.
+     */
+    private void updatePulseMuteFlags() {
+        p1Muted = (p1Timer <= 8) || (p1Timer > 0x7FF);
+        p2Muted = (p2Timer <= 8) || (p2Timer > 0x7FF);
+    }
+
+    // --------- Public test helpers and state accessors -----
+
+    /**
+     * Get current Pulse1 output level (0..15) before mixer curve.
+     * @return
+     */
+    public int getPulse1OutputLevel() {
+        // Returns the instantaneous DAC level for Pulse1 (without mixer curve)
+        if (p1Muted || lenP1 == 0)
+            return 0;
+        int bit = DUTY_TABLE[p1Duty][p1DutyStep];
+        return bit == 1 ? envP1.getOutput() : 0;
+    }
+
+    /**
+     * Get current Pulse2 output level (0..15) before mixer curve.
+     * @return
+     */
+    public int getPulse2OutputLevel() {
+        if (p2Muted || lenP2 == 0)
+            return 0;
+        int bit = DUTY_TABLE[p2Duty][p2DutyStep];
+        return bit == 1 ? envP2.getOutput() : 0;
+    }
+    
+    /**
+     * Get current Triangle output level (0..15) before mixer curve.
+     * @return
+     */
+    public int getTriangleOutputLevel() {
+        if (lenTri == 0 || (triTimer & 0x7FF) < 2)
+            return 0;
+        // Output even if linear is zero; sequencer halts but level remains last
+        return TRI_TABLE[triStep];
+    }
+
+    /**
+     * Set desired sample rate in Hz (minimum 1000).
+     * @param hz
+     */
     public void setSampleRate(int hz) {
         if (hz <= 1000)
             return;
@@ -605,6 +576,10 @@ public class APU implements NesAPU {
         recomputeSampleInterval();
     }
 
+    /**
+     * Set CPU clock rate in Hz (minimum 100000).
+     * @param hz
+     */
     public void setCpuClockHz(int hz) {
         if (hz <= 100000)
             return;
@@ -612,6 +587,10 @@ public class APU implements NesAPU {
         recomputeSampleInterval();
     }
 
+    /**
+     * Get number of pending samples in ring buffer.
+     * @return
+     */
     public int getPendingSampleCount() {
         int diff = sampleWriteIdx - sampleReadIdx;
         if (diff < 0)
@@ -619,6 +598,10 @@ public class APU implements NesAPU {
         return diff;
     }
 
+    /**
+     * Read one sample from ring buffer, or 0 if none available.
+     * @return
+     */
     public float readSample() {
         if (sampleReadIdx == sampleWriteIdx)
             return 0f;
@@ -627,16 +610,10 @@ public class APU implements NesAPU {
         return v;
     }
 
-    // ---- Noise state ----
-    private static final int[] NOISE_PERIODS = new int[] {
-            4, 8, 16, 32, 64, 96, 128, 160,
-            202, 254, 380, 508, 762, 1016, 2034, 4068
-    };
-    private int noisePeriodIdx; // 0..15
-    private boolean noiseModeShort; // true => short mode (tap 6)
-    private int noiseTimerCounter; // downcounter
-    private int noiseLfsr; // 15-bit LFSR
-
+    /**
+     * Get current Noise output level (0..15) before mixer curve.
+     * @return
+     */
     public int getNoiseOutputLevel() {
         if (lenNoise == 0)
             return 0;
@@ -645,12 +622,133 @@ public class APU implements NesAPU {
         return b0 == 0 ? envNoise.getOutput() : 0;
     }
 
-    // For tests / debug
+    // ---- Test helpers (expose counters) ----
+
+    public int getQuarterTickCount() {
+        return quarterTickCount;
+    }
+
+    public int getHalfTickCount() {
+        return halfTickCount;
+    }
+
+    public boolean isFrameIrq() {
+        return frameIrq;
+    }
+
+    // Test helpers
+    public int getPulse1EnvelopeVolume() {
+        return envP1.getOutput();
+    }
+
+    public int getPulse1Length() {
+        return lenP1;
+    }
+
+    public int getTriangleLinearCounter() {
+        return triLinearCounter;
+    }
+
+    public int getPulse1Timer() {
+        return p1Timer & 0x7FF;
+    }
+
+    public boolean isPulse1Muted() {
+        return p1Muted;
+    }
+
+    public boolean isPulse2Muted() {
+        return p2Muted;
+    }
+
+    public int getPulse1DutyStep() {
+        return p1DutyStep;
+    }
+
+    public int getPulse2DutyStep() {
+        return p2DutyStep;
+    }
+
+    public int getTriangleTimer() {
+        return triTimer & 0x7FF;
+    }
+
+    public int getTriangleStep() {
+        return triStep & 31;
+    }
+
     public int getNoiseLfsrBit0() {
         return noiseLfsr & 1;
     }
 
+    public int getFrameCycle() {
+        return frameCycle;
+    }
+
+    // -------------------- Helper Envelope class --------------------
+
+    /**
+     * Envelope generator state and logic (for pulse and noise channels)
+     */ 
+    private static class Envelope {
+        
+        // Envelope state
+        int period; // 0..15 from reg low nibble
+        boolean constantVolume; // bit4
+        boolean loop; // bit5 (also halts length when set on pulse/noise)
+        boolean start;
+        int divider;
+        int decay; // 0..15
+
+        /**
+         * Get current output volume level (0..15)
+         * @return
+         */
+        int getOutput() {
+            return constantVolume ? period : decay;
+        }
+
+        /**
+         * Clock a quarter-frame tick: handle starting, divider countdown, decay
+         */
+        void quarterTick() {
+            if (start) {
+                start = false;
+                decay = 15;
+                divider = period;
+            } else {
+                if (divider == 0) {
+                    divider = period;
+                    if (decay > 0)
+                        decay--;
+                    else if (loop)
+                        decay = 15;
+                } else {
+                    divider--;
+                }
+            }
+        }
+
+        /**
+         * Load envelope parameters from register value.
+         * @param regVal
+         */
+        void reloadFromReg(int regVal) {
+            period = regVal & 0x0F;
+            constantVolume = (regVal & 0x10) != 0;
+            loop = (regVal & 0x20) != 0;
+        }
+    }
+
+
+    // -------------------- Helper Sweep class --------------------
+
+    /**
+     * Sweep unit state and logic (for pulse channels)
+     */
     private final class Sweep {
+
+        // Sweep state
         final int ch; // 1 or 2
         boolean enabled;
         int period; // 0..7
@@ -659,10 +757,18 @@ public class APU implements NesAPU {
         int divider;
         boolean reload;
 
+        /**
+         * Constructor
+         * @param ch
+         */
         Sweep(int ch) {
             this.ch = ch;
         }
 
+        /**
+         * Write sweep register value
+         * @param v
+         */
         void write(int v) {
             enabled = (v & 0x80) != 0;
             period = (v >> 4) & 0x07;
@@ -676,11 +782,17 @@ public class APU implements NesAPU {
             reload = false;
         }
 
+        /**
+         * Called when timer or relevant registers change to recompute mute state
+         */
         void onTimerOrRegChange() {
             // No-op here; placeholder if we need to recompute mute
             updatePulseMuteFlags();
         }
 
+        /**
+         * Clock a half-frame tick: handle divider countdown and sweep application
+         */
         void halfTick() {
             boolean doSweep = false;
             if (divider == 0) {
@@ -721,9 +833,5 @@ public class APU implements NesAPU {
                     p2Muted = mute;
             }
         }
-    }
-
-    public int getFrameCycle() {
-        return frameCycle;
     }
 }

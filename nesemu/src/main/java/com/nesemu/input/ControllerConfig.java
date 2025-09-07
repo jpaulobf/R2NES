@@ -13,6 +13,7 @@ public class ControllerConfig {
 
     // Map of button to set of tokens
     private final Map<ControllerButton, Set<String>> map = new EnumMap<>(ControllerButton.class);
+    
     // Map of button to set of TURBO tokens (only meaningful for A/B)
     private final Map<ControllerButton, Set<String>> turboMap = new EnumMap<>(ControllerButton.class);
 

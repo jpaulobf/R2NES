@@ -171,6 +171,11 @@ public class NesController implements Controller {
         latchedValue = v;
     }
 
+    /**
+     * Check if any turbo token is currently pressed for the given button.
+     * @param btn
+     * @return
+     */
     private boolean hasTurboTokenPressed(ControllerButton btn) {
         for (String tok : config.getTurboTokens(btn)) {
             if (pressed.contains(tok))
@@ -179,6 +184,10 @@ public class NesController implements Controller {
         return false;
     }
 
+    /**
+     * Compute whether turbo is ON or OFF based on current frame counter and mode.
+     * @return
+     */
     private boolean computeTurboOn() {
         if (turboFast) {
             // 30Hz: ON 1 frame, OFF 1 frame (even frames ON)
@@ -190,7 +199,10 @@ public class NesController implements Controller {
         }
     }
 
-    /** Enable/disable fast turbo (30Hz vs 15Hz). */
+    /**
+     * Set turbo mode.
+     * @param fast
+     */
     public void setTurboFast(boolean fast) {
         this.turboFast = fast;
     }

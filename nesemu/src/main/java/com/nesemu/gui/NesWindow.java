@@ -5,16 +5,21 @@ import javax.swing.SwingUtilities;
 import javax.swing.JMenuBar;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JFileChooser;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import com.nesemu.io.NesController;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
+import java.awt.Toolkit;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Canvas;
 import java.awt.image.BufferStrategy;
+import java.awt.image.BufferedImage;
 import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.nio.file.Path;
@@ -27,13 +32,12 @@ import java.io.File;
  * - Passive rendering with JPanel + repaint (fallback, more compatible)
  */
 public class NesWindow {
+
     // GUI components
     private final JFrame frame;
     private final VideoRenderer renderer; // Swing path
     private final Canvas canvas; // Active rendering path
     private Rectangle windowedBounds = null;
-    // (legacy placeholder callback fields removed; replaced by explicit setters
-    // below)
 
     // Active rendering state
     private BufferStrategy bufferStrategy;
@@ -56,6 +60,7 @@ public class NesWindow {
     private volatile int fastForwardMaxFps = 0; // 0 = ilimitado
     private long ffFpsWindowStart = 0L;
     private int ffFpsFrames = 0;
+
     // Frame timing instrumentation
     private volatile long lastFrameNanos = 0L; // duração do frame anterior
     private volatile double avgFrameNanos = 0.0; // média exponencial suavizada
@@ -63,6 +68,18 @@ public class NesWindow {
     private volatile double jitterNanos = 0.0; // média exponencial da diferença absoluta
     private static final double FRAME_AVG_ALPHA = 0.08;
     private static final double JITTER_ALPHA = 0.08;
+    private Cursor hiddenCursor = null;
+
+    // --------------------------- Menu Bar ------------------------------------
+    private Runnable onResetCallback; // optional external hook
+    private Runnable onExitCallback; // optional external hook (if null -> window dispose)
+    private Runnable onCloseRomCallback; // optional external hook for closing current ROM
+    private Consumer<Path> onLoadRomCallback; // invoked with selected ROM path
+    private Runnable onBeforeOpenLoadRomDialog; // optional hook to pause gameplay before dialog
+    private Runnable onAfterLoadRomDialogCancelled; // optional hook to restore state when user cancels
+    private volatile File fileChooserStartDir; // preferred starting directory
+    private javax.swing.JMenuItem resetMenuItem;
+    private javax.swing.JMenuItem closeRomMenuItem;
 
     /**
      * Constructor, default scale=2.
@@ -130,18 +147,6 @@ public class NesWindow {
         renderer.setFrameBuffer(framebuffer);
     }
 
-    // --------------------------- Menu Bar ------------------------------------
-    private Runnable onResetCallback; // optional external hook
-    private Runnable onExitCallback; // optional external hook (if null -> window dispose)
-    private Runnable onCloseRomCallback; // optional external hook for closing current ROM
-    private java.util.function.Consumer<Path> onLoadRomCallback; // invoked with selected ROM path
-    private Runnable onBeforeOpenLoadRomDialog; // optional hook to pause gameplay before dialog
-    private Runnable onAfterLoadRomDialogCancelled; // optional hook to restore state when user cancels
-    private volatile File fileChooserStartDir; // preferred starting directory
-    // Keep references to menu items we may toggle at runtime
-    private javax.swing.JMenuItem resetMenuItem;
-    private javax.swing.JMenuItem closeRomMenuItem;
-
     /** Set callback invoked when user activates File->Reset. */
     public void setOnReset(Runnable r) {
         this.onResetCallback = r;
@@ -158,7 +163,7 @@ public class NesWindow {
     }
 
     /** Set callback for File->Load ROM (receives Path). */
-    public void setOnLoadRom(java.util.function.Consumer<Path> c) {
+    public void setOnLoadRom(Consumer<Path> c) {
         this.onLoadRomCallback = c;
     }
 
@@ -180,6 +185,9 @@ public class NesWindow {
         }
     }
 
+    /**
+     * Build the menu bar and attach to frame.
+     */
     private void buildMenuBar() {
         JMenuBar mb = new JMenuBar();
         JMenu file = new JMenu("File");
@@ -213,8 +221,8 @@ public class NesWindow {
                         onLoadRomCallback.accept(sel.toPath());
                     }
                 } catch (Exception ex) {
-                    javax.swing.JOptionPane.showMessageDialog(frame, "Failed to load ROM: " + ex.getMessage(),
-                            "Load ROM", javax.swing.JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(frame, "Failed to load ROM: " + ex.getMessage(),
+                            "Load ROM", JOptionPane.ERROR_MESSAGE);
                     // Consider this a cancel for pause restoration purposes
                     if (onAfterLoadRomDialogCancelled != null) {
                         try {
@@ -274,7 +282,9 @@ public class NesWindow {
         frame.setJMenuBar(mb);
     }
 
-    /** Enable/disable Reset menu item. Safe to call from any thread. */
+    /** 
+     * Enable/disable Reset menu item. Safe to call from any thread. 
+     */
     public void setResetEnabled(boolean enabled) {
         SwingUtilities.invokeLater(() -> {
             if (resetMenuItem != null)
@@ -282,7 +292,9 @@ public class NesWindow {
         });
     }
 
-    /** Enable/disable Close ROM menu item. Safe to call from any thread. */
+    /** 
+     * Enable/disable Close ROM menu item. Safe to call from any thread. 
+     */
     public void setCloseRomEnabled(boolean enabled) {
         SwingUtilities.invokeLater(() -> {
             if (closeRomMenuItem != null)
@@ -290,7 +302,9 @@ public class NesWindow {
         });
     }
 
-    /** Convenience to toggle both Reset and Close ROM at once. */
+    /** 
+     * Convenience to toggle both Reset and Close ROM at once. 
+     */
     public void setRomActionsEnabled(boolean enabled) {
         setResetEnabled(enabled);
         setCloseRomEnabled(enabled);
@@ -383,14 +397,14 @@ public class NesWindow {
         });
     }
 
-    private java.awt.Cursor hiddenCursor = null;
-
+    /**
+     * Hide mouse cursor (used in borderless fullscreen).
+     */
     private void hideCursor() {
         try {
             if (hiddenCursor == null) {
-                java.awt.Toolkit tk = java.awt.Toolkit.getDefaultToolkit();
-                java.awt.Image img = new java.awt.image.BufferedImage(16, 16,
-                        java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                Toolkit tk = Toolkit.getDefaultToolkit();
+                java.awt.Image img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
                 hiddenCursor = tk.createCustomCursor(img, new java.awt.Point(0, 0), "hidden");
             }
             frame.setCursor(hiddenCursor);
@@ -399,9 +413,12 @@ public class NesWindow {
         }
     }
 
+    /**
+     * Show mouse cursor (used when exiting borderless fullscreen).
+     */
     private void showCursor() {
         try {
-            java.awt.Cursor def = java.awt.Cursor.getDefaultCursor();
+            java.awt.Cursor def = Cursor.getDefaultCursor();
             frame.setCursor(def);
             canvas.setCursor(def);
         } catch (Exception ignore) {
@@ -872,14 +889,14 @@ public class NesWindow {
     }
 
     /** Install key listener mapping key pressed/released events to controllers. */
-    public void installControllerKeyListener(com.nesemu.io.NesController p1, com.nesemu.io.NesController p2) {
+    public void installControllerKeyListener(NesController p1, NesController p2) {
         installControllerKeyListener(p1, p2, null, null);
     }
 
     /**
      * Extended variant allowing a special reset key token that fires a callback.
      */
-    public void installControllerKeyListener(com.nesemu.io.NesController p1, com.nesemu.io.NesController p2,
+    public void installControllerKeyListener(NesController p1, NesController p2,
             String resetToken, Runnable onReset) {
         final String resetTok = resetToken == null ? null : resetToken.toLowerCase();
         KeyAdapter adapter = new KeyAdapter() {

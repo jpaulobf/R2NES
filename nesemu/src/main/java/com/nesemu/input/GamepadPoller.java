@@ -17,6 +17,8 @@ import com.nesemu.io.NesController;
  * - Intended as an optional helper; caller controls lifecycle via start/stop.
  */
 public class GamepadPoller implements Runnable {
+
+    // GLFW state
     private final NesController controller;
     private final Thread thread;
     private volatile boolean running = false;
@@ -26,12 +28,23 @@ public class GamepadPoller implements Runnable {
     // Simple mapping state
     private final Map<ControllerButton, Boolean> lastState = new EnumMap<>(ControllerButton.class);
 
+    // Helpers to convert axis value to button state    
+    private int axisPos(float v) { return v > 0.5f ? 1 : 0; }
+    private int axisNeg(float v) { return v < -0.5f ? 1 : 0; }
+
+    /**
+     * Create a new poller for given controller.
+     * @param controller
+     */
     public GamepadPoller(NesController controller) {
         this.controller = controller;
         this.thread = new Thread(this, "NES-Gamepad");
         this.thread.setDaemon(true);
     }
 
+    /**
+     * Start polling thread (no-op if already running).
+     */
     public synchronized void start() {
         if (running) return;
         if (!glfwInit()) {
@@ -51,6 +64,9 @@ public class GamepadPoller implements Runnable {
         thread.start();
     }
 
+    /**
+     * Stop polling thread (no-op if not running).
+     */
     public synchronized void stop() {
         running = false;
         try { thread.join(200); } catch (InterruptedException ignore) {}
@@ -96,9 +112,11 @@ public class GamepadPoller implements Runnable {
         }
     }
 
-    private int axisPos(float v) { return v > 0.5f ? 1 : 0; }
-    private int axisNeg(float v) { return v < -0.5f ? 1 : 0; }
-
+    /**
+     * Convert axis value to "positive" button state (1 if > 0.5, else 0).
+     * @param btn
+     * @param downInt
+     */
     private void setButton(ControllerButton btn, int downInt) {
         boolean down = downInt != 0;
         Boolean prev = lastState.put(btn, down);

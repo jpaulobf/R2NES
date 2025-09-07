@@ -6,5 +6,9 @@ package com.nesemu.emulator;
  * which is typically called to update the state of the component.
  */
 public interface Clockable {
+    
+    /**
+     * Advances the state of the component by one clock cycle.
+     */
     void clock();
 }

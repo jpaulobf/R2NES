@@ -27,6 +27,8 @@ import java.nio.file.StandardCopyOption;
  * an iNES ROM.
  */
 public class NesEmulator {
+
+    // Core components
     private final CPU cpu;
     private final NesBus bus; // system bus (CPU visible view via iBus)
     private final PPU ppu; // minimal PPU skeleton
@@ -37,12 +39,13 @@ public class NesEmulator {
     private boolean autoSaveEnabled = true;
     private long autoSaveIntervalFrames = 600; // ~10s @60fps
     private long lastAutoSaveFrame = 0;
+
     // Save state constants
     private static final int STATE_MAGIC = 0x4E455353; // 'NESS'
     private static final int STATE_VERSION = 2;
 
     /**
-     * CPU↔PPU timing mode. SIMPLE mantém padrão antigo (CPU depois 3×PPU).
+     * CPU <-> PPU timing mode. SIMPLE mantém padrão antigo (CPU depois 3×PPU).
      * INTERLEAVED reduz defasagem média aplicando 1 PPU antes da CPU e 2 depois.
      * Ambos preservam razão 3:1 de ciclos agregados.
      */
@@ -62,21 +65,95 @@ public class NesEmulator {
     private int spinWatchLastPc = -1;
     private long spinWatchSameCount = 0;
     private int spinWatchLastReportedPc = -1; // avoid duplicate reports for same PC run
+
     // Simple read address histogram (top small set) during current spin window
     private static final int SPIN_HIST_SIZE = 8;
     private final int[] spinHistAddr = new int[SPIN_HIST_SIZE];
     private final int[] spinHistCount = new int[SPIN_HIST_SIZE];
+
     // Separate IO/RAM (<0x4020) address histogram
     private static final int SPIN_IO_HIST_SIZE = 8;
     private final int[] spinIoAddr = new int[SPIN_IO_HIST_SIZE];
     private final int[] spinIoCount = new int[SPIN_IO_HIST_SIZE];
+
     // NMI counter snapshot support
     private long lastNmiCountSnapshot = -1;
+
     // Hex dump bytes option
     private int spinDumpBytes = 0; // 0 = disabled
     private int spinDumpLastPc = -1;
 
-    /** Manual on-demand diagnostic snapshot (WARN level) for current state. */
+    /**
+     * Legacy path: build minimal stack with no PPU or mapper (for CPU unit tests).
+     */
+    public NesEmulator() {
+        this.bus = new Bus();
+        this.ppu = null;
+        this.apu = null;
+        this.mapper = null;
+        this.cpu = new CPU(bus);
+    }
+
+    /**
+     * New path: build full stack from ROM
+     * 
+     * @param rom
+     */
+    public NesEmulator(INesRom rom) {
+        int mapperNum = rom.getHeader().getMapper();
+        switch (mapperNum) {
+            case 0 -> this.mapper = new Mapper0(rom);
+            case 2 -> this.mapper = new Mapper2(rom);
+            case 1 -> this.mapper = new Mapper1(rom); // MMC1
+            case 3 -> this.mapper = new Mapper3(rom);
+            case 4 -> this.mapper = new Mapper4(rom); // MMC3 (partial, no IRQ yet)
+            case 5 -> this.mapper = new Mapper5(rom); // MMC5 (partial)
+            default ->
+                throw new IllegalArgumentException(
+                        "Unsupported mapper " + mapperNum + " (only 0,1,2,3,4,5 implemented)");
+        }
+        this.ppu = new PPU();
+        this.ppu.reset();
+        this.ppu.attachMapper(this.mapper);
+        this.bus = new Bus();
+        bus.attachPPU(ppu);
+        bus.attachMapper(mapper, rom);
+        this.apu = new APU();
+        this.apu.reset();
+        bus.attachAPU(this.apu);
+        this.cpu = new CPU(bus);
+        this.ppu.attachCPU(this.cpu);
+    }
+
+    /** Alternative constructor with ROM path (enables automatic .sav naming). */
+    public NesEmulator(INesRom rom, Path romFilePath) {
+        this(rom);
+        this.romPath = romFilePath;
+        deriveAutoSavePath();
+        tryAutoLoad();
+    }
+
+    /**
+     * Alternative constructor with ROM + explicit save directory.
+     * If saveDir != null, the autosave path is placed inside saveDir (creating it)
+     * and PRG RAM is auto-loaded from there (if existing). No lookup is attempted
+     * in the ROM directory in this path.
+     */
+    public NesEmulator(INesRom rom, Path romFilePath, Path saveDir) {
+        this(rom);
+        this.romPath = romFilePath;
+        if (saveDir != null) {
+            setSaveDirectory(saveDir); // sets autoSavePath + attempts load from saveDir
+        } else {
+            deriveAutoSavePath();
+            tryAutoLoad();
+        }
+    }
+
+    /**
+     * Dump a warning-level snapshot of CPU + PPU + Mapper1 (if present) state.
+     * @param reason
+     */
     public void dumpWarnSnapshot(String reason) {
         if (!instrumentationEnabled)
             return; // no-op when instrumentation off
@@ -133,7 +210,10 @@ public class NesEmulator {
         com.nesemu.util.Log.warn(com.nesemu.util.Log.Cat.CPU, sb.toString());
     }
 
-    /** Enable simple spin watchdog: logs snapshot if PC repeats for N cycles. */
+    /**
+     * Enable spin/stall watchdog with given threshold (in CPU cycles).
+     * @param threshold
+     */
     public void enableSpinWatch(long threshold) {
         if (threshold <= 0)
             return;
@@ -157,7 +237,8 @@ public class NesEmulator {
     }
 
     /**
-     * Configure number of opcode bytes to hex-dump on first spin report for a PC.
+     * Set number of bytes to dump as hex after PC on each spin report (0 = disable).
+     * @param bytes
      */
     public void setSpinDumpBytes(int bytes) {
         this.spinDumpBytes = Math.max(0, Math.min(64, bytes));
@@ -165,6 +246,9 @@ public class NesEmulator {
             instrumentationEnabled = true;
     }
 
+    /**
+     * Check for spin condition and dump snapshot if detected.
+     */
     private void spinWatchTick() {
         if (!spinWatchEnabled)
             return;
@@ -241,7 +325,8 @@ public class NesEmulator {
     }
 
     /**
-     * Record a CPU read address for spin histogram (called from Bus optionally).
+     * Record a read access for spin histogram (called from Bus).
+     * @param address
      */
     public void spinWatchRecordRead(int address) {
         if (!spinWatchEnabled)
@@ -300,7 +385,12 @@ public class NesEmulator {
         }
     }
 
-    /** Mini disassembler: decode up to count instructions starting at startPc. */
+    /**
+     * Disassemble up to 'count' instructions starting at startPc.
+     * @param startPc
+     * @param count
+     * @return
+     */
     private String disassembleAround(int startPc, int count) {
         if (!instrumentationEnabled) {
             // Minimal fast path: just return current opcode byte hex without decoding
@@ -412,17 +502,6 @@ public class NesEmulator {
     }
 
     /**
-     * Legacy path: build minimal stack with no PPU or mapper (for CPU unit tests).
-     */
-    public NesEmulator() {
-        this.bus = new Bus();
-        this.ppu = null;
-        this.apu = null;
-        this.mapper = null;
-        this.cpu = new CPU(bus);
-    }
-
-    /**
      * Standalone PPU mode (no ROM/mapper) for GUI black screen / diagnostics.
      * Provides a ticking PPU & CPU minimal loop so HUD/ESC still function.
      */
@@ -440,62 +519,6 @@ public class NesEmulator {
         } catch (Exception ignore) {
         }
         return emu;
-    }
-
-    /**
-     * New path: build full stack from ROM
-     * 
-     * @param rom
-     */
-    public NesEmulator(INesRom rom) {
-        int mapperNum = rom.getHeader().getMapper();
-        switch (mapperNum) {
-            case 0 -> this.mapper = new Mapper0(rom);
-            case 2 -> this.mapper = new Mapper2(rom);
-            case 1 -> this.mapper = new Mapper1(rom); // MMC1
-            case 3 -> this.mapper = new Mapper3(rom);
-            case 4 -> this.mapper = new Mapper4(rom); // MMC3 (partial, no IRQ yet)
-            case 5 -> this.mapper = new Mapper5(rom); // MMC5 (partial)
-            default ->
-                throw new IllegalArgumentException(
-                        "Unsupported mapper " + mapperNum + " (only 0,1,2,3,4,5 implemented)");
-        }
-        this.ppu = new PPU();
-        this.ppu.reset();
-        this.ppu.attachMapper(this.mapper);
-        this.bus = new Bus();
-        bus.attachPPU(ppu);
-        bus.attachMapper(mapper, rom);
-        this.apu = new APU();
-        this.apu.reset();
-        bus.attachAPU(this.apu);
-        this.cpu = new CPU(bus);
-        this.ppu.attachCPU(this.cpu);
-    }
-
-    /** Alternative constructor with ROM path (enables automatic .sav naming). */
-    public NesEmulator(INesRom rom, Path romFilePath) {
-        this(rom);
-        this.romPath = romFilePath;
-        deriveAutoSavePath();
-        tryAutoLoad();
-    }
-
-    /**
-     * Alternative constructor with ROM + explicit save directory.
-     * If saveDir != null, the autosave path is placed inside saveDir (creating it)
-     * and PRG RAM is auto-loaded from there (if existing). No lookup is attempted
-     * in the ROM directory in this path.
-     */
-    public NesEmulator(INesRom rom, Path romFilePath, Path saveDir) {
-        this(rom);
-        this.romPath = romFilePath;
-        if (saveDir != null) {
-            setSaveDirectory(saveDir); // sets autoSavePath + attempts load from saveDir
-        } else {
-            deriveAutoSavePath();
-            tryAutoLoad();
-        }
     }
 
     /**
@@ -666,7 +689,10 @@ public class NesEmulator {
         return true;
     }
 
-    // --- Auto save helpers ---
+    /**
+     * Derive automatic .sav path from ROM path if not explicitly set.
+     * Called from constructors that receive a ROM path.
+     */
     private void deriveAutoSavePath() {
         if (romPath == null)
             return;
@@ -676,6 +702,9 @@ public class NesEmulator {
         this.autoSavePath = romPath.getParent().resolve(base + ".sav");
     }
 
+    /**
+     * Attempt autoload from autoSavePath if set and file exists.
+     */
     private void tryAutoLoad() {
         if (autoSavePath == null)
             return;
@@ -685,6 +714,9 @@ public class NesEmulator {
         }
     }
 
+    /**
+     * Automatic periodic save tick (called from runCycles).
+     */
     private void autoSaveTick() {
         if (!autoSaveEnabled || autoSavePath == null)
             return;
@@ -700,18 +732,27 @@ public class NesEmulator {
         }
     }
 
-    /** Enable/disable automatic periodic SRM saves. */
+    /**
+     * Enable or disable automatic periodic saving of PRG RAM (default enabled).
+     * If enabled, autosavePath must be non-null (set via constructor or setSaveDirectory).
+     * @param enabled
+     */
     public void setAutoSaveEnabled(boolean enabled) {
         this.autoSaveEnabled = enabled;
     }
 
-    /** Set autosave interval in frames (default 600 ≈10s). */
+    /**
+     * Check if automatic periodic saving is enabled.
+     * @param frames
+     */
     public void setAutoSaveIntervalFrames(long frames) {
         if (frames > 0)
             this.autoSaveIntervalFrames = frames;
     }
 
-    /** Force immediate save if possible. */
+    /**
+     * Get current automatic periodic saving interval in frames.
+     */
     public void forceAutoSave() {
         if (autoSavePath != null) {
             try {
@@ -721,14 +762,18 @@ public class NesEmulator {
         }
     }
 
-    /** Get current autosave path (may be null). */
+    /**
+     * Get current automatic periodic saving interval in frames.
+     * @return
+     */
     public Path getAutoSavePath() {
         return autoSavePath;
     }
 
     /**
-     * Override the autosave directory. The filename keeps ROM base name + .sav.
-     * Creates directory if missing. Call after constructing with ROM path.
+     * Set directory to place automatic .sav file (creates if needed).
+     * Attempts autoload from new location if file exists.
+     * @param dir
      */
     public void setSaveDirectory(Path dir) {
         if (dir == null || romPath == null)
@@ -749,6 +794,7 @@ public class NesEmulator {
     }
 
     // -------- Save State (snapshot) --------
+
     /**
      * Serialize full emulator state (CPU registers, internal RAM, PPU core
      * registers, VRAM/OAM/palettes, mapper + CHR RAM, PRG RAM)
@@ -821,7 +867,12 @@ public class NesEmulator {
         Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
     }
 
-    /** Restore emulator state from saveState file. */
+    /**
+     * Load full emulator state from a previously saved snapshot file.
+     * @param path
+     * @return
+     * @throws IOException
+     */
     public boolean loadState(Path path) throws IOException {
         if (!Files.exists(path))
             return false;

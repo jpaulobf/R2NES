@@ -91,6 +91,7 @@ public class PPU implements NesPPU {
     private long sprite0HitSetFrame = -1; // frame when sprite0 hit last set
     private int sprite0HitSetScanline = -1;
     private int sprite0HitSetCycle = -1;
+    
     // Debug: force sprite0 hit every frame (set via CLI) for diagnostic bypass of
     // polling loops
     private boolean forceSprite0Hit = false;

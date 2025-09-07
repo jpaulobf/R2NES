@@ -8,7 +8,6 @@ import com.nesemu.ppu.PPU;
 import com.nesemu.mapper.Mapper0;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
-
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Path;
