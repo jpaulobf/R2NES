@@ -15,7 +15,7 @@ Experimental NES emulator (CPU + PPU) in Java focused on background pipeline acc
 ### Current Release (0.5.6.1)
 UX/QoL polish around overlays and ROM lifecycle.
 
-What's new in 0.5.6:
+What's new in 0.5.6.1:
 * Centered overlays: all non-HUD message windows (RESET, save/load feedback, fast-forward indicator, PAUSED) are now centered; text is centered within each box. HUD unchanged.
 * Safer no-ROM mode: when no ROM is loaded, save/load state, pause, fast-forward, and reset actions are disabled/ignored; fast-forward overlay is hidden.
 * File → Close ROM: unloads the current ROM, performs PRG RAM autosave, stops audio, and returns to the black-screen emulator. Window title reflects the no-ROM state.
@@ -209,7 +209,7 @@ Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão 
 ### Versão Atual (0.5.6.1)
 Polimento de UX/QoL em overlays e ciclo de vida da ROM.
 
-Novidades em 0.5.6:
+Novidades em 0.5.6.1:
 * Overlays centralizados: todas as janelas de mensagens que não são HUD (RESET, feedback de save/load, indicador de fast-forward, PAUSED) agora ficam centralizadas; o texto fica centralizado dentro de cada caixa. HUD inalterado.
 * Modo sem ROM mais seguro: quando não há ROM carregada, as ações de save/load state, pausa, fast-forward e reset ficam desabilitadas/ignoradas; o overlay de fast-forward é oculto.
 * File → Close ROM: descarrega a ROM atual, faz autosave da PRG RAM, para o áudio e retorna para a tela preta. O título da janela indica o estado sem ROM.

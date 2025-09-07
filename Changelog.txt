@@ -4,6 +4,7 @@ Changelog - R2NES
 Version 0.5.6.1 – Refactory and Cleaning
 
 - No functionality has been added/changed.
+- Code has been improved
 
 ------------------------
 
