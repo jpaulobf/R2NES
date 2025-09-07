@@ -5,8 +5,7 @@ import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
 
 /**
- * MMC1 (Mapper 1) - Simplified implementation with PRG RAM exposure for
- * persistence.
+ * MMC1 (Mapper 1) - Simplified implementation with PRG RAM exposure for persistence.
  * Implements serial 5-bit shift register writes (bit7 reset) at $8000-$FFFF.
  * Control register bits (after load):
  * 0-1: Mirroring (0=Single0,1=Single1,2=Vertical,3=Horizontal)
@@ -22,17 +21,9 @@ import static com.nesemu.util.Log.Cat.*;
  * $C000-$DFFF: CHR bank 1 (if 4KB mode)
  * $E000-$FFFF: PRG bank
  */
-public class Mapper1 implements Mapper {
-    private final byte[] prg;
-    private final byte[] chr; // may be length 0 => CHR RAM allocated
-    private final byte[] chrRam;
-    /**
-     * Optional 8KB battery backed PRG RAM (WRAM) at $6000-$7FFF. Many MMC1 games
-     * (e.g. Zelda) rely on this.
-     */
-    private final byte[] prgRam; // null if not allocated
+public class Mapper1 extends Mapper {
+
     private final int prg16kBanks; // number of 16KB banks
-    // (chr4kBanks not currently needed for logic; computed implicitly when mapping)
 
     // MMC1 registers
     private int regControl = 0x0C; // default after power-on (....1100)
@@ -48,8 +39,14 @@ public class Mapper1 implements Mapper {
     private int bankLogLimit = 64;
     private int bankLogCount = 0;
 
+    // Vertical mirroring from header if no override in control register
     private boolean verticalFromHeader; // fallback mirroring if needed
 
+    /**
+     * Construct a Mapper1 for the given ROM.
+     * 
+     * @param rom
+     */
     public Mapper1(INesRom rom) {
         this.prg = rom.getPrgRom();
         this.chr = rom.getChrRom();
@@ -61,13 +58,6 @@ public class Mapper1 implements Mapper {
         // Allocate PRG RAM unconditionally for now (some non-battery MMC1 carts also
         // have WRAM). Could gate on header if desired.
         this.prgRam = new byte[0x2000];
-    }
-
-    private void log(String fmt, Object... args) {
-        if (bankLog && bankLogCount < bankLogLimit) {
-            Log.debug(GENERAL, fmt, args);
-            bankLogCount++;
-        }
     }
 
     @Override
@@ -225,30 +215,6 @@ public class Mapper1 implements Mapper {
         };
     }
 
-    // Debug helpers
-    public void enableBankLogging(int limit) {
-        this.bankLog = true;
-        if (limit > 0)
-            this.bankLogLimit = limit;
-    }
-
-    // Accessors for tests
-    public int getControl() {
-        return regControl & 0x1F;
-    }
-
-    public int getChrBank0() {
-        return regChrBank0 & 0x1F;
-    }
-
-    public int getChrBank1() {
-        return regChrBank1 & 0x1F;
-    }
-
-    public int getPrgBank() {
-        return regPrgBank & 0x1F;
-    }
-
     @Override
     public byte[] getPrgRam() {
         return prgRam; // direct reference for save/load
@@ -303,5 +269,46 @@ public class Mapper1 implements Mapper {
             System.arraycopy(data, p, chrRam, 0, chrRamLen);
             p += chrRamLen;
         }
+    }
+
+    /**
+     * Enable logging of bank switch messages to debug log.
+     * 
+     * @param limit
+     */
+    public void enableBankLogging(int limit) {
+        this.bankLog = true;
+        if (limit > 0)
+            this.bankLogLimit = limit;
+    }
+
+    /**
+     * Log a bank switch message if logging enabled and under limit.
+     * 
+     * @param fmt
+     * @param args
+     */
+    private void log(String fmt, Object... args) {
+        if (bankLog && bankLogCount < bankLogLimit) {
+            Log.debug(GENERAL, fmt, args);
+            bankLogCount++;
+        }
+    }
+
+    // -------------------------- Accessors for tests --------------------------
+    public int getControl() {
+        return regControl & 0x1F;
+    }
+
+    public int getChrBank0() {
+        return regChrBank0 & 0x1F;
+    }
+
+    public int getChrBank1() {
+        return regChrBank1 & 0x1F;
+    }
+
+    public int getPrgBank() {
+        return regPrgBank & 0x1F;
     }
 }

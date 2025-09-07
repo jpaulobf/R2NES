@@ -7,7 +7,7 @@ public class ApuPulseDutyTimerTest {
 
     @Test
     public void pulse1_duty_steps_and_mutes_on_small_timer() {
-        Apu2A03 apu = new Apu2A03();
+        APU apu = new APU();
         apu.reset();
         // Enable P1
         apu.writeRegister(0x4015, 0x01);

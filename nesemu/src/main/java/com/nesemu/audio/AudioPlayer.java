@@ -1,24 +1,34 @@
 package com.nesemu.audio;
 
 import javax.sound.sampled.*;
-import com.nesemu.apu.Apu2A03;
+import com.nesemu.apu.APU;
 
 /**
  * Simple JavaSound player that drains float samples [0,1] from Apu2A03,
  * converts to 16-bit PCM signed mono, and writes to a SourceDataLine.
  */
 public class AudioPlayer implements Runnable {
-    private final Apu2A03 apu;
+
+    // The APU to read samples from
+    private final APU apu;
     private final int sampleRate;
     private volatile boolean running = false;
     private Thread thread;
     private SourceDataLine line;
 
-    public AudioPlayer(Apu2A03 apu, int sampleRate) {
+    /**
+     * Creates new AudioPlayer.
+     * @param apu
+     * @param sampleRate
+     */
+    public AudioPlayer(APU apu, int sampleRate) {
         this.apu = apu;
         this.sampleRate = sampleRate;
     }
 
+    /**
+     * Starts audio thread and opens line.
+     */
     public synchronized void start() {
         if (running)
             return;
@@ -38,6 +48,9 @@ public class AudioPlayer implements Runnable {
         }
     }
 
+    /**
+     * Stops audio thread and closes line.
+     */
     public synchronized void stop() {
         running = false;
         if (thread != null) {

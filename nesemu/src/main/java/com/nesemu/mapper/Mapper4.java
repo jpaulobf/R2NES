@@ -17,12 +17,7 @@ import static com.nesemu.util.Log.Cat.GENERAL;
  *  - Open bus / bus conflicts emulation
  *  - WRAM size variations
  */
-public class Mapper4 implements Mapper {
-    // ROM / RAM data
-    private final byte[] prg;
-    private final byte[] chr; // may be 0 => chrRam
-    private final byte[] chrRam;
-    private final byte[] prgRam; // 8KB battery RAM (simple)
+public class Mapper4 extends Mapper {
 
     // Banking registers
     private int bankSelect; // last value written to $8000 even (bits: ....RSTC)
@@ -49,6 +44,10 @@ public class Mapper4 implements Mapper {
     private int logLimit = 64;
     private int logCount = 0;
 
+    /**
+     * Creates a Mapper 4 (MMC3) instance from the given iNES ROM.
+     * @param rom
+     */
     public Mapper4(INesRom rom) {
         this.prg = rom.getPrgRom();
         this.chr = rom.getChrRom();
@@ -59,18 +58,6 @@ public class Mapper4 implements Mapper {
         // Power-on: common initialize – last bank fixed in one slot depending on mode
         bankRegs[6] = 0; // R6 (PRG) default
         bankRegs[7] = Math.max(0, prg8kBanks - 1); // last bank
-    }
-
-    private void trace(String fmt, Object... args) {
-        if (logBanks && logCount < logLimit) {
-            Log.debug(GENERAL, fmt, args);
-            logCount++;
-        }
-    }
-
-    public void enableBankLogging(int limit) {
-        this.logBanks = true;
-        if (limit > 0) this.logLimit = limit;
     }
 
     @Override
@@ -178,6 +165,52 @@ public class Mapper4 implements Mapper {
         return 0;
     }
 
+    @Override
+    public void ppuWrite(int address, int value) {
+        address &= 0x3FFF; value &= 0xFF;
+        if (address < 0x2000 && chrRam != null) {
+            int idx = address & (chrRam.length - 1);
+            chrRam[idx] = (byte) value;
+        }
+        // IRQ A12 edge tracking would hook here via pattern fetch addresses in future.
+    }
+
+    @Override
+    public MirrorType getMirrorType() {
+        if (forceMirroring) {
+            return mirrorHorizontal ? MirrorType.HORIZONTAL : MirrorType.VERTICAL;
+        }
+        return headerVertical ? MirrorType.VERTICAL : MirrorType.HORIZONTAL;
+    }
+
+    @Override
+    public byte[] getPrgRam() {
+        return prgRam; // allow persistence layer to save/load
+    }
+
+    /**
+     * To be called by PPU integration path on each PPU A12 rising edge (0->1).
+     * If IRQs are enabled, this will decrement the IRQ counter (or reload it)
+     * and signal an IRQ when it reaches 0.
+     */
+    public void onA12RisingEdge() {
+        if (!irqEnabled) return;
+        if (irqReloadPending || irqCounter == 0) {
+            irqCounter = irqLatch;
+            irqReloadPending = false;
+        } else {
+            irqCounter = (irqCounter - 1) & 0xFF;
+        }
+        if (irqCounter == 0) {
+            // ...: Signal IRQ line to CPU (requires bus/cpu integration path)
+        }
+    }
+
+    /**
+     * Reads a byte from CHR space with current banking applied.
+     * @param address
+     * @return
+     */
     private int readChrMapped(int address) {
         int bankIndex;
         int offset;
@@ -237,40 +270,24 @@ public class Mapper4 implements Mapper {
         return (chrRam != null ? chrRam[linear] : chr[linear]) & 0xFF;
     }
 
-    @Override
-    public void ppuWrite(int address, int value) {
-        address &= 0x3FFF; value &= 0xFF;
-        if (address < 0x2000 && chrRam != null) {
-            int idx = address & (chrRam.length - 1);
-            chrRam[idx] = (byte) value;
-        }
-        // IRQ A12 edge tracking would hook here via pattern fetch addresses in future.
-    }
-
-    @Override
-    public MirrorType getMirrorType() {
-        if (forceMirroring) {
-            return mirrorHorizontal ? MirrorType.HORIZONTAL : MirrorType.VERTICAL;
-        }
-        return headerVertical ? MirrorType.VERTICAL : MirrorType.HORIZONTAL;
-    }
-
-    // --- Future IRQ Support Hooks (no effect yet) ---
-    public void onA12RisingEdge() {
-        if (!irqEnabled) return;
-        if (irqReloadPending || irqCounter == 0) {
-            irqCounter = irqLatch;
-            irqReloadPending = false;
-        } else {
-            irqCounter = (irqCounter - 1) & 0xFF;
-        }
-        if (irqCounter == 0) {
-            // ...: Signal IRQ line to CPU (requires bus/cpu integration path)
+    /**
+     * Logs a bank switch message if logging is enabled and limit not yet reached.
+     * @param fmt
+     * @param args
+     */
+    private void trace(String fmt, Object... args) {
+        if (logBanks && logCount < logLimit) {
+            Log.debug(GENERAL, fmt, args);
+            logCount++;
         }
     }
 
-    @Override
-    public byte[] getPrgRam() {
-        return prgRam; // allow persistence layer to save/load
+    /**
+     * Enables logging of CHR bank changes to debug log.
+     * @param limit
+     */
+    public void enableBankLogging(int limit) {
+        this.logBanks = true;
+        if (limit > 0) this.logLimit = limit;
     }
 }

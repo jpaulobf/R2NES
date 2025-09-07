@@ -9,9 +9,18 @@ import static com.nesemu.util.Log.Cat.*;
  * Applies runtime emulator/PPU options to a NesEmulator instance.
  */
 public final class EmulatorConfigurator {
+    
+    /**
+     * Private constructor for utility class.
+     */
     private EmulatorConfigurator() {
     }
 
+    /**
+     * Applies settings to emulator instance.
+     * @param emu
+     * @param s
+     */
     public static void apply(NesEmulator emu, RuntimeSettings s) {
         if (emu == null || s == null)
             return;

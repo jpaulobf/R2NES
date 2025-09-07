@@ -10,7 +10,7 @@ public class ApuFrameSequencerTest {
 
     @Test
     public void fourStep_generatesQuarterAndHalf_andSetsFrameIrq() {
-        Apu2A03 apu = new Apu2A03();
+        APU apu = new APU();
         apu.reset();
         // 4-step by default; IRQ not inhibited; run ~ 29832 2x cycles => 14916 cpu
         // cycles
@@ -30,7 +30,7 @@ public class ApuFrameSequencerTest {
 
     @Test
     public void fiveStep_hasNoFrameIrq_andTicksPattern() {
-        Apu2A03 apu = new Apu2A03();
+        APU apu = new APU();
         apu.reset();
         // write $4017 with bit7=1 (five-step), bit6=0 (allow IRQ but none should be
         // produced in this mode)

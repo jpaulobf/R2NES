@@ -6,6 +6,7 @@ package com.nesemu.config;
  * must be re-applied when the user swaps ROMs at runtime.
  */
 public class RuntimeSettings {
+
     String tileMatrixMode; // null or one of first|center|nonzero
     int pipeLogLimit; // >0 enables pipeline log
     int dbgBgSample; // >0 enables background sample debug

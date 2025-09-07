@@ -7,7 +7,7 @@ public class ApuNoiseChannelTest {
 
     @Test
     public void noise_lfsr_shifts_and_output_gated_by_length() {
-        Apu2A03 apu = new Apu2A03();
+        APU apu = new APU();
         apu.reset();
         // Enable noise
         apu.writeRegister(0x4015, 0x08);

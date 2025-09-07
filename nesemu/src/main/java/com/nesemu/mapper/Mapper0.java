@@ -11,14 +11,24 @@ import static com.nesemu.util.Log.Cat.*;
  * PPU $0000-$1FFF: CHR-ROM (or CHR-RAM if size==0) – here we treat size 0 as
  * 8KB RAM.
  */
-public class Mapper0 implements Mapper {
-    private final int prgPageCount; // 16KB units
-    @SuppressWarnings("unused")
-    private final int chrPageCount; // 8KB units
-    private final byte[] prg; // full raw PRG
-    private final byte[] chr; // CHR data (can be length 0 -> treat as RAM)
-    private final byte[] chrRam; // allocated if chr length == 0
+public class Mapper0 extends Mapper {
 
+    // extended RAM at $6000-$7FFF
+    private final int prgPageCount; // 16KB units
+    private final int chrPageCount; // 8KB units
+
+    // Debug logging de acessos CHR
+    private boolean chrLogEnabled = false;
+    private int chrLogLimit = 128;
+    private int chrLogCount = 0;
+
+    // Cache mirroring type from header bit6 bit0
+    private final boolean headerVertical;
+
+    /**
+     * Constructor: takes ownership of rom arrays.
+     * @param rom
+     */
     public Mapper0(INesRom rom) {
         this.prg = rom.getPrgRom();
         this.chr = rom.getChrRom();
@@ -28,11 +38,10 @@ public class Mapper0 implements Mapper {
         this.headerVertical = rom.getHeader().isVerticalMirroring();
     }
 
-    // Debug logging de acessos CHR
-    private boolean chrLogEnabled = false;
-    private int chrLogLimit = 128;
-    private int chrLogCount = 0;
-
+    /**
+     * Enable debug logging of CHR accesses (reads and writes if CHR RAM).
+     * @param limit
+     */
     public void enableChrLogging(int limit) {
         this.chrLogEnabled = true;
         if (limit > 0)
@@ -129,5 +138,7 @@ public class Mapper0 implements Mapper {
         return headerVertical ? MirrorType.VERTICAL : MirrorType.HORIZONTAL;
     }
 
-    private final boolean headerVertical;
+    public int getChrPageCount() {
+        return chrPageCount;
+    }
 }

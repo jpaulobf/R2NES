@@ -1,6 +1,6 @@
 package com.nesemu.bus.interfaces;
 
-import com.nesemu.apu.APU;
+import com.nesemu.apu.interfaces.NesAPU;
 import com.nesemu.cpu.interfaces.NesCPU;
 import com.nesemu.io.Controller;
 import com.nesemu.mapper.Mapper;
@@ -81,7 +81,7 @@ public interface NesBus {
      * Attach Audio Processing Unit instance so reads/writes to APU registers are
      * routed correctly.
      */
-    default void attachAPU(APU apu) {}
+    default void attachAPU(NesAPU apu) {}
 
     /**
      * Attach PPU (Picture Processing Unit) for register access and future interrupt

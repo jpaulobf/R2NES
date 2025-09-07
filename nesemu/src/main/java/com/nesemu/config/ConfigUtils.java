@@ -14,6 +14,10 @@ import static com.nesemu.util.Log.Cat.*;
  * extracting commonly used options.
  */
 public final class ConfigUtils {
+
+    /**
+     * Private constructor (static class).
+     */
     private ConfigUtils() {
     }
 

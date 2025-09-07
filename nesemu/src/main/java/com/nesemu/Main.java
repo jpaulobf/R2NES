@@ -119,7 +119,7 @@ public class Main {
                     emuRef[0] = new NesEmulator(romRef[0], romFilePath, saveDir);
                     // Start audio
                     try {
-                        audioRef[0] = new AudioPlayer((com.nesemu.apu.Apu2A03) emuRef[0].getApu(), 44100);
+                        audioRef[0] = new AudioPlayer((com.nesemu.apu.APU) emuRef[0].getApu(), 44100);
                         audioRef[0].start();
                     } catch (Exception e) {
                         Log.warn(GENERAL, "Audio init falhou: %s", e.getMessage());
@@ -128,7 +128,7 @@ public class Main {
                 } else {
                     emuRef[0] = new NesEmulator(romRef[0], romFilePath);
                     try {
-                        audioRef[0] = new AudioPlayer((com.nesemu.apu.Apu2A03) emuRef[0].getApu(), 44100);
+                        audioRef[0] = new AudioPlayer((com.nesemu.apu.APU) emuRef[0].getApu(), 44100);
                         audioRef[0].start();
                     } catch (Exception e) {
                         Log.warn(GENERAL, "Audio init falhou: %s", e.getMessage());
@@ -827,7 +827,7 @@ public class Main {
                     } catch (Exception ignore) {
                     }
                     try {
-                        audioRef[0] = new AudioPlayer((com.nesemu.apu.Apu2A03) newEmu.getApu(), 44100);
+                        audioRef[0] = new AudioPlayer((com.nesemu.apu.APU) newEmu.getApu(), 44100);
                         audioRef[0].start();
                     } catch (Exception e) {
                         Log.warn(GENERAL, "Audio init falhou (reload): %s", e.getMessage());

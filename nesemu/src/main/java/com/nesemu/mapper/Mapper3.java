@@ -9,12 +9,16 @@ import static com.nesemu.util.Log.Cat.*;
  * - Fixed PRG like NROM (16KB mirrored or 32KB direct)
  * - CHR bank switching: write to $8000-$FFFF selects 8KB CHR bank (lower bits)
  */
-public class Mapper3 implements Mapper {
-    private final byte[] prg;
-    private final byte[] chr; // multiple 8KB banks sequentially
+public class Mapper3 extends Mapper {
+
+    // PRG and CHR data
     private final int prgPageCount; // 16KB
     private final int chrPageCount; // 8KB
+
+    // PRG and CHR byte arrays
     private int chrBank; // currently selected bank (0..chrPageCount-1)
+
+    // Vertical/horizontal nametable mirroring
     private final boolean verticalMirroring; // from header bit
 
     // Debug/logging
@@ -28,6 +32,10 @@ public class Mapper3 implements Mapper {
     // on discrete boards without proper decoding) before selecting bank.
     private boolean simulateBusConflicts = false;
 
+    /**
+     * Creates a Mapper 3 (CNROM) instance from the given iNES ROM.
+     * @param rom
+     */
     public Mapper3(INesRom rom) {
         this.prg = rom.getPrgRom();
         this.chr = rom.getChrRom();
@@ -103,18 +111,27 @@ public class Mapper3 implements Mapper {
         return verticalMirroring ? MirrorType.VERTICAL : MirrorType.HORIZONTAL;
     }
 
-    // --- Debug / configuration helpers ---
+    /**
+     * Enables logging of CHR bank changes to debug log.
+     * @param limit
+     */
     public void enableBankLogging(int limit) {
         this.bankLogEnabled = true;
         if (limit > 0)
             this.bankLogLimit = limit;
     }
 
+    /**
+     * Disables logging of CHR bank changes.
+     */
     public void setSimulateBusConflicts(boolean enable) {
         this.simulateBusConflicts = enable;
     }
 
-    // Test accessor
+    /**
+     * Enables or disables bus conflict simulation.
+     * @return
+     */
     public int getChrBank() {
         return chrBank;
     }

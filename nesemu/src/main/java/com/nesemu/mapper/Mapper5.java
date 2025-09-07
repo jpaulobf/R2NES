@@ -28,24 +28,18 @@ import static com.nesemu.util.Log.Cat.GENERAL;
  * - Default power-on: PRG mode = 3, CHR mode = 3, banks initialized to last for
  * fixed region, others to 0.
  */
-public class Mapper5 implements Mapper {
-    private final byte[] prg;
-    private final byte[] chr; // may be length 0 -> chrRam
-    private final byte[] chrRam;
-    private final byte[] prgRam = new byte[64 * 1024]; // superset (battery distinction ignored)
-    private final byte[] exRam = new byte[1024]; // $5C00-$5FFF (not yet used)
+public class Mapper5 extends Mapper {
 
     // Configuration registers
     private int regPrgMode = 3; // $5100 low 2 bits
     private int regChrMode = 3; // $5101 low 2 bits
     private int regPrgRamProt1 = 0; // $5102
     private int regPrgRamProt2 = 0; // $5103
-    @SuppressWarnings("unused")
+    
+    // Extra RAM ($5C00-$5FFF) – 1KB
     private int regExRamMode = 0; // $5104 (ignored for now except for value storage)
     private int regNtMapping = 0x50; // $5105 default horizontal example; store raw
-    @SuppressWarnings("unused")
     private int regFillTile = 0; // $5106 (not yet used in PPU path)
-    @SuppressWarnings("unused")
     private int regFillAttr = 0; // $5107 (2-bit attr) (not yet used)
 
     // PRG bank registers ($5113-$5117)
@@ -58,22 +52,28 @@ public class Mapper5 implements Mapper {
     // CHR bank registers ($5120-$512B) – we keep full array 12 though only first 8
     // used for sprites; next 4 for BG.
     private final int[] regChrBanks = new int[12];
-    @SuppressWarnings("unused")
+    
+    // CHR upper bits ($5130) – 2 bits appended to each CHR bank number when using
     private int regChrUpper = 0; // $5130 upper bits (ignored for <=256KB CHR)
 
     // Precomputed for bounds checking / potential future use
-    @SuppressWarnings("unused")
     private final int prg8kBanks; // number of 8KB units in PRG
-    @SuppressWarnings("unused")
     private final int chr1kBanks; // number of 1KB units in CHR (or RAM)
 
+    // logging helpers
     private boolean logBanks = false;
     private int logLimit = 64;
     private int logCount = 0;
 
+    // Vertical/horizontal nametable mirroring from header (fallback)
     private final boolean verticalFromHeader;
 
+    /**
+     * Creates a Mapper 5 (MMC5) instance from the given iNES ROM.
+     * @param rom
+     */
     public Mapper5(INesRom rom) {
+        this.exRam = new byte[1024];
         this.prg = rom.getPrgRom();
         this.chr = rom.getChrRom();
         this.chrRam = (chr.length == 0) ? new byte[0x2000] : null; // 8KB CHR RAM allocated
@@ -85,28 +85,6 @@ public class Mapper5 implements Mapper {
         for (int i = 0; i < regChrBanks.length; i++) {
             regChrBanks[i] = i & 0xFF;
         }
-    }
-
-    private void trace(String fmt, Object... args) {
-        if (logBanks && logCount < logLimit) {
-            Log.debug(GENERAL, fmt, args);
-            logCount++;
-        }
-    }
-
-    public void enableBankLogging(int limit) {
-        this.logBanks = true;
-        if (limit > 0)
-            this.logLimit = limit;
-    }
-
-    private boolean prgRamWriteEnabled() {
-        // Proper enable requires prot1=2 prot2=1. For now allow always if both non-zero
-        // OR simple match.
-        if (regPrgRamProt1 == 2 && regPrgRamProt2 == 1)
-            return true;
-        // Fallback lenient: many homebrew may not set sequence exactly in early tests.
-        return false; // keep strict to surface issues if needed
     }
 
     @Override
@@ -122,59 +100,6 @@ public class Mapper5 implements Mapper {
         if (address < 0x8000)
             return 0; // open bus area we ignore (APU etc handled elsewhere)
         return prgReadMapped(address);
-    }
-
-    private int prgReadMapped(int address) {
-        int off = address & 0xFFFF;
-        // bankSize concept not needed after refactor (mapping handled per mode)
-        int value = 0xFF;
-        int prgIndex;
-        switch (regPrgMode & 3) {
-            case 0 -> { // 32KB mapped by regPrgBankE000 (bits 6..2 used)
-                int bank32 = (regPrgBankE000 & 0x7C) >> 2; // ignore low 2 bits
-                int base = (bank32 * 0x8000) % Math.max(prg.length, 1);
-                prgIndex = base + (off - 0x8000);
-                if (prgIndex >= 0 && prgIndex < prg.length)
-                    value = prg[prgIndex] & 0xFF;
-            }
-            case 1 -> { // $8000-$BFFF 16KB via regPrgBank8000; $C000-$FFFF 16KB via regPrgBankE000
-                if (off < 0xC000) {
-                    int bank16 = (regPrgBank8000 & 0x7E) >> 1; // ignore bit0
-                    int base = (bank16 * 0x4000) % Math.max(prg.length, 1);
-                    prgIndex = base + (off - 0x8000);
-                } else {
-                    int bank16 = (regPrgBankE000 & 0x7E) >> 1;
-                    int base = (bank16 * 0x4000) % Math.max(prg.length, 1);
-                    prgIndex = base + (off - 0xC000);
-                }
-                if (prgIndex >= 0 && prgIndex < prg.length)
-                    value = prg[prgIndex] & 0xFF;
-            }
-            case 2 -> { // Simplified: treat like mode1 for now (common games use 3)
-                int bank16 = (regPrgBank8000 & 0x7E) >> 1;
-                int base = (bank16 * 0x4000) % Math.max(prg.length, 1);
-                int local = (off - 0x8000) & 0x3FFF;
-                prgIndex = base + local;
-                if (prgIndex >= 0 && prgIndex < prg.length)
-                    value = prg[prgIndex] & 0xFF;
-            }
-            default -> { // mode 3: four 8KB windows 8000,A000,C000,E000 each
-                int region = (off - 0x8000) / 0x2000; // 0..3
-                int bankReg = switch (region) {
-                    case 0 -> regPrgBank8000;
-                    case 1 -> regPrgBankA000;
-                    case 2 -> regPrgBankC000;
-                    case 3 -> regPrgBankE000; // fixed last usually
-                    default -> regPrgBankE000;
-                };
-                int bank8 = bankReg & 0x7F; // 7 bits
-                int base = (bank8 * 0x2000) % Math.max(prg.length, 1);
-                prgIndex = base + ((off - 0x8000) & 0x1FFF);
-                if (prgIndex >= 0 && prgIndex < prg.length)
-                    value = prg[prgIndex] & 0xFF;
-            }
-        }
-        return value & 0xFF;
     }
 
     @Override
@@ -243,6 +168,52 @@ public class Mapper5 implements Mapper {
         return 0;
     }
 
+    @Override
+    public void ppuWrite(int address, int value) {
+        address &= 0x3FFF;
+        if (address < 0x2000 && chrRam != null) {
+            // Simplify write mapping: direct index ignoring banking (adequate for CHR RAM
+            // homebrew)
+            int idx = address & (chrRam.length - 1);
+            chrRam[idx] = (byte) (value & 0xFF);
+        } else if (address >= 0x5C00 && address <= 0x5FFF) {
+            int ex = address - 0x5C00;
+            if (ex >= 0 && ex < exRam.length) {
+                exRam[ex] = (byte) (value & 0xFF);
+            }
+        }
+    }
+
+    @Override
+    public MirrorType getMirrorType() {
+        // Interpret $5105 only for standard cases; fallback to header
+        // Horizontal example: $50 -> bits: DDCCBBAA = 0101 0000 => A=0 B=0 C=1 D=0
+        // (approx). We'll just detect known patterns.
+        int v = regNtMapping & 0xFF;
+        return switch (v) {
+            case 0x50 -> MirrorType.HORIZONTAL; // documented example
+            case 0x44 -> MirrorType.VERTICAL; // documented example
+            case 0x00 -> MirrorType.SINGLE0;
+            case 0x55 -> MirrorType.SINGLE1; // treat as single1 (CIRAM 1) – somewhat arbitrary
+            default -> verticalFromHeader ? MirrorType.VERTICAL : MirrorType.HORIZONTAL;
+        };
+    }
+
+    /**
+     * Enables logging of PRG and CHR bank changes to debug log.
+     * @param limit
+     */
+    public void enableBankLogging(int limit) {
+        this.logBanks = true;
+        if (limit > 0)
+            this.logLimit = limit;
+    }
+
+    /**
+     * Reads a byte from CHR space with current banking applied.
+     * @param address
+     * @return
+     */
     private int chrRead(int address) {
         int mode = regChrMode & 0x03;
         int bankIndex;
@@ -285,34 +256,110 @@ public class Mapper5 implements Mapper {
         return (chrRam != null ? chrRam[linear] : chr[linear]) & 0xFF;
     }
 
-    @Override
-    public void ppuWrite(int address, int value) {
-        address &= 0x3FFF;
-        if (address < 0x2000 && chrRam != null) {
-            // Simplify write mapping: direct index ignoring banking (adequate for CHR RAM
-            // homebrew)
-            int idx = address & (chrRam.length - 1);
-            chrRam[idx] = (byte) (value & 0xFF);
-        } else if (address >= 0x5C00 && address <= 0x5FFF) {
-            int ex = address - 0x5C00;
-            if (ex >= 0 && ex < exRam.length) {
-                exRam[ex] = (byte) (value & 0xFF);
+    /**
+     * Reads a byte from PRG space with current banking applied.
+     * @param address
+     * @return
+     */
+    private int prgReadMapped(int address) {
+        int off = address & 0xFFFF;
+        // bankSize concept not needed after refactor (mapping handled per mode)
+        int value = 0xFF;
+        int prgIndex;
+        switch (regPrgMode & 3) {
+            case 0 -> { // 32KB mapped by regPrgBankE000 (bits 6..2 used)
+                int bank32 = (regPrgBankE000 & 0x7C) >> 2; // ignore low 2 bits
+                int base = (bank32 * 0x8000) % Math.max(prg.length, 1);
+                prgIndex = base + (off - 0x8000);
+                if (prgIndex >= 0 && prgIndex < prg.length)
+                    value = prg[prgIndex] & 0xFF;
             }
+            case 1 -> { // $8000-$BFFF 16KB via regPrgBank8000; $C000-$FFFF 16KB via regPrgBankE000
+                if (off < 0xC000) {
+                    int bank16 = (regPrgBank8000 & 0x7E) >> 1; // ignore bit0
+                    int base = (bank16 * 0x4000) % Math.max(prg.length, 1);
+                    prgIndex = base + (off - 0x8000);
+                } else {
+                    int bank16 = (regPrgBankE000 & 0x7E) >> 1;
+                    int base = (bank16 * 0x4000) % Math.max(prg.length, 1);
+                    prgIndex = base + (off - 0xC000);
+                }
+                if (prgIndex >= 0 && prgIndex < prg.length)
+                    value = prg[prgIndex] & 0xFF;
+            }
+            case 2 -> { // Simplified: treat like mode1 for now (common games use 3)
+                int bank16 = (regPrgBank8000 & 0x7E) >> 1;
+                int base = (bank16 * 0x4000) % Math.max(prg.length, 1);
+                int local = (off - 0x8000) & 0x3FFF;
+                prgIndex = base + local;
+                if (prgIndex >= 0 && prgIndex < prg.length)
+                    value = prg[prgIndex] & 0xFF;
+            }
+            default -> { // mode 3: four 8KB windows 8000,A000,C000,E000 each
+                int region = (off - 0x8000) / 0x2000; // 0..3
+                int bankReg = switch (region) {
+                    case 0 -> regPrgBank8000;
+                    case 1 -> regPrgBankA000;
+                    case 2 -> regPrgBankC000;
+                    case 3 -> regPrgBankE000; // fixed last usually
+                    default -> regPrgBankE000;
+                };
+                int bank8 = bankReg & 0x7F; // 7 bits
+                int base = (bank8 * 0x2000) % Math.max(prg.length, 1);
+                prgIndex = base + ((off - 0x8000) & 0x1FFF);
+                if (prgIndex >= 0 && prgIndex < prg.length)
+                    value = prg[prgIndex] & 0xFF;
+            }
+        }
+        return value & 0xFF;
+    }
+
+    /**
+     * Indicates whether PRG RAM writes are currently enabled based on the
+     * protection register sequence.
+     * @return
+     */
+    private boolean prgRamWriteEnabled() {
+        // Proper enable requires prot1=2 prot2=1. For now allow always if both non-zero
+        // OR simple match.
+        if (regPrgRamProt1 == 2 && regPrgRamProt2 == 1)
+            return true;
+        // Fallback lenient: many homebrew may not set sequence exactly in early tests.
+        return false; // keep strict to surface issues if needed
+    }
+
+    /**
+     * Helper to log a trace message if bank logging is enabled and limit not yet reached.
+     * @param fmt
+     * @param args
+     */
+    private void trace(String fmt, Object... args) {
+        if (logBanks && logCount < logLimit) {
+            Log.debug(GENERAL, fmt, args);
+            logCount++;
         }
     }
 
-    @Override
-    public MirrorType getMirrorType() {
-        // Interpret $5105 only for standard cases; fallback to header
-        // Horizontal example: $50 -> bits: DDCCBBAA = 0101 0000 => A=0 B=0 C=1 D=0
-        // (approx). We'll just detect known patterns.
-        int v = regNtMapping & 0xFF;
-        return switch (v) {
-            case 0x50 -> MirrorType.HORIZONTAL; // documented example
-            case 0x44 -> MirrorType.VERTICAL; // documented example
-            case 0x00 -> MirrorType.SINGLE0;
-            case 0x55 -> MirrorType.SINGLE1; // treat as single1 (CIRAM 1) – somewhat arbitrary
-            default -> verticalFromHeader ? MirrorType.VERTICAL : MirrorType.HORIZONTAL;
-        };
+    //-------------------- Accessors and helpers --------------------
+    public int getRegExRamMode() {
+        return regExRamMode;
+    }
+
+    public int getRegFillTile() {
+        return regFillTile;
+    }
+
+    public int getRegFillAttr() {
+        return regFillAttr;
+    }
+
+    public int getRegChrUpper() {
+        return regChrUpper;
+    }
+    public int getPrg8kBanks() {
+        return prg8kBanks;
+    }
+    public int getChr1kBanks() {
+        return chr1kBanks;
     }
 }

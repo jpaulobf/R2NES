@@ -7,7 +7,7 @@ public class ApuTriangleLinearAndSweepTest {
 
     @Test
     public void triangle_linear_counter_reload_and_decrement() {
-        Apu2A03 apu = new Apu2A03();
+        APU apu = new APU();
         apu.reset();
         // Enable triangle via $4015 bit2
         apu.writeRegister(0x4015, 0x04);
@@ -40,7 +40,7 @@ public class ApuTriangleLinearAndSweepTest {
 
     @Test
     public void pulse1_sweep_increase_timer_and_status_bits_reflect_lengths() {
-        Apu2A03 apu = new Apu2A03();
+        APU apu = new APU();
         apu.reset();
         // Enable P1, P2, TRI, NOISE
         apu.writeRegister(0x4015, 0x0F);

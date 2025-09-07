@@ -1,6 +1,6 @@
 package com.nesemu.bus;
 
-import com.nesemu.apu.APU;
+import com.nesemu.apu.interfaces.NesAPU;
 import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.cpu.CPU;
 import com.nesemu.cpu.interfaces.NesCPU;
@@ -40,7 +40,7 @@ public class Bus implements NesBus {
     // --- Connected devices ---
     private NesCPU cpuRef;
     private NesPPU ppu; // PPU (register interface via $2000-$2007)
-    private APU apu; // APU ($4000-$4017 subset)
+    private NesAPU apu; // APU ($4000-$4017 subset)
     private Controller pad1; // Controller 1 ($4016)
     private Controller pad2; // Controller 2 ($4017, read side when not APU)
     private Mapper mapper; // Cartridge mapper for PRG / CHR
@@ -123,7 +123,7 @@ public class Bus implements NesBus {
     }
 
     @Override
-    public void attachAPU(APU apu) {
+    public void attachAPU(NesAPU apu) {
         this.apu = apu;
     }
 

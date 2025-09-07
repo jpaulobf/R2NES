@@ -12,7 +12,7 @@ import com.nesemu.mapper.Mapper4;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.ppu.PPU;
 import com.nesemu.apu.APU;
-import com.nesemu.apu.Apu2A03;
+import com.nesemu.apu.interfaces.NesAPU;
 import com.nesemu.cpu.Opcode;
 import com.nesemu.cpu.AddressingMode;
 import com.nesemu.rom.INesRom;
@@ -30,7 +30,7 @@ public class NesEmulator {
     private final CPU cpu;
     private final NesBus bus; // system bus (CPU visible view via iBus)
     private final PPU ppu; // minimal PPU skeleton
-    private final APU apu; // APU (2A03) skeleton
+    private final NesAPU apu; // APU (2A03) skeleton
     private final Mapper mapper; // current mapper (Mapper0 or Mapper3 for now)
     private Path romPath; // optional original ROM path for deriving .sav
     private Path autoSavePath;
@@ -466,7 +466,7 @@ public class NesEmulator {
         this.bus = new Bus();
         bus.attachPPU(ppu);
         bus.attachMapper(mapper, rom);
-        this.apu = new Apu2A03();
+        this.apu = new APU();
         this.apu.reset();
         bus.attachAPU(this.apu);
         this.cpu = new CPU(bus);
@@ -526,7 +526,7 @@ public class NesEmulator {
     }
 
     /** Get the APU instance (for audio wiring). */
-    public APU getApu() {
+    public NesAPU getApu() {
         return apu;
     }
 

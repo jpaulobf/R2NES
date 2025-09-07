@@ -18,12 +18,13 @@ import static com.nesemu.util.Log.Cat.*;
  * Optional bus conflict simulation: AND written value with PRG ROM byte at
  * address.
  */
-public class Mapper2 implements Mapper {
-    private final byte[] prg;
-    private final byte[] chr;
-    private final byte[] chrRam; // allocated if chr length == 0
+public class Mapper2 extends Mapper {
+
+    // PRG ROM data
     private final int prgPageCount; // in 16KB units
     private int bankSelect; // 0..(prgPageCount-2)
+
+    // Vertically mirrored if header says so
     private final boolean verticalMirroring;
 
     // Debug/logging
@@ -32,6 +33,10 @@ public class Mapper2 implements Mapper {
     private int bankLogCount = 0;
     private boolean simulateBusConflicts = false;
 
+    /**
+     * Creates a new Mapper 2 instance.
+     * @param rom
+     */
     public Mapper2(INesRom rom) {
         this.prg = rom.getPrgRom();
         this.chr = rom.getChrRom();
@@ -123,17 +128,27 @@ public class Mapper2 implements Mapper {
         return verticalMirroring ? MirrorType.VERTICAL : MirrorType.HORIZONTAL;
     }
 
-    // --- Debug helpers ---
+    /**
+     * Enables logging of PRG bank changes to debug log.
+     * @param limit
+     */
     public void enableBankLogging(int limit) {
         this.bankLogEnabled = true;
         if (limit > 0)
             this.bankLogLimit = limit;
     }
 
+    /**
+     * Disables logging of PRG bank changes.
+     */
     public void setSimulateBusConflicts(boolean enable) {
         this.simulateBusConflicts = enable;
     }
 
+    /**
+     * Enables or disables bus conflict simulation.
+     * @param enable
+     */
     public int getPrgBank() {
         return bankSelect;
     }

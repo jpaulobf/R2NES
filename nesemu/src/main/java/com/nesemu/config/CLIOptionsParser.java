@@ -6,9 +6,18 @@ import static com.nesemu.util.Log.Cat.*;
 
 /** Parses CLI arguments into an AppOptions struct. */
 public final class CLIOptionsParser {
+
+    /**
+     * Private constructor (static class).
+     */
     private CLIOptionsParser() {
     }
 
+    /**
+     * Parses CLI args.
+     * @param args
+     * @return
+     */
     public static AppOptions parse(String[] args) {
         AppOptions o = new AppOptions();
         if (args == null)

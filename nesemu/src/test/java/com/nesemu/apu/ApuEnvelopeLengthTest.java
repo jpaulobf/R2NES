@@ -10,7 +10,7 @@ public class ApuEnvelopeLengthTest {
 
     @Test
     public void pulse1_envelope_decay_and_length_counter_halting() {
-        Apu2A03 apu = new Apu2A03();
+        APU apu = new APU();
         apu.reset();
         // Enable Pulse1 via $4015
         apu.writeRegister(0x4015, 0x01);
