@@ -12,10 +12,14 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.5)
-APU audio core (Pulse/Triangle/Noise), non-linear mixer, and JavaSound output. Audio starts automatically when a ROM is loaded.
+### Current Release (0.5.5)
+Optional gamepad support (LWJGL/GLFW) and improved packaging with runtime libs under `target/lib`. Audio (0.5) remains as described below.
 
-What's new in 0.5:
+What's new in 0.5.5:
+* Gamepad (optional): enable with `gamepad=true` in `emulator.ini`. Standard mapping to NES buttons (A/B/Start/Select + D-Pad), fallback to left stick axes.
+* Packaging: dependencies are copied to `target/lib` and Jar manifest uses Class-Path to load them automatically.
+
+Highlights from 0.5:
 * APU: Pulse1/Pulse2 duty sequencers and sweep (with immediate divider reload on write), Triangle with linear counter and 32-step table, Noise with 15-bit LFSR (short/long modes).
 * Mixing: NES-style non-linear pulse combiner and TND mixer (Triangle + Noise; DMC pending).
 * Sampling & Playback: fixed-rate 44.1 kHz sample generation with a ring buffer, drained by a JavaSound player (PCM16 mono). Auto-starts on ROM load and restarts on ROM reload.
@@ -35,6 +39,12 @@ Key additions since earlier builds:
 * Output: PCM16 mono at 44.1 kHz via JavaSound. Starts automatically when a ROM is loaded; stops and restarts on ROM reload.
 * Configuration: sample rate and buffers are currently fixed; future versions may expose INI/CLI options for rate, latency, and gain.
 * Limitations: DMC channel not implemented yet; frame counter/IRQ details simplified. Minor glitches may be heard under heavy load.
+
+### Gamepad (optional)
+* Enable: set `gamepad=true` in `emulator.ini`.
+* Mapping: A→A, B→B, Start→START, Back→SELECT, D-Pad (fallback to left stick when D-Pad not reported).
+* Platform: packaged with Windows natives only by default.
+* Notes: picks first detected gamepad; no remapping UI yet; no rumble.
 
 Core Feature Summary:
 * CPU: Complete official 6502 instruction set with tracing & breakpoints.
@@ -190,10 +200,14 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.5)
-Núcleo de áudio APU (Pulse/Triangle/Noise), mixer não-linear e saída via JavaSound. O áudio inicia automaticamente ao carregar uma ROM.
+### Versão Atual (0.5.5)
+Suporte opcional a gamepad (LWJGL/GLFW) e empacotamento com dependências em `target/lib`. Áudio (0.5) permanece conforme abaixo.
 
-Novidades em 0.5:
+Novidades em 0.5.5:
+* Gamepad (opcional): habilite com `gamepad=true` no `emulator.ini`. Mapeamento padrão para NES (A/B/Start/Select + D-Pad), com fallback para o stick esquerdo.
+* Empacotamento: dependências são copiadas para `target/lib` e o manifest do JAR usa Class-Path para carregá-las automaticamente.
+
+Destaques do 0.5:
 * APU: Pulse1/Pulse2 com sequenciadores de duty e sweep (reload imediato do divisor no write), Triangle com contador linear e tabela de 32 passos, e Noise com LFSR de 15 bits (modos curto/longo).
 * Mixagem: combinador não-linear para pulses e mixer TND (Triangle + Noise; DMC pendente).
 * Amostragem & Reprodução: geração fixa a 44,1 kHz com buffer circular, drenado por um player JavaSound (PCM16 mono). Inicia automaticamente ao carregar ROM e reinicia ao recarregar.
@@ -213,6 +227,12 @@ Principais adições recentes:
 * Saída: PCM16 mono a 44,1 kHz via JavaSound. Inicia automaticamente ao carregar ROM; para e reinicia ao recarregar.
 * Configuração: taxa e buffers ainda fixos; versões futuras podem expor opções INI/CLI para taxa, latência e ganho.
 * Limitações: canal DMC ainda não implementado; detalhes de frame counter/IRQ simplificados. Pequenos glitches podem ocorrer sob carga.
+
+### Gamepad (opcional)
+* Habilitar: `gamepad=true` no `emulator.ini`.
+* Mapeamento: A→A, B→B, Start→START, Back→SELECT, D-Pad (fallback para o stick esquerdo quando necessário).
+* Plataforma: por padrão, empacotado com natives apenas para Windows.
+* Notas: usa o primeiro gamepad encontrado; sem remapeamento/rumble neste momento.
 
 Resumo de Funcionalidades:
 * CPU: 6502 completo, trace e breakpoints.

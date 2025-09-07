@@ -1,6 +1,23 @@
 Changelog - R2NES
 ===================
 
+Version 0.5.5 – Optional Gamepad (LWJGL/GLFW) + Runtime Lib Packaging (2025-09-07)
+------------------------
+
+Added
+- Optional gamepad support via LWJGL 3 (GLFW). Enable with emulator.ini: `gamepad=true`.
+  - Maps standard gamepad to NES: A→A, B→B, Start→START, Back→SELECT, D-Pad (fallback to left stick axes when needed).
+  - Runs on a small hidden GLFW window; polls in a background daemon thread.
+  - Starts after controllers are attached and stops on app exit.
+
+Changed
+- Packaging: JAR manifest now includes Class-Path with prefix `lib/`, and runtime dependencies are copied to `target/lib` (maven-dependency-plugin). Running the JAR picks up LWJGL libs automatically.
+- README updated with Gamepad section (EN/PT) and run instructions note about `target/lib`.
+
+Known Limitations
+- Windows natives packaged only. For Linux/macOS, add the appropriate LWJGL natives or extend the POM.
+- Single gamepad (first detected). No remapping UI, no rumble yet.
+
 Version 0.5 – APU Audio Core (Pulse/Triangle/Noise), Mixer & JavaSound Output (2025-09-07)
 ------------------------
 
