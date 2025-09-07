@@ -10,6 +10,7 @@ import static com.nesemu.util.Log.Cat.*;
 import com.nesemu.gui.NesWindow;
 import com.nesemu.gui.KeyTokens;
 import com.nesemu.input.InputConfig;
+import com.nesemu.input.GamepadPoller;
 import com.nesemu.config.AppOptions;
 import com.nesemu.config.CLIOptionsParser;
 import com.nesemu.config.ConfigUtils;
@@ -27,6 +28,7 @@ import com.nesemu.audio.AudioPlayer;
 public class Main {
     private static NesController controllerPad1;
     private static NesController controllerPad2;
+    private static GamepadPoller gamepadPoller;
 
     public static void main(String[] args) throws Exception {
         // Parse CLI into an options holder (smaller Main)
@@ -178,6 +180,20 @@ public class Main {
                 emuRef[0].getBus().attachControllers(pad1, pad2);
                 controllerPad1 = pad1;
                 controllerPad2 = pad2;
+
+                // Optional: start LWJGL gamepad poller when enabled in emulator.ini (gamepad=true)
+                boolean gamepadEnabled = false;
+                String gamepadOpt = cfgForPads.getOption("gamepad");
+                if (gamepadOpt != null && gamepadOpt.equalsIgnoreCase("true")) gamepadEnabled = true;
+                if (gamepadEnabled) {
+                    try {
+                        gamepadPoller = new GamepadPoller(controllerPad1);
+                        gamepadPoller.start();
+                        Log.info(CONTROLLER, "Gamepad (GLFW/LWJGL) iniciado");
+                    } catch (Throwable t) {
+                        Log.warn(CONTROLLER, "Gamepad init falhou: %s", t.getMessage());
+                    }
+                }
             } catch (Exception e) {
                 Log.warn(CONTROLLER, "Falha ao reprocessar config para controllers: %s", e.getMessage());
             }
@@ -474,6 +490,7 @@ public class Main {
                 } catch (Exception ex) {
                     Log.warn(GENERAL, "Falha autosave na saída: %s", ex.getMessage());
                 }
+                try { if (gamepadPoller != null) gamepadPoller.stop(); } catch (Exception ignore) {}
                 System.exit(0);
             };
             // Pause state (moved earlier so window listener can access)
