@@ -132,6 +132,19 @@ public class APU implements NesAPU {
             202, 254, 380, 508, 762, 1016, 2034, 4068
     };
 
+    // Precomputed pulse mixer lookup table for sums 0..30 (p1+p2)
+    private static final double[] PULSE_MIX_TABLE;
+    static {
+        PULSE_MIX_TABLE = new double[31];
+        for (int i = 0; i < PULSE_MIX_TABLE.length; i++) {
+            if (i == 0) {
+                PULSE_MIX_TABLE[i] = 0.0;
+            } else {
+                PULSE_MIX_TABLE[i] = 95.88 / (8128.0 / (double) i + 100.0);
+            }
+        }
+    }
+
     // (Frame sequencer constants moved to FrameSequencer class)
 
     // ------ Debug/testing counters
@@ -566,9 +579,9 @@ public class APU implements NesAPU {
         int tri = getTriangleOutputLevel(); // 0..15
         int noi = getNoiseOutputLevel(); // 0..15
         double pulseSum = p1 + p2;
-        double pulseOut = (pulseSum > 0)
-                ? 95.88 / (8128.0 / pulseSum + 100.0)
-                : 0.0;
+        // clamp pulseSum to table range
+        int idx = (int) Math.max(0, Math.min(PULSE_MIX_TABLE.length - 1, Math.round(pulseSum)));
+        double pulseOut = PULSE_MIX_TABLE[idx];
         double dmc = (enaDmc ? (double) dmcOutputLevel : 0.0);
         double tndDen = (tri / 8227.0) + (noi / 12241.0) + (dmc / 22638.0);
         double tndOut = (tndDen > 0)
@@ -602,15 +615,20 @@ public class APU implements NesAPU {
         // frequency in Hz for NES pulse channel: CPU clock / (16 * (timer+1))
         int period = timer + 1; // avoid zero
         double freq = cpuClockHz / (16.0 * (double) period);
-        double dt = freq / (double) sampleRate; // phase increment per sample
+        double phaseInc = freq / (double) sampleRate; // normalized phase increment
+        // clamp phase increment to stable range to avoid dt-related artifacts
+        if (phaseInc <= 0.0)
+            phaseInc = 0.0;
+        if (phaseInc > 0.5)
+            phaseInc = 0.5;
 
         // advance phase
         if (ch == 1) {
-            p1Phase += dt;
+            p1Phase += phaseInc;
             if (p1Phase >= 1.0)
                 p1Phase -= Math.floor(p1Phase);
         } else {
-            p2Phase += dt;
+            p2Phase += phaseInc;
             if (p2Phase >= 1.0)
                 p2Phase -= Math.floor(p2Phase);
         }
@@ -623,14 +641,14 @@ public class APU implements NesAPU {
         double pulse = (phase < duty) ? amp : 0.0;
 
         // apply polyBLEP corrections at rising (phase=0) and falling (phase=duty)
-        if (dt > 0.0 && dt < 0.5) {
+        if (phaseInc > 0.0) {
             // rising edge at t=0
-            pulse += amp * polyBLEP(phase, dt);
+            pulse += amp * polyBLEP(phase, phaseInc);
             // falling edge at t=duty -> pass a wrapped phase
             double tFall = phase - duty;
             if (tFall < 0)
                 tFall += 1.0;
-            pulse -= amp * polyBLEP(tFall, dt);
+            pulse -= amp * polyBLEP(tFall, phaseInc);
         }
 
         return pulse;
@@ -641,15 +659,17 @@ public class APU implements NesAPU {
      * [0,1) with transition width dt (both normalized to period).
      */
     private double polyBLEP(double t, double dt) {
-        if (t < dt) {
-            t = t / dt;
-            return t + t - t * t - 1.0;
-        } else if (t > 1.0 - dt) {
-            t = (t - 1.0) / dt;
-            return t * t + t + t + 1.0;
-        } else {
+        // canonical polyBLEP for a unit step at t=0, transition width dt
+        if (t < 0.0 || t >= 1.0)
             return 0.0;
+        if (t < dt) {
+            double x = t / dt;
+            return x + x - x * x - 1.0; // smooth ramp start
+        } else if (t > 1.0 - dt) {
+            double x = (t - 1.0) / dt;
+            return x * x + x + x + 1.0; // smooth ramp end
         }
+        return 0.0;
     }
 
     /**
