@@ -212,8 +212,9 @@ public class Bus implements NesBus {
         }
 
         // If APU requested a DMC fetch, perform a direct memory/mapper read and
-        // supply the byte to the APU. Use component-level reads to avoid
-        // re-entering Bus.read() which could recurse into APU again.
+        // supply the byte to the APU. To emulate DMC stolen cycles we add a
+        // short DMA stall on the CPU before providing the byte. Exact timing
+        // varies by hardware; we use a small per-byte stall here (adjustable).
         if (apu != null && apu.isDmcRequest()) {
             int dmcAddr = apu.getDmcCurrentAddress() & 0xFFFF;
             int fetched = 0;
@@ -242,6 +243,13 @@ public class Bus implements NesBus {
                 else
                     fetched = memory.read(dmcAddr) & 0xFF;
             }
+
+            // Emulate stolen cycles: short DMA stall added to CPU
+            final int DMC_STALL_CYCLES = 4; // adjustable; approximates stolen cycles
+            if (cpuRef != null) {
+                cpuRef.addDmaStall(DMC_STALL_CYCLES);
+            }
+
             try {
                 apu.supplyDmcSampleByte(fetched & 0xFF);
             } catch (Exception ignored) {
