@@ -94,6 +94,9 @@ public class APU implements NesAPU {
     private int p1Duty, p2Duty; // 0..3
     private int p1DutyStep, p2DutyStep; // 0..7
     private int p1TimerCounter, p2TimerCounter; // downcounter
+    // Bandlimited pulse synthesis state (polyBLEP)
+    private double p1Phase, p2Phase; // normalized phase [0,1)
+    private static final double[] DUTY_FRACTIONS = new double[] { 0.125, 0.25, 0.5, 0.75 };
 
     // ---- Triangle state ----
     private int triTimer; // 11-bit
@@ -558,8 +561,8 @@ public class APU implements NesAPU {
      */
     private float mixOutputSample() {
         // instantaneous DAC-like levels
-        int p1 = getPulse1OutputLevel(); // 0..15
-        int p2 = getPulse2OutputLevel(); // 0..15
+        double p1 = getBandlimitedPulseOutput(1); // 0..15
+        double p2 = getBandlimitedPulseOutput(2); // 0..15
         int tri = getTriangleOutputLevel(); // 0..15
         int noi = getNoiseOutputLevel(); // 0..15
         double pulseSum = p1 + p2;
@@ -578,6 +581,75 @@ public class APU implements NesAPU {
         if (out > 1)
             out = 1;
         return (float) out;
+    }
+
+    /**
+     * Compute a band-limited pulse output for channel ch (1 or 2) in the same
+     * 0..15 amplitude range used by envelope outputs. Uses polyBLEP to smooth
+     * the rising/falling edges based on current channel frequency and sample
+     * rate.
+     */
+    private double getBandlimitedPulseOutput(int ch) {
+        int timer = (ch == 1) ? (p1Timer & 0x7FF) : (p2Timer & 0x7FF);
+        boolean muted = (ch == 1) ? p1Muted : p2Muted;
+        int len = (ch == 1) ? lenP1 : lenP2;
+        int dutyIdx = (ch == 1) ? p1Duty : p2Duty;
+        int envOut = (ch == 1) ? envP1.getOutput() : envP2.getOutput();
+
+        if (muted || len == 0 || timer <= 0)
+            return 0.0;
+
+        // frequency in Hz for NES pulse channel: CPU clock / (16 * (timer+1))
+        int period = timer + 1; // avoid zero
+        double freq = cpuClockHz / (16.0 * (double) period);
+        double dt = freq / (double) sampleRate; // phase increment per sample
+
+        // advance phase
+        if (ch == 1) {
+            p1Phase += dt;
+            if (p1Phase >= 1.0)
+                p1Phase -= Math.floor(p1Phase);
+        } else {
+            p2Phase += dt;
+            if (p2Phase >= 1.0)
+                p2Phase -= Math.floor(p2Phase);
+        }
+
+        double phase = (ch == 1) ? p1Phase : p2Phase;
+        double duty = DUTY_FRACTIONS[Math.max(0, Math.min(DUTY_FRACTIONS.length - 1, dutyIdx))];
+
+        // basic square wave (0 or 1) multiplied by envelope amplitude
+        double amp = (double) envOut;
+        double pulse = (phase < duty) ? amp : 0.0;
+
+        // apply polyBLEP corrections at rising (phase=0) and falling (phase=duty)
+        if (dt > 0.0 && dt < 0.5) {
+            // rising edge at t=0
+            pulse += amp * polyBLEP(phase, dt);
+            // falling edge at t=duty -> pass a wrapped phase
+            double tFall = phase - duty;
+            if (tFall < 0)
+                tFall += 1.0;
+            pulse -= amp * polyBLEP(tFall, dt);
+        }
+
+        return pulse;
+    }
+
+    /**
+     * Simple polyBLEP implementation for band-limiting a discontinuity at t in
+     * [0,1) with transition width dt (both normalized to period).
+     */
+    private double polyBLEP(double t, double dt) {
+        if (t < dt) {
+            t = t / dt;
+            return t + t - t * t - 1.0;
+        } else if (t > 1.0 - dt) {
+            t = (t - 1.0) / dt;
+            return t * t + t + t + 1.0;
+        } else {
+            return 0.0;
+        }
     }
 
     /**
