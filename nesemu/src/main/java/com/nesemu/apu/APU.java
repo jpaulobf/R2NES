@@ -12,18 +12,45 @@ public class APU implements NesAPU {
     private final int[] regs = new int[0x18];
 
     // Status/IRQ flags (for $4015)
-    private boolean frameIrq; // set by 4-step mode when IRQ enabled
-    private boolean dmcIrq; // set by DMC when enabled and sample ends
+    private boolean dmcIrq; // set by DMC when enabled and sample ends (not yet implemented)
 
-    // Frame counter state ($4017)
-    private boolean fiveStepMode; // bit 7
-    private boolean irqInhibit; // bit 6
-    private int frameCycle; // CPU cycles since last frame step (conceptual)
+    // ---- DMC (Delta Modulation Channel) minimal state
+    private boolean enaDmc; // enabled via $4015 bit4
+    private boolean dmcLoop; // $4010 bit6
+    private boolean dmcIrqEnable; // $4010 bit7
+    private int dmcRateIndex; // lower 4 bits of $4010
+    private int dmcDirectLoad; // $4011 initial DAC value (0..127)
+    private int dmcSampleAddr; // $4012 -> 0xC000 + value*64
+    private int dmcSampleLen; // $4013 -> value*16 + 1
 
-    // Timing: maintain a double-speed CPU cycle counter so we can hit .5 cycle events
-    private int cpuCycles2x; // increments by +2 per CPU cycle
-    private int eventIndex; // current event within sequence
-    private int nextEventAt2x; // absolute time (2x cycles) for next event
+    // runtime DMC state
+    private int dmcCurrentAddress;
+    private int dmcBytesRemaining;
+    private int dmcSampleBuffer;
+    private boolean dmcSampleBufferAvailable;
+    private int dmcShiftReg;
+    private int dmcBitsRemaining;
+    private int dmcOutputLevel; // 0..127
+    private int dmcTimerCounter; // counts down CPU cycles until next bit
+    private boolean dmcRequest; // CPU should fetch when true (APU provides supplyDmcSampleByte)
+
+    private static final int[] DMC_RATES = new int[] {
+            428, 380, 340, 320, 286, 254, 226, 214,
+            190, 160, 142, 128, 106, 85, 72, 54
+    };
+
+    // Frame sequencer extracted to dedicated class
+    private final FrameSequencer frameSequencer = new FrameSequencer(new FrameSequencer.Listener() {
+        @Override
+        public void quarterFrameTick() {
+            APU.this.quarterFrameTick();
+        }
+
+        @Override
+        public void halfFrameTick() {
+            APU.this.halfFrameTick();
+        }
+    });
 
     // APU main timers clock at CPU/2. We toggle this each CPU cycle.
     private boolean apuTickPhase;
@@ -102,12 +129,7 @@ public class APU implements NesAPU {
             202, 254, 380, 508, 762, 1016, 2034, 4068
     };
 
-    // Event times in 2x CPU cycles (handles .5 cycle resolution)
-    // 4-step: 3729.5, 7456.5, 11186.5, 14915.5
-    private static final int[] FOUR_STEP_EVENTS_2X = { 7459, 14913, 22373, 29831 };
-
-    // 5-step: 3729.5, 7456.5, 11186.5, 14916.5, 18641.5 (no IRQ)
-    private static final int[] FIVE_STEP_EVENTS_2X = { 7459, 14913, 22373, 29833, 37283 };
+    // (Frame sequencer constants moved to FrameSequencer class)
 
     // ------ Debug/testing counters
     private int quarterTickCount;
@@ -117,13 +139,26 @@ public class APU implements NesAPU {
     public void reset() {
         for (int i = 0; i < regs.length; i++)
             regs[i] = 0;
-        frameIrq = false;
+        // Frame / DMC IRQ
         dmcIrq = false;
-        fiveStepMode = false;
-        irqInhibit = false;
-        frameCycle = 0;
-        cpuCycles2x = 0;
-        eventIndex = 0;
+        // DMC control/runtime init
+        enaDmc = false;
+        dmcLoop = false;
+        dmcIrqEnable = false;
+        dmcRateIndex = 0;
+        dmcDirectLoad = 0;
+        dmcSampleAddr = 0;
+        dmcSampleLen = 0;
+        dmcCurrentAddress = 0;
+        dmcBytesRemaining = 0;
+        dmcSampleBuffer = 0;
+        dmcSampleBufferAvailable = false;
+        dmcShiftReg = 0;
+        dmcBitsRemaining = 0;
+        dmcOutputLevel = 0;
+        dmcTimerCounter = 0;
+        dmcRequest = false;
+        frameSequencer.reset();
         quarterTickCount = 0;
         halfTickCount = 0;
         apuTickPhase = false;
@@ -162,23 +197,16 @@ public class APU implements NesAPU {
         recomputeSampleInterval();
         sampleAccum2xUnits = 0;
         sampleWriteIdx = sampleReadIdx = 0;
-        scheduleNextEvent();
     }
 
     @Override
     public void clockCpuCycle() {
-        // Advance 2x cycle counter (to handle .5 cycle event times)
-        cpuCycles2x += 2;
+        // Frame sequencer operates in 2x CPU cycle units
+        frameSequencer.step2x(2);
         // Clock APU timers at CPU/2
         apuTickPhase = !apuTickPhase;
         if (apuTickPhase) {
             clockChannelTimers();
-        }
-        // Fire events in order; loop guards against missed events (shouldn't happen
-        // with +2 increments)
-        while (cpuCycles2x >= nextEventAt2x) {
-            onSequencerEvent(eventIndex);
-            advanceSequencer();
         }
         // Sampling: generate samples at fixed rate based on 2x units
         sampleAccum2xUnits += 2; // each CPU cycle adds two 2x units
@@ -196,13 +224,23 @@ public class APU implements NesAPU {
             return;
         regs[idx] = value & 0xFF;
         if (address == 0x4015) {
-            // Channel enables + DMC enable. For now only latch; clearing length counters later.
+            // Channel enables + DMC enable. For now only latch; clearing length counters
+            // later.
             // Writing 0 clears DMC IRQ; writing 1 enables DMC (to be implemented).
             dmcIrq = false; // $4015 write clears DMC IRQ
             enaP1 = (value & 0x01) != 0;
             enaP2 = (value & 0x02) != 0;
             enaTri = (value & 0x04) != 0;
             enaNoise = (value & 0x08) != 0;
+            enaDmc = (value & 0x10) != 0;
+            if (enaDmc && dmcBytesRemaining == 0) {
+                // start sample if enabled
+                dmcCurrentAddress = dmcSampleAddr;
+                dmcBytesRemaining = dmcSampleLen;
+                dmcSampleBufferAvailable = false;
+                dmcBitsRemaining = 0;
+                dmcRequest = true;
+            }
             if (!enaP1)
                 lenP1 = 0;
             if (!enaP2)
@@ -223,6 +261,19 @@ public class APU implements NesAPU {
             noiseModeShort = (value & 0x80) != 0;
             noisePeriodIdx = (value & 0x0F);
             // do not reset counter immediately; it reloads on next tick when hits zero
+        } else if (address == 0x4010) { // DMC control: irq/loop/rate
+            dmcIrqEnable = (value & 0x80) != 0;
+            dmcLoop = (value & 0x40) != 0;
+            dmcRateIndex = value & 0x0F;
+            // reload timer from rate table
+            dmcTimerCounter = DMC_RATES[dmcRateIndex];
+        } else if (address == 0x4011) { // DMC direct load (DAC)
+            dmcDirectLoad = value & 0x7F;
+            dmcOutputLevel = dmcDirectLoad;
+        } else if (address == 0x4012) { // DMC sample address
+            dmcSampleAddr = 0xC000 | ((value & 0xFF) << 6);
+        } else if (address == 0x4013) { // DMC sample length
+            dmcSampleLen = ((value & 0xFF) << 4) + 1;
         } else if (address == 0x4001) { // Pulse1 sweep
             if (sw1 == null)
                 sw1 = new Sweep(1);
@@ -290,18 +341,38 @@ public class APU implements NesAPU {
                 lenNoise = 0;
             // Common practice: (optionally) reset timer counter for immediate cadence
             noiseTimerCounter = NOISE_PERIODS[noisePeriodIdx & 0x0F];
-        } else if (address == 0x4017) {
-            // Frame counter mode: bit7=1 five-step, bit6=IRQ inhibit
-            fiveStepMode = ((value & 0x80) != 0);
-            irqInhibit = ((value & 0x40) != 0);
-            if (irqInhibit)
-                frameIrq = false; // clear frame IRQ when inhibited
-            // Reset sequencer timing
-            frameCycle = 0;
-            cpuCycles2x = 0;
-            eventIndex = 0;
-            scheduleNextEvent();
+        } else if (address == 0x4017) { // Frame counter control
+            frameSequencer.writeControl(value & 0xFF); // includes immediate ticks for 5-step
         }
+    }
+
+    /**
+     * CPU provides a fetched byte for DMC via this API. CPU should call this
+     * when APU sets dmcRequest = true.
+     */
+    public void supplyDmcSampleByte(int b) {
+        dmcSampleBuffer = b & 0xFF;
+        dmcSampleBufferAvailable = true;
+        // CPU satisfied request
+        dmcRequest = false;
+        // advance address and decrement remaining count upon fetch
+        if (dmcBytesRemaining > 0) {
+            dmcBytesRemaining--;
+            dmcCurrentAddress = (dmcCurrentAddress + 1) & 0xFFFF; // wrap 16-bit
+        }
+    }
+
+    // Accessors for CPU-side DMC handling
+    public boolean isDmcRequest() {
+        return dmcRequest;
+    }
+
+    public int getDmcCurrentAddress() {
+        return dmcCurrentAddress & 0xFFFF;
+    }
+
+    public int getDmcBytesRemaining() {
+        return dmcBytesRemaining;
     }
 
     @Override
@@ -316,65 +387,16 @@ public class APU implements NesAPU {
             status |= 0x04;
         if (lenNoise > 0)
             status |= 0x08;
-        // Bit 4: DMC active (TODO)
+        // Bit 4: DMC active when any sample bytes or shift state pending
+        if (enaDmc && (dmcBytesRemaining > 0 || dmcSampleBufferAvailable || dmcBitsRemaining > 0))
+            status |= 0x10;
         if (dmcIrq)
             status |= 0x80; // bit7: DMC IRQ
-        if (frameIrq)
+        if (frameSequencer.isFrameIrq())
             status |= 0x40; // bit6: Frame IRQ
-        // Clear frame IRQ on read
-        frameIrq = false;
+        // Clear frame IRQ on read (DMC IRQ not cleared here)
+        frameSequencer.clearFrameIrq();
         return status & 0xFF;
-    }
-
-    /**
-     * Schedule next event time based on current mode and event index.
-     */
-    private void scheduleNextEvent() {
-        int[] table = fiveStepMode ? FIVE_STEP_EVENTS_2X : FOUR_STEP_EVENTS_2X;
-        nextEventAt2x = table[eventIndex];
-    }
-
-    /**
-     * Advance to next event in sequence, wrapping and handling end-of-sequence
-     * actions.
-     */
-    private void advanceSequencer() {
-        int[] table = fiveStepMode ? FIVE_STEP_EVENTS_2X : FOUR_STEP_EVENTS_2X;
-        eventIndex++;
-        if (eventIndex >= table.length) {
-            // Sequence end: in 4-step, set frame IRQ unless inhibited; in 5-step no IRQ
-            if (!fiveStepMode && !irqInhibit) {
-                frameIrq = true;
-            }
-            // wrap to start of next sequence
-            eventIndex = 0;
-            cpuCycles2x -= table[table.length - 1];
-        }
-        scheduleNextEvent();
-    }
-
-    /**
-     * Handle a sequencer event at given index.
-     * @param idx
-     */
-    private void onSequencerEvent(int idx) {
-        if (fiveStepMode) {
-            switch (idx) {
-                case 0, 2, 4 -> quarterFrameTick();
-                case 1, 3 -> {
-                    quarterFrameTick();
-                    halfFrameTick();
-                }
-            }
-        } else { // 4-step
-            switch (idx) {
-                case 0, 2 -> quarterFrameTick();
-                case 1, 3 -> {
-                    quarterFrameTick();
-                    halfFrameTick();
-                }
-            }
-        }
     }
 
     /**
@@ -470,6 +492,53 @@ public class APU implements NesAPU {
                 noiseTimerCounter--;
             }
         }
+
+        // DMC: timer counts in CPU cycles; when it hits zero we clock one bit
+        if (enaDmc) {
+            if (dmcTimerCounter <= 0) {
+                dmcTimerCounter = DMC_RATES[Math.max(0, Math.min(DMC_RATES.length - 1, dmcRateIndex))];
+                // If no bits remaining in shift reg, reload from sample buffer
+                if (dmcBitsRemaining == 0) {
+                    if (dmcSampleBufferAvailable) {
+                        dmcShiftReg = dmcSampleBuffer & 0xFF;
+                        dmcSampleBufferAvailable = false;
+                        dmcBitsRemaining = 8;
+                        // request next byte
+                        dmcRequest = true;
+                    } else {
+                        // no data: silence or request
+                        dmcRequest = true;
+                    }
+                }
+                if (dmcBitsRemaining > 0) {
+                    int bit = dmcShiftReg & 1;
+                    if (bit == 1) {
+                        if (dmcOutputLevel <= 125)
+                            dmcOutputLevel += 2;
+                    } else {
+                        if (dmcOutputLevel >= 2)
+                            dmcOutputLevel -= 2;
+                    }
+                    dmcShiftReg >>= 1;
+                    dmcBitsRemaining--;
+                    if (dmcBitsRemaining == 0) {
+                        // when we've consumed a byte, decrement bytes remaining and start fetch
+                        if (dmcBytesRemaining > 0)
+                            dmcBytesRemaining--;
+                        if (dmcBytesRemaining == 0) {
+                            if (dmcLoop) {
+                                dmcCurrentAddress = dmcSampleAddr;
+                                dmcBytesRemaining = dmcSampleLen;
+                            } else if (dmcIrqEnable) {
+                                dmcIrq = true;
+                            }
+                        }
+                    }
+                }
+            } else {
+                dmcTimerCounter--;
+            }
+        }
     }
 
     /**
@@ -484,6 +553,7 @@ public class APU implements NesAPU {
 
     /**
      * Mix the current output sample from all channels, applying the NES APU mixer
+     * 
      * @return
      */
     private float mixOutputSample() {
@@ -496,7 +566,8 @@ public class APU implements NesAPU {
         double pulseOut = (pulseSum > 0)
                 ? 95.88 / (8128.0 / pulseSum + 100.0)
                 : 0.0;
-        double tndDen = (tri / 8227.0) + (noi / 12241.0); // DMC ignored for now
+        double dmc = (enaDmc ? (double) dmcOutputLevel : 0.0);
+        double tndDen = (tri / 8227.0) + (noi / 12241.0) + (dmc / 22638.0);
         double tndOut = (tndDen > 0)
                 ? 159.79 / (1.0 / tndDen + 100.0)
                 : 0.0;
@@ -511,6 +582,7 @@ public class APU implements NesAPU {
 
     /**
      * Write a sample to the ring buffer, dropping if full.
+     * 
      * @param s
      */
     private void writeSample(float s) {
@@ -533,6 +605,7 @@ public class APU implements NesAPU {
 
     /**
      * Get current Pulse1 output level (0..15) before mixer curve.
+     * 
      * @return
      */
     public int getPulse1OutputLevel() {
@@ -545,6 +618,7 @@ public class APU implements NesAPU {
 
     /**
      * Get current Pulse2 output level (0..15) before mixer curve.
+     * 
      * @return
      */
     public int getPulse2OutputLevel() {
@@ -553,9 +627,10 @@ public class APU implements NesAPU {
         int bit = DUTY_TABLE[p2Duty][p2DutyStep];
         return bit == 1 ? envP2.getOutput() : 0;
     }
-    
+
     /**
      * Get current Triangle output level (0..15) before mixer curve.
+     * 
      * @return
      */
     public int getTriangleOutputLevel() {
@@ -567,6 +642,7 @@ public class APU implements NesAPU {
 
     /**
      * Set desired sample rate in Hz (minimum 1000).
+     * 
      * @param hz
      */
     public void setSampleRate(int hz) {
@@ -578,6 +654,7 @@ public class APU implements NesAPU {
 
     /**
      * Set CPU clock rate in Hz (minimum 100000).
+     * 
      * @param hz
      */
     public void setCpuClockHz(int hz) {
@@ -589,6 +666,7 @@ public class APU implements NesAPU {
 
     /**
      * Get number of pending samples in ring buffer.
+     * 
      * @return
      */
     public int getPendingSampleCount() {
@@ -600,6 +678,7 @@ public class APU implements NesAPU {
 
     /**
      * Read one sample from ring buffer, or 0 if none available.
+     * 
      * @return
      */
     public float readSample() {
@@ -612,6 +691,7 @@ public class APU implements NesAPU {
 
     /**
      * Get current Noise output level (0..15) before mixer curve.
+     * 
      * @return
      */
     public int getNoiseOutputLevel() {
@@ -633,7 +713,7 @@ public class APU implements NesAPU {
     }
 
     public boolean isFrameIrq() {
-        return frameIrq;
+        return frameSequencer.isFrameIrq();
     }
 
     // Test helpers
@@ -681,17 +761,15 @@ public class APU implements NesAPU {
         return noiseLfsr & 1;
     }
 
-    public int getFrameCycle() {
-        return frameCycle;
-    }
+    // getFrameCycle removed (frameCycle no longer tracked externally)
 
     // -------------------- Helper Envelope class --------------------
 
     /**
      * Envelope generator state and logic (for pulse and noise channels)
-     */ 
+     */
     private static class Envelope {
-        
+
         // Envelope state
         int period; // 0..15 from reg low nibble
         boolean constantVolume; // bit4
@@ -702,6 +780,7 @@ public class APU implements NesAPU {
 
         /**
          * Get current output volume level (0..15)
+         * 
          * @return
          */
         int getOutput() {
@@ -731,6 +810,7 @@ public class APU implements NesAPU {
 
         /**
          * Load envelope parameters from register value.
+         * 
          * @param regVal
          */
         void reloadFromReg(int regVal) {
@@ -739,7 +819,6 @@ public class APU implements NesAPU {
             loop = (regVal & 0x20) != 0;
         }
     }
-
 
     // -------------------- Helper Sweep class --------------------
 
@@ -759,6 +838,7 @@ public class APU implements NesAPU {
 
         /**
          * Constructor
+         * 
          * @param ch
          */
         Sweep(int ch) {
@@ -767,6 +847,7 @@ public class APU implements NesAPU {
 
         /**
          * Write sweep register value
+         * 
          * @param v
          */
         void write(int v) {
