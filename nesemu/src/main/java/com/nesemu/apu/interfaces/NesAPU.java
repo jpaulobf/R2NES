@@ -19,4 +19,17 @@ public interface NesAPU {
 
     /** Read $4015 status (may clear IRQ flags internally). */
     int readStatus();
+
+    /**
+     * DMC fetch handshake: return true when APU needs the CPU to provide the
+     * next sample byte for the DMC channel. The Bus/CPU should call
+     * supplyDmcSampleByte(...) when this returns true.
+     */
+    boolean isDmcRequest();
+
+    /** Current 16-bit address the APU requests for the DMC sample fetch. */
+    int getDmcCurrentAddress();
+
+    /** Supply a fetched byte for the DMC sample buffer (CPU provides this). */
+    void supplyDmcSampleByte(int b);
 }

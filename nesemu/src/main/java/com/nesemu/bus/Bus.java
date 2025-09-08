@@ -210,6 +210,44 @@ public class Bus implements NesBus {
                         watchTriggerCount, getPpuFrame(), getPpuScanline(), getPpuCycle(), value & 0xFF);
             }
         }
+
+        // If APU requested a DMC fetch, perform a direct memory/mapper read and
+        // supply the byte to the APU. Use component-level reads to avoid
+        // re-entering Bus.read() which could recurse into APU again.
+        if (apu != null && apu.isDmcRequest()) {
+            int dmcAddr = apu.getDmcCurrentAddress() & 0xFFFF;
+            int fetched = 0;
+            if (dmcAddr < 0x2000) {
+                fetched = memory.readInternalRam(dmcAddr) & 0xFF;
+            } else if (dmcAddr < 0x4000) {
+                int reg = 0x2000 + (dmcAddr & 0x7);
+                if (ppu != null) {
+                    fetched = readPpuRegister(reg) & 0xFF;
+                } else {
+                    fetched = testShadow[dmcAddr - 0x2000] & 0xFF;
+                }
+            } else if (dmcAddr < 0x4016) {
+                // APU / IO range - return 0 for safety (DMC typically uses PRG ROM)
+                fetched = 0;
+            } else if (dmcAddr < 0x6000) {
+                fetched = testShadow[dmcAddr - 0x2000] & 0xFF;
+            } else if (dmcAddr < 0x8000) {
+                if (mapper != null)
+                    fetched = mapper.cpuRead(dmcAddr) & 0xFF;
+                else
+                    fetched = memory.readSram(dmcAddr) & 0xFF;
+            } else {
+                if (mapper != null)
+                    fetched = mapper.cpuRead(dmcAddr) & 0xFF;
+                else
+                    fetched = memory.read(dmcAddr) & 0xFF;
+            }
+            try {
+                apu.supplyDmcSampleByte(fetched & 0xFF);
+            } catch (Exception ignored) {
+            }
+        }
+
         return value & 0xFF;
     }
 
