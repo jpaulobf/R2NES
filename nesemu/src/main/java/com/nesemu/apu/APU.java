@@ -65,6 +65,10 @@ public class APU implements NesAPU {
     private int sampleReadIdx = 0;
     // simple last-sample smoothing state
     private float lastOutput = 0.0f;
+    // gentle scaling factors to tame low-frequency/TND contribution
+    private double tndTriScale = 0.9;   // reduce triangle contribution
+    private double tndNoiseScale = 0.9; // reduce noise contribution
+    private double tndDmcScale = 0.95;  // reduce DMC contribution
 
     // ---- Envelope generators ----
     private final Envelope envP1 = new Envelope();
@@ -611,18 +615,36 @@ public class APU implements NesAPU {
         int idx = (int) Math.max(0, Math.min(PULSE_MIX_TABLE.length - 1, Math.round(pulseSum)));
         double pulseOut = PULSE_MIX_TABLE[idx];
         // Use precomputed TND lookup: tri(0..15), noise(0..15), dmc(0..127)
-        int triIdx = Math.max(0, Math.min(15, tri));
-        int noiseIdx = Math.max(0, Math.min(15, noi));
-        int dmcIdx = enaDmc ? Math.max(0, Math.min(127, dmcOutputLevel)) : 0;
+        // apply small scaling to reduce low-frequency weight and avoid harsh bass
+        int triIdx = (int) Math.max(0, Math.min(15, Math.round(tri * tndTriScale)));
+        int noiseIdx = (int) Math.max(0, Math.min(15, Math.round(noi * tndNoiseScale)));
+        int dmcIdx = 0;
+        if (enaDmc) {
+            dmcIdx = (int) Math.max(0, Math.min(127, Math.round(dmcOutputLevel * tndDmcScale)));
+        }
         int tndIndex = (triIdx * 16 + noiseIdx) * 128 + dmcIdx;
         double tndOut = TND_MIX_TABLE[tndIndex];
         double out = pulseOut + tndOut; // approx 0..1
-        // clamp to [0,1]
+        // gentle soft clipping to avoid harsh overload on lows
+        out = softClip(out);
+        // final clamp to safe range
         if (out < 0)
             out = 0;
         if (out > 1)
             out = 1;
         return (float) out;
+    }
+
+    /**
+     * Soft clipping using normalized tanh to compress peaks gently.
+     */
+    private double softClip(double x) {
+        // strength k: higher -> stronger compression
+        double k = 2.0;
+        double denom = Math.tanh(k);
+        if (denom == 0.0)
+            return x;
+        return Math.tanh(x * k) / denom;
     }
 
     /**
