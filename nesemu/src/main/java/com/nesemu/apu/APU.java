@@ -63,6 +63,8 @@ public class APU implements NesAPU {
     private float[] sampleBuf = new float[8192];
     private int sampleWriteIdx = 0;
     private int sampleReadIdx = 0;
+    // simple last-sample smoothing state
+    private float lastOutput = 0.0f;
 
     // ---- Envelope generators ----
     private final Envelope envP1 = new Envelope();
@@ -145,6 +147,28 @@ public class APU implements NesAPU {
         }
     }
 
+    // Precomputed TND mixer table: tri(0..15), noise(0..15), dmc(0..127)
+    private static final double[] TND_MIX_TABLE;
+    static {
+        TND_MIX_TABLE = new double[16 * 16 * 128];
+        for (int tri = 0; tri < 16; tri++) {
+            for (int noise = 0; noise < 16; noise++) {
+                for (int dmc = 0; dmc < 128; dmc++) {
+                    int idx = (tri * 16 + noise) * 128 + dmc;
+                    double tri_contrib = tri / 8227.0;
+                    double noise_contrib = noise / 12241.0;
+                    double dmc_contrib = dmc / 22638.0;
+                    double sum = tri_contrib + noise_contrib + dmc_contrib;
+                    if (sum <= 0.0) {
+                        TND_MIX_TABLE[idx] = 0.0;
+                    } else {
+                        TND_MIX_TABLE[idx] = 159.79 / (1.0 / sum + 100.0);
+                    }
+                }
+            }
+        }
+    }
+
     // (Frame sequencer constants moved to FrameSequencer class)
 
     // ------ Debug/testing counters
@@ -213,6 +237,7 @@ public class APU implements NesAPU {
         recomputeSampleInterval();
         sampleAccum2xUnits = 0;
         sampleWriteIdx = sampleReadIdx = 0;
+        lastOutput = 0.0f;
     }
 
     @Override
@@ -229,7 +254,10 @@ public class APU implements NesAPU {
         if (sampleAccum2xUnits >= sampleInterval2xUnits) {
             sampleAccum2xUnits -= sampleInterval2xUnits;
             float s = mixOutputSample();
-            writeSample(s);
+            // small smoothing to reduce clicks: write average of last and current
+            float out = (lastOutput + s) * 0.5f;
+            lastOutput = s;
+            writeSample(out);
         }
     }
 
@@ -582,11 +610,12 @@ public class APU implements NesAPU {
         // clamp pulseSum to table range
         int idx = (int) Math.max(0, Math.min(PULSE_MIX_TABLE.length - 1, Math.round(pulseSum)));
         double pulseOut = PULSE_MIX_TABLE[idx];
-        double dmc = (enaDmc ? (double) dmcOutputLevel : 0.0);
-        double tndDen = (tri / 8227.0) + (noi / 12241.0) + (dmc / 22638.0);
-        double tndOut = (tndDen > 0)
-                ? 159.79 / (1.0 / tndDen + 100.0)
-                : 0.0;
+        // Use precomputed TND lookup: tri(0..15), noise(0..15), dmc(0..127)
+        int triIdx = Math.max(0, Math.min(15, tri));
+        int noiseIdx = Math.max(0, Math.min(15, noi));
+        int dmcIdx = enaDmc ? Math.max(0, Math.min(127, dmcOutputLevel)) : 0;
+        int tndIndex = (triIdx * 16 + noiseIdx) * 128 + dmcIdx;
+        double tndOut = TND_MIX_TABLE[tndIndex];
         double out = pulseOut + tndOut; // approx 0..1
         // clamp to [0,1]
         if (out < 0)
@@ -660,6 +689,8 @@ public class APU implements NesAPU {
      */
     private double polyBLEP(double t, double dt) {
         // canonical polyBLEP for a unit step at t=0, transition width dt
+        // protect dt: it must be >0 and significantly <1
+        dt = Math.max(1e-12, Math.min(dt, 0.5 - 1e-12));
         if (t < 0.0 || t >= 1.0)
             return 0.0;
         if (t < dt) {
