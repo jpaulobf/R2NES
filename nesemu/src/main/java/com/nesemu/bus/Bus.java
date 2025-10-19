@@ -245,9 +245,10 @@ public class Bus implements NesBus {
             }
 
             // Emulate stolen cycles: short DMA stall added to CPU
-            final int DMC_STALL_CYCLES = 4; // adjustable; approximates stolen cycles
+            // Variable stall based on address alignment (approximation)
+            int stallCycles = 4 + (dmcAddr & 1); // +1 if odd address
             if (cpuRef != null) {
-                cpuRef.addDmaStall(DMC_STALL_CYCLES);
+                cpuRef.addDmaStall(stallCycles);
             }
 
             try {

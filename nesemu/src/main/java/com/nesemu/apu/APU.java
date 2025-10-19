@@ -63,6 +63,15 @@ public class APU implements NesAPU {
     private float[] sampleBuf = new float[8192];
     private int sampleWriteIdx = 0;
     private int sampleReadIdx = 0;
+    private float prevSample = 0.0f; // for linear interpolation between samples
+
+    // Output filters to simulate NES analog response
+    private double hpfPrevIn = 0.0;
+    private double hpfPrevOut = 0.0;
+    private double lpfPrevOut = 0.0;
+    // HPF cutoff ~10 Hz, LPF cutoff ~14 kHz at 44.1kHz sample rate
+    private static final double HPF_ALPHA = 0.9998; // very low cutoff
+    private static final double LPF_ALPHA = 0.1; // approx 14kHz at 44.1kHz
 
     // ---- Envelope generators ----
     private final Envelope envP1 = new Envelope();
@@ -213,6 +222,11 @@ public class APU implements NesAPU {
         recomputeSampleInterval();
         sampleAccum2xUnits = 0;
         sampleWriteIdx = sampleReadIdx = 0;
+        // Reset output filters
+        hpfPrevIn = 0.0;
+        hpfPrevOut = 0.0;
+        lpfPrevOut = 0.0;
+        prevSample = 0.0f;
     }
 
     @Override
@@ -228,7 +242,10 @@ public class APU implements NesAPU {
         sampleAccum2xUnits += 2; // each CPU cycle adds two 2x units
         if (sampleAccum2xUnits >= sampleInterval2xUnits) {
             sampleAccum2xUnits -= sampleInterval2xUnits;
-            float s = mixOutputSample();
+            float currentSample = mixOutputSample();
+            // Linear interpolation between consecutive samples for smoother output
+            float s = (prevSample + currentSample) / 2.0f;
+            prevSample = currentSample;
             writeSample(s);
         }
     }
@@ -579,15 +596,27 @@ public class APU implements NesAPU {
         int tri = getTriangleOutputLevel(); // 0..15
         int noi = getNoiseOutputLevel(); // 0..15
         double pulseSum = p1 + p2;
-        // clamp pulseSum to table range
-        int idx = (int) Math.max(0, Math.min(PULSE_MIX_TABLE.length - 1, Math.round(pulseSum)));
-        double pulseOut = PULSE_MIX_TABLE[idx];
+        // linear interpolation in pulse LUT
+        double idx = pulseSum;
+        int idxLow = (int) Math.max(0, Math.min(PULSE_MIX_TABLE.length - 1, Math.floor(idx)));
+        int idxHigh = (int) Math.max(0, Math.min(PULSE_MIX_TABLE.length - 1, Math.ceil(idx)));
+        double frac = idx - Math.floor(idx);
+        double pulseOut = PULSE_MIX_TABLE[idxLow] * (1.0 - frac) + PULSE_MIX_TABLE[idxHigh] * frac;
         double dmc = (enaDmc ? (double) dmcOutputLevel : 0.0);
         double tndDen = (tri / 8227.0) + (noi / 12241.0) + (dmc / 22638.0);
         double tndOut = (tndDen > 0)
                 ? 159.79 / (1.0 / tndDen + 100.0)
                 : 0.0;
         double out = pulseOut + tndOut; // approx 0..1
+        // Apply output filters to simulate NES analog response
+        // LPF first (~8kHz cutoff)
+        double lpfOut = LPF_ALPHA * out + (1.0 - LPF_ALPHA) * lpfPrevOut;
+        lpfPrevOut = lpfOut;
+        // HPF to remove DC (~10Hz cutoff)
+        double hpfOut = HPF_ALPHA * (lpfOut + hpfPrevIn - hpfPrevOut);
+        hpfPrevOut = hpfOut;
+        hpfPrevIn = lpfOut;
+        out = hpfOut;
         // clamp to [0,1]
         if (out < 0)
             out = 0;
@@ -616,11 +645,8 @@ public class APU implements NesAPU {
         int period = timer + 1; // avoid zero
         double freq = cpuClockHz / (16.0 * (double) period);
         double phaseInc = freq / (double) sampleRate; // normalized phase increment
-        // clamp phase increment to stable range to avoid dt-related artifacts
-        if (phaseInc <= 0.0)
-            phaseInc = 0.0;
-        if (phaseInc > 0.5)
-            phaseInc = 0.5;
+        // Note: no clamp on phaseInc to avoid artifacts at high frequencies
+        // where polyBLEP transition width exceeds 0.5.
 
         // advance phase
         if (ch == 1) {
