@@ -70,8 +70,8 @@ public class APU implements NesAPU {
     private double hpfPrevOut = 0.0;
     private double lpfPrevOut = 0.0;
     // HPF cutoff ~20 Hz, LPF cutoff ~14 kHz at 44.1kHz sample rate
-    private static final double HPF_ALPHA = 0.999; // low cutoff
-    private static final double LPF_ALPHA = 0.95; // approx 14kHz at 44.1kHz
+    private static final double HPF_ALPHA = 0.998; // low cutoff
+    private static final double LPF_ALPHA = 0.85; // approx 14kHz at 44.1kHz
 
     // ---- Envelope generators ----
     private final Envelope envP1 = new Envelope();
