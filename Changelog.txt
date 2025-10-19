@@ -1,6 +1,20 @@
 Changelog - R2NES
 ===================
 
+Version 0.5.6.2 – Audio: DMC Playback, Band-Limited Pulses & Mixer Filters (2025-09-08)
+------------------------
+
+Added
+- Delta Modulation Channel playback including looping, IRQ enable, and $4011 direct load handling; the bus now services APU DMA requests and simulates per-byte CPU stalls to stream sample data from PRG/WRAM/PPU space.
+
+Changed
+- Pulse channels switch to polyBLEP band-limited synthesis to curb high-frequency aliasing while preserving envelope dynamics.
+- Mixer pipeline now interpolates consecutive samples, applies NES-like high-pass and low-pass filters, and folds in the DMC DAC to produce a smoother output curve.
+- README (EN/PT) updated to document the refreshed audio pipeline.
+
+Notes
+- DMC frame IRQ timing remains simplified; audio sample rate stays fixed at 44.1 kHz for this release.
+
 Version 0.5.6.1 – Refactory and Cleaning
 
 - No functionality has been added/changed.

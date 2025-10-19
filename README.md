@@ -12,10 +12,15 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.5.6.1)
-UX/QoL polish around overlays and ROM lifecycle.
+### Current Release (0.5.6.2)
+Audio pipeline refresh: DMC playback, band-limited pulses, and mixer filtering.
 
-What's new in 0.5.6.1:
+What's new in 0.5.6.2:
+* DMC channel: implements looping/IRQ flags, $4011 DAC writes, and on-demand DMA fetches with simulated CPU stalls so streamed samples play inside the NES mix.
+* Band-limited pulses: Pulse1/Pulse2 now use polyBLEP smoothing to reduce aliasing at high pitches while respecting sweep and envelope dynamics.
+* Mixer polish: integrates the DMC DAC into the TND curve, adds linear interpolation plus analog-style high/low-pass filters, and tightens the output ring buffer pacing.
+
+Highlights from 0.5.6.1:
 * Centered overlays: all non-HUD message windows (RESET, save/load feedback, fast-forward indicator, PAUSED) are now centered; text is centered within each box. HUD unchanged.
 * Safer no-ROM mode: when no ROM is loaded, save/load state, pause, fast-forward, and reset actions are disabled/ignored; fast-forward overlay is hidden.
 * File → Close ROM: unloads the current ROM, performs PRG RAM autosave, stops audio, and returns to the black-screen emulator. Window title reflects the no-ROM state.
@@ -27,7 +32,7 @@ Highlights from 0.5.5:
 
 Highlights from 0.5:
 * APU: Pulse1/Pulse2 duty sequencers and sweep (with immediate divider reload on write), Triangle with linear counter and 32-step table, Noise with 15-bit LFSR (short/long modes).
-* Mixing: NES-style non-linear pulse combiner and TND mixer (Triangle + Noise; DMC pending).
+* Mixing: NES-style non-linear pulse combiner and TND mixer (Triangle + Noise; DMC joined in 0.5.6.2).
 * Sampling & Playback: fixed-rate 44.1 kHz sample generation with a ring buffer, drained by a JavaSound player (PCM16 mono). Auto-starts on ROM load and restarts on ROM reload.
 * Tests expanded covering sweep timing, pulse mute threshold (timer <= 8), triangle gating, and noise shift/output basics.
 
@@ -43,8 +48,9 @@ Key additions since earlier builds:
 
 ### Audio
 * Output: PCM16 mono at 44.1 kHz via JavaSound. Starts automatically when a ROM is loaded; stops and restarts on ROM reload.
+* Mixing: polyBLEP pulse synthesis feeds the NES pulse/TND tables with triangle, noise, and the DMC DAC; linear interpolation plus analog-style HPF/LPF filtering approximates the console’s analog roll-off.
 * Configuration: sample rate and buffers are currently fixed; future versions may expose INI/CLI options for rate, latency, and gain.
-* Limitations: DMC channel not implemented yet; frame counter/IRQ details simplified. Minor glitches may be heard under heavy load.
+* Limitations: Frame counter/IRQ nuances are still simplified and DMC timing remains approximate; minor artifacts may appear under heavy load.
 
 ### Gamepad (optional)
 * Enable: set `gamepad=true` in `emulator.ini`.
@@ -62,7 +68,7 @@ Core Feature Summary:
 * UX: HUD, fullscreen & proportion cycling, scanlines, pause, turbo, fast-forward, configurable hotkeys.
 * Config: `emulator.ini` precedence (CLI > INI > defaults) with extensive toggles.
 
-Planned (short list): DMC channel, MMC3 IRQ counter, enhanced sprite 0 timing, save state v3 (more internal latches), HUD turbo indicator, audio configuration (rate/latency/gain).
+Planned (short list): MMC3 IRQ counter, enhanced sprite 0 timing, save state v3 (more internal latches), HUD turbo indicator, audio configuration (rate/latency/gain), DMC IRQ/fetch timing refinements.
 
 ### Build
 Requires Java 21+ and Maven.
@@ -206,10 +212,15 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.5.6.1)
-Polimento de UX/QoL em overlays e ciclo de vida da ROM.
+### Versão Atual (0.5.6.2)
+Atualização do áudio: canal DMC, pulses com banda limitada e filtros no mixer.
 
-Novidades em 0.5.6.1:
+Novidades em 0.5.6.2:
+* Canal DMC: implementa flags de loop/IRQ, escrita $4011 (DAC) e requisições DMA com simulação de ciclos roubados para transmitir amostras diretamente do barramento.
+* Pulses com banda limitada: Pulse1/Pulse2 agora usam suavização polyBLEP para reduzir aliasing em notas agudas mantendo sweep e envelopes.
+* Mixer refinado: integra o DAC do DMC na curva TND, aplica interpolação linear + filtros analógicos (HPF/LPF) e ajusta o pacing do buffer para saída mais estável.
+
+Destaques do 0.5.6.1:
 * Overlays centralizados: todas as janelas de mensagens que não são HUD (RESET, feedback de save/load, indicador de fast-forward, PAUSED) agora ficam centralizadas; o texto fica centralizado dentro de cada caixa. HUD inalterado.
 * Modo sem ROM mais seguro: quando não há ROM carregada, as ações de save/load state, pausa, fast-forward e reset ficam desabilitadas/ignoradas; o overlay de fast-forward é oculto.
 * File → Close ROM: descarrega a ROM atual, faz autosave da PRG RAM, para o áudio e retorna para a tela preta. O título da janela indica o estado sem ROM.
@@ -221,7 +232,7 @@ Destaques do 0.5.5:
 
 Destaques do 0.5:
 * APU: Pulse1/Pulse2 com sequenciadores de duty e sweep (reload imediato do divisor no write), Triangle com contador linear e tabela de 32 passos, e Noise com LFSR de 15 bits (modos curto/longo).
-* Mixagem: combinador não-linear para pulses e mixer TND (Triangle + Noise; DMC pendente).
+* Mixagem: combinador não-linear para pulses e mixer TND (Triangle + Noise; DMC chegou no 0.5.6.2).
 * Amostragem & Reprodução: geração fixa a 44,1 kHz com buffer circular, drenado por um player JavaSound (PCM16 mono). Inicia automaticamente ao carregar ROM e reinicia ao recarregar.
 * Testes ampliados para timing de sweep, threshold de mute do pulse (timer <= 8), gating do triangle e basics de shift/saída do noise.
 
@@ -237,8 +248,9 @@ Principais adições recentes:
 
 ### Áudio
 * Saída: PCM16 mono a 44,1 kHz via JavaSound. Inicia automaticamente ao carregar ROM; para e reinicia ao recarregar.
+* Mixagem: pulses com polyBLEP alimentam as tabelas pulse/TND junto com triangle, noise e o DAC do DMC; interpolação linear e filtros analógicos (HPF/LPF) aproximam a resposta do console.
 * Configuração: taxa e buffers ainda fixos; versões futuras podem expor opções INI/CLI para taxa, latência e ganho.
-* Limitações: canal DMC ainda não implementado; detalhes de frame counter/IRQ simplificados. Pequenos glitches podem ocorrer sob carga.
+* Limitações: frame counter/IRQ continuam simplificados e o timing do DMC ainda é aproximado; pequenos artefatos podem surgir sob carga elevada.
 
 ### Gamepad (opcional)
 * Habilitar: `gamepad=true` no `emulator.ini`.
@@ -256,7 +268,7 @@ Resumo de Funcionalidades:
 * UX: HUD, fullscreen, proporção, scanlines, pausa, turbo, fast-forward, hotkeys configuráveis.
 * Config: `emulator.ini` abrangente (precedência CLI > INI > default).
 
-Planejado (curto prazo): Canal DMC, IRQ MMC3, timing avançado de sprite 0, save state v3, indicador turbo no HUD, configuração de áudio (taxa/latência/ganho).
+Planejado (curto prazo): IRQ MMC3, timing avançado de sprite 0, save state v3, indicador turbo no HUD, configuração de áudio (taxa/latência/ganho), refinamentos de timing para DMC.
 
 ### Build
 Requer Java 21+ e Maven.
