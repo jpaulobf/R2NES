@@ -69,9 +69,9 @@ public class APU implements NesAPU {
     private double hpfPrevIn = 0.0;
     private double hpfPrevOut = 0.0;
     private double lpfPrevOut = 0.0;
-    // HPF cutoff ~10 Hz, LPF cutoff ~14 kHz at 44.1kHz sample rate
-    private static final double HPF_ALPHA = 0.9998; // very low cutoff
-    private static final double LPF_ALPHA = 0.1; // approx 14kHz at 44.1kHz
+    // HPF cutoff ~20 Hz, LPF cutoff ~14 kHz at 44.1kHz sample rate
+    private static final double HPF_ALPHA = 0.999; // low cutoff
+    private static final double LPF_ALPHA = 0.95; // approx 14kHz at 44.1kHz
 
     // ---- Envelope generators ----
     private final Envelope envP1 = new Envelope();
@@ -680,7 +680,6 @@ public class APU implements NesAPU {
         double freq = cpuClockHz / (16.0 * (double) period);
         double phaseInc = freq / (double) sampleRate; // normalized phase increment
         // Note: no clamp on phaseInc to avoid artifacts at high frequencies
-        // where polyBLEP transition width exceeds 0.5.
 
         // advance phase
         if (ch == 1) {
