@@ -154,6 +154,28 @@ public class APU implements NesAPU {
         }
     }
 
+    // Precomputed TND mixer table: tri(0..15), noise(0..15), dmc(0..127)
+    private static final double[] TND_MIX_TABLE;
+    static {
+        TND_MIX_TABLE = new double[16 * 16 * 128];
+        for (int tri = 0; tri < 16; tri++) {
+            for (int noise = 0; noise < 16; noise++) {
+                for (int dmc = 0; dmc < 128; dmc++) {
+                    int idx = (tri * 16 + noise) * 128 + dmc;
+                    double tri_contrib = tri / 8227.0;
+                    double noise_contrib = noise / 12241.0;
+                    double dmc_contrib = dmc / 22638.0;
+                    double sum = tri_contrib + noise_contrib + dmc_contrib;
+                    if (sum <= 0.0) {
+                        TND_MIX_TABLE[idx] = 0.0;
+                    } else {
+                        TND_MIX_TABLE[idx] = 159.79 / (1.0 / sum + 100.0);
+                    }
+                }
+            }
+        }
+    }
+
     // (Frame sequencer constants moved to FrameSequencer class)
 
     // ------ Debug/testing counters
@@ -626,6 +648,18 @@ public class APU implements NesAPU {
     }
 
     /**
+     * Soft clipping using normalized tanh to compress peaks gently.
+     */
+    private double softClip(double x) {
+        // strength k: higher -> stronger compression
+        double k = 2.0;
+        double denom = Math.tanh(k);
+        if (denom == 0.0)
+            return x;
+        return Math.tanh(x * k) / denom;
+    }
+
+    /**
      * Compute a band-limited pulse output for channel ch (1 or 2) in the same
      * 0..15 amplitude range used by envelope outputs. Uses polyBLEP to smooth
      * the rising/falling edges based on current channel frequency and sample
@@ -686,6 +720,8 @@ public class APU implements NesAPU {
      */
     private double polyBLEP(double t, double dt) {
         // canonical polyBLEP for a unit step at t=0, transition width dt
+        // protect dt: it must be >0 and significantly <1
+        dt = Math.max(1e-12, Math.min(dt, 0.5 - 1e-12));
         if (t < 0.0 || t >= 1.0)
             return 0.0;
         if (t < dt) {
