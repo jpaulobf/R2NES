@@ -3,17 +3,20 @@ package com.nesemu;
 import java.nio.file.*;
 import java.util.EnumSet;
 import java.util.Locale;
+import javax.swing.JOptionPane;
 import com.nesemu.bus.Bus;
 import com.nesemu.emulator.NesEmulator;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
 import com.nesemu.gui.NesWindow;
+import com.nesemu.gui.RomDirectoryConfigDialog;
 import com.nesemu.gui.KeyTokens;
 import com.nesemu.input.InputConfig;
 import com.nesemu.input.GamepadPoller;
 import com.nesemu.config.AppOptions;
 import com.nesemu.config.CLIOptionsParser;
 import com.nesemu.config.ConfigUtils;
+import com.nesemu.config.UserConfig;
 import com.nesemu.config.RuntimeSettings;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
@@ -447,6 +450,7 @@ public class Main {
         if (applicationOptions.gui) {
             String title = (romFilePath != null) ? ("R2-NES - " + romFilePath.getFileName()) : "R2-NES (no ROM)";
             NesWindow window = new NesWindow(title, 3);
+            final UserConfig userConfig = UserConfig.load();
             // Prevent automatic dispose so Alt+F4 / close button can confirm like ESC
             try {
                 window.getFrame().setDefaultCloseOperation(javax.swing.JFrame.DO_NOTHING_ON_CLOSE);
@@ -464,14 +468,22 @@ public class Main {
             final String[] savePathOverrideHolder = new String[] { applicationOptions.savePathOverride }; // mutable for
                                                                                                           // menu reload
             // If INI rom option points to a directory, use it as the initial chooser dir
-            try {
-                if (applicationOptions.romPath != null) {
-                    Path rp = Path.of(applicationOptions.romPath);
-                    if (Files.isDirectory(rp)) {
-                        window.setFileChooserStartDir(rp);
+            Path chooserStartDir = userConfig.resolvePreferredRomDirectory();
+            if (chooserStartDir == null) {
+                try {
+                    if (applicationOptions.romPath != null && !applicationOptions.romPath.isBlank()) {
+                        Path rp = Path.of(applicationOptions.romPath);
+                        if (Files.isDirectory(rp)) {
+                            chooserStartDir = rp;
+                        } else if (Files.isRegularFile(rp) && rp.getParent() != null) {
+                            chooserStartDir = rp.getParent();
+                        }
                     }
+                } catch (Exception ignore) {
                 }
-            } catch (Exception ignore) {
+            }
+            if (chooserStartDir != null) {
+                window.setFileChooserStartDir(chooserStartDir);
             }
             final String[] saveStatePathHolder = new String[] { applicationOptions.saveStatePath }; // mutable wrapper
                                                                                                     // for closures
@@ -483,6 +495,43 @@ public class Main {
             }
             // Initial enable/disable of ROM-sensitive menu items
             window.setRomActionsEnabled(romFilePathHolder[0] != null);
+            window.setOnMiscMenuSelected(() -> {
+                RomDirectoryConfigDialog dialog = new RomDirectoryConfigDialog(window.getFrame(),
+                        userConfig.getDefaultRomDirectory(), userConfig.getLastRomDirectory());
+                RomDirectoryConfigDialog.Result result = dialog.showDialog();
+                if (!result.isSaved())
+                    return;
+                boolean cleared = result.isCleared();
+                Path chosen = result.getDirectory().orElse(null);
+                if (cleared) {
+                    userConfig.clearDefaultRomDirectory();
+                } else {
+                    userConfig.setDefaultRomDirectory(chosen);
+                }
+                boolean persisted = userConfig.save();
+                if (!persisted) {
+                    JOptionPane.showMessageDialog(window.getFrame(),
+                            "Não foi possível salvar a configuração do diretório padrão.",
+                            "Configuração de ROM", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                Path nextDir = userConfig.resolvePreferredRomDirectory();
+                if (nextDir == null && romFilePathHolder[0] != null && romFilePathHolder[0].getParent() != null) {
+                    nextDir = romFilePathHolder[0].getParent();
+                }
+                window.setFileChooserStartDir(nextDir);
+                if (cleared) {
+                    JOptionPane.showMessageDialog(window.getFrame(),
+                            "Diretório padrão removido. O último diretório utilizado continuará sendo lembrado.",
+                            "Configuração de ROM", JOptionPane.INFORMATION_MESSAGE);
+                    Log.info(GENERAL, "Diretório padrão de ROM removido pelo usuário");
+                } else {
+                    JOptionPane.showMessageDialog(window.getFrame(),
+                            "Diretório padrão atualizado:\n" + chosen,
+                            "Configuração de ROM", JOptionPane.INFORMATION_MESSAGE);
+                    Log.info(GENERAL, "Diretório padrão de ROM definido para: %s", chosen);
+                }
+            });
             // Autosave hook: attach window listener to save SRAM on close
             // Unified exit confirmation logic (ESC or Alt+F4 / window close)
             Runnable exitConfirmed = () -> {
@@ -1027,8 +1076,14 @@ public class Main {
                     // Enable ROM-sensitive menu items
                     window.setRomActionsEnabled(true);
                     try {
-                        if (path.getParent() != null)
-                            window.setFileChooserStartDir(path.getParent());
+                        Path parent = path.getParent();
+                        if (parent != null && Files.isDirectory(parent)) {
+                            userConfig.setLastRomDirectory(parent);
+                            userConfig.save();
+                            if (!userConfig.hasDefaultRomDirectory()) {
+                                window.setFileChooserStartDir(parent);
+                            }
+                        }
                     } catch (Exception ignore) {
                     }
                     // Visual feedback

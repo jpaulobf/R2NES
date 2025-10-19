@@ -77,6 +77,7 @@ public class NesWindow {
     private Consumer<Path> onLoadRomCallback; // invoked with selected ROM path
     private Runnable onBeforeOpenLoadRomDialog; // optional hook to pause gameplay before dialog
     private Runnable onAfterLoadRomDialogCancelled; // optional hook to restore state when user cancels
+    private Runnable onMiscMenuCallback; // optional hook for the Misc menu item
     private volatile File fileChooserStartDir; // preferred starting directory
     private javax.swing.JMenuItem resetMenuItem;
     private javax.swing.JMenuItem closeRomMenuItem;
@@ -177,6 +178,11 @@ public class NesWindow {
         this.onAfterLoadRomDialogCancelled = r;
     }
 
+    /** Set callback invoked when the Options->Misc item is selected. */
+    public void setOnMiscMenuSelected(Runnable r) {
+        this.onMiscMenuCallback = r;
+    }
+
     /** Define diretório inicial preferido para o diálogo de Load ROM. */
     public void setFileChooserStartDir(Path dir) {
         try {
@@ -274,6 +280,15 @@ public class NesWindow {
         JMenuItem miVideo = new JMenuItem("Video");
         JMenuItem miAudio = new JMenuItem("Audio");
         JMenuItem miMisc = new JMenuItem("Misc");
+        miMisc.addActionListener(e -> {
+            if (onMiscMenuCallback != null) {
+                try {
+                    onMiscMenuCallback.run();
+                } catch (Exception ignore) {
+                }
+            }
+            restoreFocus();
+        });
         options.add(miInput);
         options.add(miVideo);
         options.add(miAudio);
@@ -282,8 +297,8 @@ public class NesWindow {
         frame.setJMenuBar(mb);
     }
 
-    /** 
-     * Enable/disable Reset menu item. Safe to call from any thread. 
+    /**
+     * Enable/disable Reset menu item. Safe to call from any thread.
      */
     public void setResetEnabled(boolean enabled) {
         SwingUtilities.invokeLater(() -> {
@@ -292,8 +307,8 @@ public class NesWindow {
         });
     }
 
-    /** 
-     * Enable/disable Close ROM menu item. Safe to call from any thread. 
+    /**
+     * Enable/disable Close ROM menu item. Safe to call from any thread.
      */
     public void setCloseRomEnabled(boolean enabled) {
         SwingUtilities.invokeLater(() -> {
@@ -302,8 +317,8 @@ public class NesWindow {
         });
     }
 
-    /** 
-     * Convenience to toggle both Reset and Close ROM at once. 
+    /**
+     * Convenience to toggle both Reset and Close ROM at once.
      */
     public void setRomActionsEnabled(boolean enabled) {
         setResetEnabled(enabled);
