@@ -63,7 +63,6 @@ public class APU implements NesAPU {
     private float[] sampleBuf = new float[8192];
     private int sampleWriteIdx = 0;
     private int sampleReadIdx = 0;
-    private float prevSample = 0.0f; // for linear interpolation between samples
 
     // Output filters to simulate NES analog response
     private double hpfPrevIn = 0.0;
@@ -71,7 +70,7 @@ public class APU implements NesAPU {
     private double lpfPrevOut = 0.0;
     // HPF cutoff ~20 Hz, LPF cutoff ~14 kHz at 44.1kHz sample rate
     private static final double HPF_ALPHA = 0.998; // low cutoff
-    private static final double LPF_ALPHA = 0.85; // approx 14kHz at 44.1kHz
+    private static final double LPF_ALPHA = 0.95; // Increased to let more treble through (less muffled)
 
     // ---- Envelope generators ----
     private final Envelope envP1 = new Envelope();
@@ -248,7 +247,6 @@ public class APU implements NesAPU {
         hpfPrevIn = 0.0;
         hpfPrevOut = 0.0;
         lpfPrevOut = 0.0;
-        prevSample = 0.0f;
     }
 
     @Override
@@ -632,31 +630,18 @@ public class APU implements NesAPU {
         // LPF first (~8kHz cutoff)
         double lpfOut = LPF_ALPHA * out + (1.0 - LPF_ALPHA) * lpfPrevOut;
         lpfPrevOut = lpfOut;
-        // HPF bypassed: The previous HPF correction caused signal to center at 0 (negative values),
-        // which likely caused the "choppy" audio if the player expects 0..1.
-        // We pass lpfOut directly to keep the signal positive.
-        double hpfOut = lpfOut;
+        // HPF enabled to remove DC offset, but we add 0.5 bias to center the signal
+        // within the 0.0..1.0 range, preventing negative clipping ("choppy" sound).
+        double hpfOut = HPF_ALPHA * (hpfPrevOut + lpfOut - hpfPrevIn);
         hpfPrevIn = lpfOut;
         hpfPrevOut = hpfOut;
-        out = hpfOut;
+        out = hpfOut + 0.5;
         
         // Hard clamp to [0,1] to ensure compatibility
         if (out < 0.0) out = 0.0;
         if (out > 1.0) out = 1.0;
         
         return (float) out;
-    }
-
-    /**
-     * Soft clipping using normalized tanh to compress peaks gently.
-     */
-    private double softClip(double x) {
-        // strength k: higher -> stronger compression
-        double k = 2.0;
-        double denom = Math.tanh(k);
-        if (denom == 0.0)
-            return x;
-        return Math.tanh(x * k) / denom;
     }
 
     /**
@@ -679,7 +664,10 @@ public class APU implements NesAPU {
         int period = timer + 1; // avoid zero
         double freq = cpuClockHz / (16.0 * (double) period);
         double phaseInc = freq / (double) sampleRate; // normalized phase increment
-        // Note: no clamp on phaseInc to avoid artifacts at high frequencies
+        
+        // Anti-aliasing: Mute if frequency is above Nyquist (phaseInc >= 0.5)
+        // This prevents harsh/strident artifacts on very high notes or sweeps.
+        if (phaseInc >= 0.5) return 0.0;
 
         // advance phase
         if (ch == 1) {
