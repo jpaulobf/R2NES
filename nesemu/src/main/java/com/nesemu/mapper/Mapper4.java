@@ -189,20 +189,19 @@ public class Mapper4 extends Mapper {
     }
 
     /**
-     * To be called by PPU integration path on each PPU A12 rising edge (0->1).
-     * If IRQs are enabled, this will decrement the IRQ counter (or reload it)
-     * and signal an IRQ when it reaches 0.
+     * Called by PPU on scanline rendering (approx cycle 260).
+     * Clocks the IRQ counter.
      */
-    public void onA12RisingEdge() {
-        if (!irqEnabled) return;
+    @Override
+    public void onScanline(int scanline) {
         if (irqReloadPending || irqCounter == 0) {
             irqCounter = irqLatch;
             irqReloadPending = false;
         } else {
             irqCounter = (irqCounter - 1) & 0xFF;
-        }
-        if (irqCounter == 0) {
-            // ...: Signal IRQ line to CPU (requires bus/cpu integration path)
+            if (irqCounter == 0 && irqEnabled) {
+                if (irqCallback != null) irqCallback.run();
+            }
         }
     }
 

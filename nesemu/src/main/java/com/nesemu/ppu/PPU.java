@@ -340,6 +340,10 @@ public class PPU implements NesPPU {
                 if (cycle == 257) {
                     copyHorizontalBits();
                 }
+                // Signal scanline to mapper (for MMC3 IRQ) at cycle 260
+                if (cycle == 260 && mapper != null) {
+                    mapper.onScanline(scanline);
+                }
                 // During pre-render line cycles 280-304 copy vertical bits from t to v
                 if (isPreRender() && cycle >= 280 && cycle <= 304) {
                     copyVerticalBits();

@@ -152,6 +152,11 @@ public class Bus implements NesBus {
             // Load ROM PRG into backing memory for fallback CPU tests without mapper logic.
             memory.loadCartridge(this.rom);
         }
+        if (this.mapper != null) {
+            this.mapper.setIrqCallback(() -> {
+                if (cpuRef != null) cpuRef.irq();
+            });
+        }
     }
 
     @Override

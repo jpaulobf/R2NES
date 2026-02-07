@@ -12,13 +12,14 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.5.7)
-Structural refactor (Main) and PPU rendering optimizations.
+### Current Release (0.5.8)
+MMC3 IRQ Support & Mapper Polish.
 
-What's new in 0.5.7:
+What's new in 0.5.8:
+* **Mapper 4 (MMC3):** Implemented Scanline IRQ counter. Fixes split-screen effects (e.g. SMB3 status bar).
+* **Previous (0.5.7):**
 * **Refactoring:** Cleaned up entry point by extracting GUI and Headless logic into dedicated launchers.
 * **PPU Performance:** Added palette caching (eliminating float math per pixel) and sprite pattern prefetching.
-* **Previous (0.5.6.3):**
 * **Performance:** Major reduction in GC pressure (reused operand objects) and CPU overhead (cached reflection methods, optimized lookups) for smoother frame rates.
 * **Audio:** Fixed "choppy" sound by biasing HPF output; reduced muffling by tuning LPF and removing redundant averaging; added Nyquist aliasing protection.
 
@@ -190,13 +191,14 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.5.7)
-Refatoração estrutural (Main) e otimizações de renderização PPU.
+### Versão Atual (0.5.8)
+Suporte a IRQ no MMC3 e melhorias em Mappers.
 
-Novidades em 0.5.7:
+Novidades em 0.5.8:
+* **Mapper 4 (MMC3):** Implementado contador de IRQ por scanline. Corrige efeitos de tela dividida (ex: barra de status do SMB3).
+* **Anterior (0.5.7):**
 * **Refatoração:** Limpeza do ponto de entrada extraindo lógica de GUI e Headless para launchers dedicados.
 * **Performance PPU:** Adicionado cache de paleta (eliminando matemática float por pixel) e prefetch de padrões de sprite.
-* **Anterior (0.5.6.3):**
 * **Performance:** Grande redução na pressão do GC (reuso de objetos) e overhead de CPU (cache de reflexão, lookups otimizados) para quadros mais estáveis.
 * **Áudio:** Correção de som "picotado" via bias no HPF; redução de abafamento ajustando LPF; proteção contra aliasing (Nyquist).
 

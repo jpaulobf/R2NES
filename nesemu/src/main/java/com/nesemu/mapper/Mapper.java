@@ -17,6 +17,22 @@ public abstract class Mapper {
     byte[] chrRam;
     byte[] prgRam;
     byte[] exRam = new byte[1024];
+    
+    // Callback to signal IRQ to the CPU
+    protected Runnable irqCallback;
+
+    /**
+     * Indicates which subsystem is currently driving a CHR fetch. Default is NONE
+     * so mappers can treat CPU/PPU reads uniformly when they do not care about the
+     * source. MMC5 relies on this to distinguish background vs sprite fetches.
+     */
+    public enum ChrReadMode {
+        NONE,
+        BACKGROUND,
+        SPRITE
+    }
+
+    private ChrReadMode chrReadMode = ChrReadMode.NONE;
 
     /**
      * CPU read from mapped PRG/CHR/extra space. Only addresses >= $8000 (and mapper
@@ -109,5 +125,88 @@ public abstract class Mapper {
      * Implementations must tolerate unknown / null data (ignore gracefully).
      */
     public void loadState(byte[] data) {
+    }
+
+    /**
+     * Reads a byte from the logical nametable space ($2000-$2FFF) applying the
+     * mapper's mirroring rules. Mappers that provide their own nametable storage
+     * (e.g. MMC5 ExRAM) should override this method.
+     */
+    public int ppuReadNametable(int address, byte[] ciram) {
+        int nt = (address - 0x2000) & 0x0FFF;
+        int index = nt & 0x03FF;
+        int table = (nt >> 10) & 0x03;
+        MirrorType mt = getMirrorType();
+        int physical = switch (mt) {
+            case VERTICAL -> table & 0x01; // 0,1,0,1
+            case HORIZONTAL -> (table >> 1); // 0,0,1,1
+            case SINGLE0 -> 0;
+            case SINGLE1 -> 1;
+            default -> table & 0x01;
+        };
+        int offset = (physical * 0x0400) + index;
+        return ciram[offset & 0x07FF] & 0xFF;
+    }
+
+    /**
+     * Writes a byte to logical nametable space applying mirroring rules. Override
+     * to direct writes to mapper-specific storage.
+     */
+    public void ppuWriteNametable(int address, int value, byte[] ciram) {
+        int nt = (address - 0x2000) & 0x0FFF;
+        int index = nt & 0x03FF;
+        int table = (nt >> 10) & 0x03;
+        MirrorType mt = getMirrorType();
+        int physical = switch (mt) {
+            case VERTICAL -> table & 0x01;
+            case HORIZONTAL -> (table >> 1);
+            case SINGLE0 -> 0;
+            case SINGLE1 -> 1;
+            default -> table & 0x01;
+        };
+        int offset = (physical * 0x0400) + index;
+        ciram[offset & 0x07FF] = (byte) (value & 0xFF);
+    }
+
+    /**
+     * Allows mappers to override the attribute byte used for background rendering
+     * after the PPU has fetched it. Default implementation returns the input
+     * value unchanged. MMC5 uses this hook to expose extended attributes stored in
+     * ExRAM.
+     */
+    public int adjustAttribute(int coarseX, int coarseY, int attributeAddress, int currentValue) {
+        return currentValue;
+    }
+
+    /**
+     * Sets the current CHR fetch mode before {@link #ppuRead(int)} is invoked.
+     * Default implementation simply records the mode so subclasses can query via
+     * {@link #getChrReadMode()}. Subclasses overriding this method should call
+     * {@code super.setChrReadMode(mode)} to keep the stored value in sync.
+     */
+    public void setChrReadMode(ChrReadMode mode) {
+        this.chrReadMode = mode != null ? mode : ChrReadMode.NONE;
+    }
+
+    /**
+     * Retrieves the most recently assigned CHR fetch mode.
+     */
+    public ChrReadMode getChrReadMode() {
+        return chrReadMode;
+    }
+
+    /**
+     * Sets the callback to trigger a CPU IRQ.
+     * @param cb
+     */
+    public void setIrqCallback(Runnable cb) {
+        this.irqCallback = cb;
+    }
+
+    /**
+     * Called by PPU at a specific cycle (e.g. 260) of each scanline if rendering is enabled.
+     * Used by mappers like MMC3 to clock IRQ counters.
+     */
+    public void onScanline(int scanline) {
     }
 }

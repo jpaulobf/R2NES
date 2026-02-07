@@ -1,6 +1,13 @@
 Changelog - R2NES
 ===================
 
+Version 0.5.8 – MMC3 IRQ Support (2026-02-07)
+------------------------
+
+Added
+- **Mapper 4 (MMC3):** Implemented scanline-based IRQ counter (via PPU hook). Fixes scrolling artifacts in games like Super Mario Bros 3.
+- **Architecture:** Added `onScanline` hook in Mapper interface and PPU to drive mapper counters efficiently.
+
 Version 0.5.7 – Structural Refactor & PPU Boost (2026-02-07)
 ------------------------
 
