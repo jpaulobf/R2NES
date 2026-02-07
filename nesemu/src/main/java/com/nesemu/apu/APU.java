@@ -265,10 +265,8 @@ public class APU implements NesAPU {
         if (sampleAccum2xUnits >= sampleInterval2xUnits) {
             sampleAccum2xUnits -= sampleInterval2xUnits;
             float currentSample = mixOutputSample();
-            // Linear interpolation between consecutive samples for smoother output
-            float s = (prevSample + currentSample) / 2.0f;
-            prevSample = currentSample;
-            writeSample(s);
+            // Removed averaging (prev+curr)/2 which was muffling the sound
+            writeSample(currentSample);
         }
     }
 
@@ -634,16 +632,18 @@ public class APU implements NesAPU {
         // LPF first (~8kHz cutoff)
         double lpfOut = LPF_ALPHA * out + (1.0 - LPF_ALPHA) * lpfPrevOut;
         lpfPrevOut = lpfOut;
-        // HPF to remove DC (~10Hz cutoff)
-        double hpfOut = HPF_ALPHA * (lpfOut + hpfPrevIn - hpfPrevOut);
-        hpfPrevOut = hpfOut;
+        // HPF bypassed: The previous HPF correction caused signal to center at 0 (negative values),
+        // which likely caused the "choppy" audio if the player expects 0..1.
+        // We pass lpfOut directly to keep the signal positive.
+        double hpfOut = lpfOut;
         hpfPrevIn = lpfOut;
+        hpfPrevOut = hpfOut;
         out = hpfOut;
-        // clamp to [0,1]
-        if (out < 0)
-            out = 0;
-        if (out > 1)
-            out = 1;
+        
+        // Hard clamp to [0,1] to ensure compatibility
+        if (out < 0.0) out = 0.0;
+        if (out > 1.0) out = 1.0;
+        
         return (float) out;
     }
 
