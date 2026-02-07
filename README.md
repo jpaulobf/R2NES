@@ -22,31 +22,7 @@ What's new in 0.5.7:
 * **Performance:** Major reduction in GC pressure (reused operand objects) and CPU overhead (cached reflection methods, optimized lookups) for smoother frame rates.
 * **Audio:** Fixed "choppy" sound by biasing HPF output; reduced muffling by tuning LPF and removing redundant averaging; added Nyquist aliasing protection.
 
-Highlights from 0.5.6.1:
-* Centered overlays: all non-HUD message windows (RESET, save/load feedback, fast-forward indicator, PAUSED) are now centered; text is centered within each box. HUD unchanged.
-* Safer no-ROM mode: when no ROM is loaded, save/load state, pause, fast-forward, and reset actions are disabled/ignored; fast-forward overlay is hidden.
-* File → Close ROM: unloads the current ROM, performs PRG RAM autosave, stops audio, and returns to the black-screen emulator. Window title reflects the no-ROM state.
-* Load ROM auto-pause: if a game is running, the emulator auto-pauses while the file chooser is open and restores the prior pause state if canceled.
-
-Highlights from 0.5.5:
-* Gamepad (optional): enable with `gamepad=true` in `emulator.ini`. Standard mapping to NES buttons (A/B/Start/Select + D-Pad), fallback to left stick axes.
-* Packaging: dependencies are copied to `target/lib` and Jar manifest uses Class-Path to load them automatically.
-
-Highlights from 0.5:
-* APU: Pulse1/Pulse2 duty sequencers and sweep (with immediate divider reload on write), Triangle with linear counter and 32-step table, Noise with 15-bit LFSR (short/long modes).
-* Mixing: NES-style non-linear pulse combiner and TND mixer (Triangle + Noise; DMC joined in 0.5.6.2).
-* Sampling & Playback: fixed-rate 44.1 kHz sample generation with a ring buffer, drained by a JavaSound player (PCM16 mono). Auto-starts on ROM load and restarts on ROM reload.
-* Tests expanded covering sweep timing, pulse mute threshold (timer <= 8), triangle gating, and noise shift/output basics.
-
-Key additions since earlier builds:
-* Spin watchdog + optional opcode hex dump (stall diagnostics).
-* Mapper (MMC1) bank/control logging limit.
-* NMI trace & PPUSTATUS ($2002) read counters (frame + last 8 values).
-* Sprite 0 hit timestamp instrumentation and optional forced-hit debug flag.
-* Inline disassembly snippet in spin / manual snapshots (auto-disabled when instrumentation off).
-* Coarse X increment accuracy fix (tile-boundary only) & robust vblank/NMI edge handling.
-* Central instrumentation gating (minimal overhead when all debug flags off).
-* Existing recent features retained: scanlines overlay, pause + unified exit dialog, turbo buttons (normal & fast), fast‑forward with optional FPS cap, left column modes, interleaved timing mode, save states (v2), HUD overlay, unlimited sprites mode, test pattern rendering.
+*(See Changelog.txt for full version history)*
 
 ### Audio
 * Output: PCM16 mono at 44.1 kHz via JavaSound. Starts automatically when a ROM is loaded; stops and restarts on ROM reload.
@@ -224,31 +200,7 @@ Novidades em 0.5.7:
 * **Performance:** Grande redução na pressão do GC (reuso de objetos) e overhead de CPU (cache de reflexão, lookups otimizados) para quadros mais estáveis.
 * **Áudio:** Correção de som "picotado" via bias no HPF; redução de abafamento ajustando LPF; proteção contra aliasing (Nyquist).
 
-Destaques do 0.5.6.1:
-* Overlays centralizados: todas as janelas de mensagens que não são HUD (RESET, feedback de save/load, indicador de fast-forward, PAUSED) agora ficam centralizadas; o texto fica centralizado dentro de cada caixa. HUD inalterado.
-* Modo sem ROM mais seguro: quando não há ROM carregada, as ações de save/load state, pausa, fast-forward e reset ficam desabilitadas/ignoradas; o overlay de fast-forward é oculto.
-* File → Close ROM: descarrega a ROM atual, faz autosave da PRG RAM, para o áudio e retorna para a tela preta. O título da janela indica o estado sem ROM.
-* Auto-pause ao carregar ROM: se um jogo estiver rodando, o emulador entra em pausa automaticamente enquanto o seletor de arquivos está aberto e restaura o estado anterior se houver cancelamento.
-
-Destaques do 0.5.5:
-* Gamepad (opcional): habilite com `gamepad=true` no `emulator.ini`. Mapeamento padrão para NES (A/B/Start/Select + D-Pad), com fallback para o stick esquerdo.
-* Empacotamento: dependências são copiadas para `target/lib` e o manifest do JAR usa Class-Path para carregá-las automaticamente.
-
-Destaques do 0.5:
-* APU: Pulse1/Pulse2 com sequenciadores de duty e sweep (reload imediato do divisor no write), Triangle com contador linear e tabela de 32 passos, e Noise com LFSR de 15 bits (modos curto/longo).
-* Mixagem: combinador não-linear para pulses e mixer TND (Triangle + Noise; DMC chegou no 0.5.6.2).
-* Amostragem & Reprodução: geração fixa a 44,1 kHz com buffer circular, drenado por um player JavaSound (PCM16 mono). Inicia automaticamente ao carregar ROM e reinicia ao recarregar.
-* Testes ampliados para timing de sweep, threshold de mute do pulse (timer <= 8), gating do triangle e basics de shift/saída do noise.
-
-Principais adições recentes:
-* Spin watchdog + dump opcional de opcodes.
-* Logging limitado de banking do MMC1.
-* Trace de NMI e contadores de leituras $2002 (quadro + últimos 8 valores).
-* Instrumentação e flag de debug para sprite 0 hit (forçar/medir).
-* Trecho de desassembly inline em snapshots (desativado quando instrumentação off).
-* Correção de incremento coarse X apenas em limites de tile e limpeza de vblank/NMI duplicado.
-* Gating central para minimizar custo quando sem debug ativo.
-* Recursos já presentes: scanlines, pausa + diálogo de saída, turbo (normal/rápido), fast‑forward com limite opcional, modos de coluna esquerda, timing interleaved, save states v2, HUD, modo unlimited sprites, padrões sintéticos.
+*(Consulte Changelog.txt para o histórico completo)*
 
 ### Áudio
 * Saída: PCM16 mono a 44,1 kHz via JavaSound. Inicia automaticamente ao carregar ROM; para e reinicia ao recarregar.
