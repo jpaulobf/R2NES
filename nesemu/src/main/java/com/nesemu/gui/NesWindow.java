@@ -12,6 +12,7 @@ import com.nesemu.io.NesController;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
+import java.awt.RenderingHints;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
@@ -754,6 +755,10 @@ public class NesWindow {
                     do {
                         Graphics2D g = (Graphics2D) bufferStrategy.getDrawGraphics();
                         try {
+                            // Optimization: Ensure nearest neighbor scaling for crisp pixels and speed
+                            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+                            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
+
                             g.setColor(Color.BLACK);
                             g.fillRect(0, 0, winW, winH);
                             // Test: render with -8 NES px offset in both axes
@@ -781,6 +786,8 @@ public class NesWindow {
                         }
                     } while (bufferStrategy.contentsRestored());
                     bufferStrategy.show();
+                    // Optimization: Force flush of the command queue (crucial on Linux/Mac for smooth animation)
+                    Toolkit.getDefaultToolkit().sync();
                 } while (bufferStrategy != null && bufferStrategy.contentsLost());
             } catch (NullPointerException | IllegalStateException race) {
                 // Race: strategy invalidated mid-draw. Reset and skip.

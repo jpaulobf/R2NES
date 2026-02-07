@@ -27,7 +27,8 @@ public class VideoRenderer extends JPanel {
      */
     public VideoRenderer(int scale) {
         this.scale = Math.max(1, scale);
-        this.image = new BufferedImage(256, 240, BufferedImage.TYPE_INT_ARGB);
+        // Use TYPE_INT_RGB to avoid unnecessary alpha blending overhead during draw
+        this.image = new BufferedImage(256, 240, BufferedImage.TYPE_INT_RGB);
         this.imageData = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
         setPreferredSize(new Dimension(256 * this.scale, 240 * this.scale));
     }
