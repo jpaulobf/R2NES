@@ -1,6 +1,22 @@
 Changelog - R2NES
 ===================
 
+Version 0.5.6.3 – Performance & Audio Polish (2026-02-07)
+------------------------
+
+Changed
+- **CPU Optimization:** Eliminated per-instruction object allocation in operand fetching; replaced switch-based lookups for AddressingMode and StoreOpcodes with static caches; optimized page-crossing detection.
+- **Bus Optimization:** Cached PPU reflection methods to remove lookup overhead in hot paths (registers, DMA); optimized OAM DMA loop to avoid reflection per byte.
+- **Audio Quality:**
+  - Corrected HPF formula and added 0.5 DC bias to prevent negative clipping (fixing "choppy" audio).
+  - Tuned LPF alpha (0.85 -> 0.95) and removed redundant sample averaging to restore treble/clarity.
+  - Added Nyquist frequency protection for Pulse channels to silence artifacts at ultra-high pitches.
+- **Stability:** Added explicit RAM mirroring masks and safety checks in debug logging paths.
+
+Fixed
+- `ARR` instruction overflow flag logic.
+- Potential NPE in DMA debug logging when verbose mode is toggled.
+
 Version 0.5.6.2 – Audio: DMC Playback, Band-Limited Pulses & Mixer Filters (2025-09-08)
 ------------------------
 

@@ -12,13 +12,12 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.5.6.2)
-Audio pipeline refresh: DMC playback, band-limited pulses, and mixer filtering.
+### Current Release (0.5.6.3)
+Performance optimizations (CPU/Bus) and Audio quality fixes.
 
-What's new in 0.5.6.2:
-* DMC channel: implements looping/IRQ flags, $4011 DAC writes, and on-demand DMA fetches with simulated CPU stalls so streamed samples play inside the NES mix.
-* Band-limited pulses: Pulse1/Pulse2 now use polyBLEP smoothing to reduce aliasing at high pitches while respecting sweep and envelope dynamics.
-* Mixer polish: integrates the DMC DAC into the TND curve, adds linear interpolation plus analog-style high/low-pass filters, and tightens the output ring buffer pacing.
+What's new in 0.5.6.3:
+* **Performance:** Major reduction in GC pressure (reused operand objects) and CPU overhead (cached reflection methods, optimized lookups) for smoother frame rates.
+* **Audio:** Fixed "choppy" sound by biasing HPF output; reduced muffling by tuning LPF and removing redundant averaging; added Nyquist aliasing protection.
 
 Highlights from 0.5.6.1:
 * Centered overlays: all non-HUD message windows (RESET, save/load feedback, fast-forward indicator, PAUSED) are now centered; text is centered within each box. HUD unchanged.
@@ -212,13 +211,12 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.5.6.2)
-Atualização do áudio: canal DMC, pulses com banda limitada e filtros no mixer.
+### Versão Atual (0.5.6.3)
+Otimizações de performance (CPU/Bus) e correções de qualidade de áudio.
 
-Novidades em 0.5.6.2:
-* Canal DMC: implementa flags de loop/IRQ, escrita $4011 (DAC) e requisições DMA com simulação de ciclos roubados para transmitir amostras diretamente do barramento.
-* Pulses com banda limitada: Pulse1/Pulse2 agora usam suavização polyBLEP para reduzir aliasing em notas agudas mantendo sweep e envelopes.
-* Mixer refinado: integra o DAC do DMC na curva TND, aplica interpolação linear + filtros analógicos (HPF/LPF) e ajusta o pacing do buffer para saída mais estável.
+Novidades em 0.5.6.3:
+* **Performance:** Grande redução na pressão do GC (reuso de objetos) e overhead de CPU (cache de reflexão, lookups otimizados) para quadros mais estáveis.
+* **Áudio:** Correção de som "picotado" via bias no HPF; redução de abafamento ajustando LPF; proteção contra aliasing (Nyquist).
 
 Destaques do 0.5.6.1:
 * Overlays centralizados: todas as janelas de mensagens que não são HUD (RESET, feedback de save/load, indicador de fast-forward, PAUSED) agora ficam centralizadas; o texto fica centralizado dentro de cada caixa. HUD inalterado.
