@@ -61,8 +61,8 @@ public class Mapper5 extends Mapper {
     private final int chr1kBanks; // number of 1KB units in CHR (or RAM)
 
     // logging helpers
-    private boolean logBanks = false;
-    private int logLimit = 64;
+    private boolean logBanks = true;
+    private int logLimit = 500;
     private int logCount = 0;
 
     // Vertical/horizontal nametable mirroring from header (fallback)
@@ -90,6 +90,7 @@ public class Mapper5 extends Mapper {
         this.prg = rom.getPrgRom();
         this.chr = rom.getChrRom();
         this.chrRam = (chr.length == 0) ? new byte[0x2000] : null; // 8KB CHR RAM allocated
+        this.prgRam = new byte[64 * 1024]; // 64KB PRG RAM (Max MMC5 size)
         this.prg8kBanks = prg.length / 0x2000; // 8KB units
         int chrLen = (chrRam != null) ? chrRam.length : chr.length;
         this.chr1kBanks = chrLen / 0x0400; // 1KB units
@@ -120,8 +121,7 @@ public class Mapper5 extends Mapper {
         if (address >= 0x6000 && address <= 0x7FFF) {
             // 8KB PRG RAM window ($6000) uses regPrgBank6000 low bits (we ignore bank for
             // now - single 8K)
-            int bank = regPrgBank6000 & 0x0F; // but we flatten onto prgRam (64K) 8KB pages
-            int base = (bank % (prgRam.length / 0x2000)) * 0x2000;
+            int base = 0; // Force bank 0 for $6000 range to ensure stability
             return prgRam[base + (address - 0x6000)] & 0xFF;
         }
         if (address < 0x8000)
@@ -135,11 +135,8 @@ public class Mapper5 extends Mapper {
         value &= 0xFF;
         // PRG RAM region
         if (address >= 0x6000 && address <= 0x7FFF) {
-            if (prgRamWriteEnabled()) {
-                int bank = regPrgBank6000 & 0x0F;
-                int base = (bank % (prgRam.length / 0x2000)) * 0x2000;
-                prgRam[base + (address - 0x6000)] = (byte) value;
-            }
+            int base = 0; // Force bank 0
+            prgRam[base + (address - 0x6000)] = (byte) value;
             return;
         }
         // Control/config registers
@@ -197,6 +194,12 @@ public class Mapper5 extends Mapper {
                     multB = value & 0xFF;
                     break;
             }
+            return;
+        }
+        // ExRAM ($5C00-$5FFF) - CPU write access
+        if (address >= 0x5C00 && address <= 0x5FFF) {
+            exRam[address - 0x5C00] = (byte) value;
+            return;
         }
     }
 
@@ -219,11 +222,6 @@ public class Mapper5 extends Mapper {
             // homebrew)
             int idx = address & (chrRam.length - 1);
             chrRam[idx] = (byte) (value & 0xFF);
-        } else if (address >= 0x5C00 && address <= 0x5FFF) {
-            int ex = address - 0x5C00;
-            if (ex >= 0 && ex < exRam.length) {
-                exRam[ex] = (byte) (value & 0xFF);
-            }
         }
     }
 

@@ -203,7 +203,15 @@ public class Bus implements NesBus {
         } else if (address == 0x4017) { // Controller 2 serial / APU frame counter read (simplified)
             value = (pad2 != null) ? (pad2.read() & 1) : 0;
         } else if (address < 0x6000) { // Expansion / test shadow region
-            value = testShadow[address - 0x2000] & 0xFF;
+            // Give mapper a chance to handle expansion registers (e.g. MMC5 $5000-$5FFF)
+            if (mapper != null) {
+                // If a mapper is attached, it owns this space. 
+                // Even if it returns 0 (e.g. valid math result), we must use it.
+                value = mapper.cpuRead(address) & 0xFF;
+            } else {
+                // Fallback to test shadow only for headless CPU tests without mapper
+                value = testShadow[address - 0x2000] & 0xFF;
+            }
         } else if (address < 0x8000) { // PRG RAM / SRAM
             if (mapper != null) {
                 value = mapper.cpuRead(address) & 0xFF; // mapper may handle RAM
@@ -341,6 +349,10 @@ public class Bus implements NesBus {
             // APU status / frame counter etc. (stub)
             return;
         } else if (address < 0x6000) {
+            // Allow mapper to handle expansion writes (MMC5 registers, ExRAM)
+            if (mapper != null) {
+                mapper.cpuWrite(address, value);
+            }
             testShadow[address - 0x2000] = value; // expansion shadow
             return;
         } else if (address < 0x8000) {
