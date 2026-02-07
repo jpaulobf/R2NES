@@ -18,12 +18,24 @@ public enum AddressingMode {
     IMPLIED,
     RELATIVE;
 
-    /**
-     * Gets the current status byte of the CPU.
-     * 
-     * @return The status byte with the current flags.
-     */
+    private static final AddressingMode[] MODE_CACHE = new AddressingMode[256];
+
+    static {
+        for (int i = 0; i < 256; i++) {
+            MODE_CACHE[i] = resolveAddressingMode(i);
+        }
+    }
+
     public static AddressingMode getAddressingMode(int opcodeByte) {
+        return MODE_CACHE[opcodeByte & 0xFF];
+    }
+
+    /**
+     * Internal resolution logic (moved from getAddressingMode).
+     * 
+     * @return The addressing mode for the opcode.
+     */
+    private static AddressingMode resolveAddressingMode(int opcodeByte) {
         switch (opcodeByte) {
             // --- Immediate (#) ---
             case 0xA9: // LDA #imm

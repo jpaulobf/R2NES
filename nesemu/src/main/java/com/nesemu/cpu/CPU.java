@@ -57,6 +57,9 @@ public class CPU implements NesCPU {
     private int lastIndirectBaseLo = -1;
     private int lastIndirectBaseHi = -1;
 
+    // Reusable container for operand fetching to avoid GC pressure
+    private final OperandResult opRes = new OperandResult(0, 0);
+
     // --- RMW (Read-Modify-Write) micro handling state ---
     private boolean rmwActive = false; // true while a memory RMW instruction still needs dummy/final write
     private int rmwAddress; // target address
@@ -356,7 +359,7 @@ public class CPU implements NesCPU {
 
         AddressingMode mode = AddressingMode.getAddressingMode(opcodeByte);
         boolean skipFinalRead = Opcode.isStoreOpcode(opcodeByte);
-        OperandResult opRes = fetchOperand(mode, skipFinalRead);
+        fetchOperand(mode, skipFinalRead); // Updates this.opRes internally
 
         // Page crossing detection (only relevant for indexed modes)
         boolean pageCrossed = false;
@@ -498,34 +501,45 @@ public class CPU implements NesCPU {
      * @param skipFinalRead
      * @return
      */
-    private OperandResult fetchOperand(AddressingMode mode, boolean skipFinalRead) {
+    private void fetchOperand(AddressingMode mode, boolean skipFinalRead) {
         // Reset tracking before each new fetch
         lastPageCrossed = false;
+        // We update the shared opRes object instead of creating a new one
         switch (mode) {
             case IMMEDIATE:
-                return new OperandResult(busRef.read(registers.PC++), -1);
+                opRes.value = busRef.read(registers.PC++);
+                opRes.address = -1;
+                break;
             case ZERO_PAGE: {
                 int addr = busRef.read(registers.PC) & 0xFF;
                 lastZpOperand = addr;
                 int value = skipFinalRead ? 0 : busRef.read(addr);
                 registers.PC++;
-                return new OperandResult(value, addr);
+                opRes.value = value;
+                opRes.address = addr;
+                break;
             }
             case ZERO_PAGE_X: {
                 int addr = (busRef.read(registers.PC++) + registers.X) & 0xFF;
                 lastZpOperand = addr; // after index
-                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
+                opRes.value = skipFinalRead ? 0 : busRef.read(addr);
+                opRes.address = addr;
+                break;
             }
             case ZERO_PAGE_Y: {
                 int addr = (busRef.read(registers.PC++) + registers.Y) & 0xFF;
                 lastZpOperand = addr; // after index
-                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
+                opRes.value = skipFinalRead ? 0 : busRef.read(addr);
+                opRes.address = addr;
+                break;
             }
             case ABSOLUTE: {
                 int lo = busRef.read(registers.PC++);
                 int hi = busRef.read(registers.PC++);
                 int addr = (hi << 8) | lo;
-                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
+                opRes.value = skipFinalRead ? 0 : busRef.read(addr);
+                opRes.address = addr;
+                break;
             }
             case ABSOLUTE_X: {
                 int lo = busRef.read(registers.PC++);
@@ -534,21 +548,27 @@ public class CPU implements NesCPU {
                 int addr = (base + registers.X) & 0xFFFF;
                 if (((base ^ addr) & 0xFF00) != 0)
                     lastPageCrossed = true;
-                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
+                opRes.value = skipFinalRead ? 0 : busRef.read(addr);
+                opRes.address = addr;
+                break;
             }
             case ABSOLUTE_Y: {
                 int lo = busRef.read(registers.PC++);
                 int hi = busRef.read(registers.PC++);
                 int base = (hi << 8) | lo;
                 int addr = (base + registers.Y) & 0xFFFF;
-                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
+                opRes.value = skipFinalRead ? 0 : busRef.read(addr);
+                opRes.address = addr;
+                break;
             }
             case INDIRECT: {
                 int ptr = busRef.read(registers.PC++) | (busRef.read(registers.PC++) << 8);
                 int lo = busRef.read(ptr);
                 int hi = busRef.read((ptr & 0xFF00) | ((ptr + 1) & 0xFF));
                 int addr = lo | (hi << 8);
-                return new OperandResult(addr, addr);
+                opRes.value = addr;
+                opRes.address = addr;
+                break;
             }
             case INDIRECT_X: {
                 int zp = (busRef.read(registers.PC++) + registers.X) & 0xFF;
@@ -556,7 +576,9 @@ public class CPU implements NesCPU {
                 int lo = busRef.read(zp);
                 int hi = busRef.read((zp + 1) & 0xFF);
                 int addr = lo | (hi << 8);
-                return new OperandResult(skipFinalRead ? 0 : busRef.read(addr), addr);
+                opRes.value = skipFinalRead ? 0 : busRef.read(addr);
+                opRes.address = addr;
+                break;
             }
             case INDIRECT_Y: {
                 int zp = busRef.read(registers.PC++) & 0xFF;
@@ -569,17 +591,27 @@ public class CPU implements NesCPU {
                     // Record base pointer bytes for later microsequence without re-reading
                     lastIndirectBaseLo = lo;
                     lastIndirectBaseHi = hi;
-                    return new OperandResult(0, addr);
+                    opRes.value = 0;
+                    opRes.address = addr;
+                    break;
                 }
-                return new OperandResult(busRef.read(addr), addr);
+                opRes.value = busRef.read(addr);
+                opRes.address = addr;
+                break;
             }
             case RELATIVE:
-                return new OperandResult(busRef.read(registers.PC++), -1);
+                opRes.value = busRef.read(registers.PC++);
+                opRes.address = -1;
+                break;
             case ACCUMULATOR:
-                return new OperandResult(registers.A, -1);
+                opRes.value = registers.A;
+                opRes.address = -1;
+                break;
             case IMPLIED:
             default:
-                return new OperandResult(0, -1);
+                opRes.value = 0;
+                opRes.address = -1;
+                break;
         }
     }
 
