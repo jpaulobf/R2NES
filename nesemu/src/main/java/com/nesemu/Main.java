@@ -170,12 +170,30 @@ public class Main {
                     } catch (NumberFormatException ignore) {
                     }
                 }
+                // Parse CRT mode
+                boolean crtMode = false;
+                String crtOpt = cfgForPads.getOption("crt-mode");
+                if (crtOpt != null && crtOpt.equalsIgnoreCase("true")) {
+                    crtMode = true;
+                }
+                float crtAlpha = 1.0f;
+                String crtAlphaOpt = cfgForPads.getOption("crt-alpha");
+                if (crtAlphaOpt != null) {
+                    try {
+                        float v = Float.parseFloat(crtAlphaOpt.trim());
+                        if (v >= 0.0f && v <= 1.0f) crtAlpha = v;
+                    } catch (NumberFormatException ignore) {}
+                }
                 final boolean slEnabledFinal = scanlinesEnabled;
                 final float slAlphaFinal = (float) scanlinesAlpha;
+                final boolean crtModeFinal = crtMode;
+                final float crtAlphaFinal = crtAlpha;
                 // Store in static holders for later overlay lambda (via fields or closures).
                 // We'll place into system properties for now.
                 System.setProperty("r2nes.scanlines.enabled", String.valueOf(slEnabledFinal));
                 System.setProperty("r2nes.scanlines.alpha", String.valueOf(slAlphaFinal));
+                System.setProperty("r2nes.crt.mode", String.valueOf(crtModeFinal));
+                System.setProperty("r2nes.crt.alpha", String.valueOf(crtAlphaFinal));
                 if (context.emulator != null)
                     context.emulator.getBus().attachControllers(pad1, pad2);
                 controllerPad1 = pad1;

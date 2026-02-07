@@ -1,6 +1,13 @@
 Changelog - R2NES
 ===================
 
+Version 0.5.8.5 – CRT Filter (2026-02-07)
+------------------------
+
+Added
+- **CRT Filter:** Implemented a visual filter combining bilinear interpolation with a texture-based RGB phosphor/scanline mask.
+- **Configuration:** Added `crt-mode` (boolean) and `crt-alpha` (0.0-1.0) to `emulator.ini` for controlling the effect.
+
 Version 0.5.8 – MMC3 IRQ Support (2026-02-07)
 ------------------------
 

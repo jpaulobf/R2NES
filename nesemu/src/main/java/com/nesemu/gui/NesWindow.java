@@ -15,6 +15,7 @@ import java.awt.event.KeyListener;
 import java.awt.RenderingHints;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
+import java.awt.TexturePaint;
 import java.awt.Toolkit;
 import java.awt.Color;
 import java.awt.Cursor;
@@ -83,6 +84,10 @@ public class NesWindow {
     private javax.swing.JMenuItem resetMenuItem;
     private javax.swing.JMenuItem closeRomMenuItem;
 
+    // CRT Filter state
+    private boolean crtMode = false;
+    private TexturePaint crtTexture;
+
     /**
      * Constructor, default scale=2.
      * 
@@ -108,6 +113,40 @@ public class NesWindow {
         // Also disable traversal on frame to be safe
         frame.setFocusTraversalKeysEnabled(false);
         buildMenuBar();
+        
+        // Check system property for CRT mode (set by Main)
+        this.crtMode = Boolean.getBoolean("r2nes.crt.mode");
+        if (this.crtMode) {
+            initCrtTexture();
+        }
+    }
+
+    private void initCrtTexture() {
+        float intensity = 1.0f;
+        try {
+            intensity = Float.parseFloat(System.getProperty("r2nes.crt.alpha", "1.0"));
+        } catch (Exception ignore) {}
+        
+        // Scale base alphas by intensity
+        int rgbA = Math.min(255, Math.round(40 * intensity));
+        int scanA = Math.min(255, Math.round(100 * intensity));
+
+        // Create a 3x2 pattern:
+        // [R G B] (light)
+        // [R G B] (dark/scanline)
+        int w = 3;
+        int h = 2;
+        BufferedImage pat = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = pat.createGraphics();
+        // Row 0: RGB Phosphors (subtle tint)
+        g.setColor(new Color(255, 0, 0, rgbA)); g.fillRect(0, 0, 1, 2);
+        g.setColor(new Color(0, 255, 0, rgbA)); g.fillRect(1, 0, 1, 2);
+        g.setColor(new Color(0, 0, 255, rgbA)); g.fillRect(2, 0, 1, 2);
+        // Row 1: Scanline (darken)
+        g.setColor(new Color(0, 0, 0, scanA));
+        g.fillRect(0, 1, 3, 1);
+        g.dispose();
+        crtTexture = new TexturePaint(pat, new Rectangle(0, 0, w, h));
     }
 
     /**
@@ -755,8 +794,12 @@ public class NesWindow {
                     do {
                         Graphics2D g = (Graphics2D) bufferStrategy.getDrawGraphics();
                         try {
-                            // Optimization: Ensure nearest neighbor scaling for crisp pixels and speed
-                            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+                            // CRT Mode uses Bilinear for "glow/blur", otherwise Nearest Neighbor for crisp pixels
+                            if (crtMode) {
+                                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                            } else {
+                                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+                            }
                             g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
 
                             g.setColor(Color.BLACK);
@@ -765,6 +808,16 @@ public class NesWindow {
                             int offsetX = (int) Math.round(cx + (-8 * scaleX));
                             int offsetY = (int) Math.round(cy + (-8 * scaleY));
                             g.drawImage(renderer.getImage(), offsetX, offsetY, nesW, nesH, null);
+                            
+                            // Apply CRT Mask overlay
+                            if (crtMode && crtTexture != null) {
+                                Graphics2D gCrt = (Graphics2D) g.create();
+                                gCrt.translate(offsetX, offsetY);
+                                gCrt.setPaint(crtTexture);
+                                gCrt.fillRect(0, 0, nesW, nesH);
+                                gCrt.dispose();
+                            }
+
                             var ov = renderer.getOverlay();
                             if (ov != null) {
                                 Graphics2D g2 = (Graphics2D) g.create();

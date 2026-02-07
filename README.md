@@ -12,12 +12,14 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.5.8)
-MMC3 IRQ Support & Mapper Polish.
+### Current Release (0.5.8.5)
+CRT Filter & Visual Enhancements.
 
-What's new in 0.5.8:
+What's new in 0.5.8.5:
+* **CRT Filter:** Added bilinear smoothing + RGB phosphor mask simulation for a retro look.
+* **Configuration:** New `crt-mode` and `crt-alpha` options in `emulator.ini` to toggle and adjust filter intensity.
+* **Previous (0.5.8):**
 * **Mapper 4 (MMC3):** Implemented Scanline IRQ counter. Fixes split-screen effects (e.g. SMB3 status bar).
-* **Previous (0.5.7):**
 * **Refactoring:** Cleaned up entry point by extracting GUI and Headless logic into dedicated launchers.
 * **PPU Performance:** Added palette caching (eliminating float math per pixel) and sprite pattern prefetching.
 * **Performance:** Major reduction in GC pressure (reused operand objects) and CPU overhead (cached reflection methods, optimized lookups) for smoother frame rates.
@@ -191,12 +193,14 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.5.8)
-Suporte a IRQ no MMC3 e melhorias em Mappers.
+### Versão Atual (0.5.8.5)
+Filtro CRT e melhorias visuais.
 
-Novidades em 0.5.8:
+Novidades em 0.5.8.5:
+* **Filtro CRT:** Adicionada suavização bilinear + simulação de máscara de fósforo RGB para um visual retrô.
+* **Configuração:** Novas opções `crt-mode` e `crt-alpha` no `emulator.ini` para ativar e ajustar a intensidade do filtro.
+* **Anterior (0.5.8):**
 * **Mapper 4 (MMC3):** Implementado contador de IRQ por scanline. Corrige efeitos de tela dividida (ex: barra de status do SMB3).
-* **Anterior (0.5.7):**
 * **Refatoração:** Limpeza do ponto de entrada extraindo lógica de GUI e Headless para launchers dedicados.
 * **Performance PPU:** Adicionado cache de paleta (eliminando matemática float por pixel) e prefetch de padrões de sprite.
 * **Performance:** Grande redução na pressão do GC (reuso de objetos) e overhead de CPU (cache de reflexão, lookups otimizados) para quadros mais estáveis.
