@@ -1169,18 +1169,15 @@ public class PPU implements NesPPU {
             }
             return patternTables[addr] & 0xFF; // fallback (tests / bootstrap)
         } else if (addr < 0x3F00) { // nametables (0x2000-0x2FFF)
-            int nt = (addr - 0x2000) & 0x0FFF;
-            int index = nt & 0x03FF; // 1KB region within a logical table
-            int table = (nt >> 10) & 0x03; // 0..3 logical tables before mirroring
-            int physical = table; // map to 0 or 1 based on mirroring
-            MirrorType mt = (mapper != null) ? mapper.getMirrorType() : MirrorType.VERTICAL; // default vertical
-            switch (mt) {
-                case VERTICAL -> physical = table & 0x01; // 0,1,0,1
-                case HORIZONTAL -> physical = (table >> 1); // 0,0,1,1
-                case SINGLE0 -> physical = 0;
-                case SINGLE1 -> physical = 1;
-                default -> physical = table & 0x01;
+            if (mapper != null) {
+                return mapper.ppuReadNametable(addr, nameTables) & 0xFF;
             }
+            // Fallback if no mapper (shouldn't happen in full emu) or for tests
+            int nt = (addr - 0x2000) & 0x0FFF;
+            int index = nt & 0x03FF;
+            int table = (nt >> 10) & 0x03;
+            // Default vertical mirroring fallback
+            int physical = table & 0x01;
             return nameTables[(physical * 0x0400) + index] & 0xFF;
         } else if (addr < 0x4000) {
             // Palette RAM $3F00-$3F1F mirrored every 32 bytes up to 0x3FFF
@@ -1324,6 +1321,7 @@ public class PPU implements NesPPU {
      * Real hardware does this during cycles 257-320. We batch it here for performance.
      */
     private void fetchSpritePatterns(int targetLine) {
+        if (mapper != null) mapper.setChrReadMode(Mapper.ChrReadMode.SPRITE);
         int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
         for (int i = 0; i < preparedSpriteCount; i++) {
             int spriteIndex = preparedSpriteIndices[i];
@@ -1639,6 +1637,9 @@ public class PPU implements NesPPU {
                 int coarseYFetch = (v >> 5) & 0x1F;
                 int attributeAddr = 0x23C0 | (v & 0x0C00) | ((coarseYFetch >> 2) << 3) | (coarseXFetch >> 2);
                 atLatch = ppuMemoryRead(attributeAddr);
+                if (mapper != null) {
+                    atLatch = mapper.adjustAttribute(coarseXFetch, coarseYFetch, attributeAddr, atLatch);
+                }
                 if (pipelineLogEnabled && pipelineLogCount < pipelineLogLimit && isVisibleScanline() && cycle <= 256) {
                     pipelineLog.append(String.format("  AT at=%02X addr=%04X\n", atLatch & 0xFF, attributeAddr));
                     pipelineLogCount++;
@@ -1647,12 +1648,14 @@ public class PPU implements NesPPU {
             }
             case 5: {
                 int fineY = (vramAddress >> 12) & 0x07;
+                if (mapper != null) mapper.setChrReadMode(Mapper.ChrReadMode.BACKGROUND);
                 int base = ((regCTRL & PpuRegs.CTRL_BG_TABLE) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
                 patternLowLatch = ppuMemoryRead(base);
                 break;
             }
             case 7: {
                 int fineY = (vramAddress >> 12) & 0x07;
+                if (mapper != null) mapper.setChrReadMode(Mapper.ChrReadMode.BACKGROUND);
                 int base = ((regCTRL & PpuRegs.CTRL_BG_TABLE) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
                 patternHighLatch = ppuMemoryRead(base);
                 break;

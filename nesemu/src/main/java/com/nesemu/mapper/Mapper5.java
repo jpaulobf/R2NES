@@ -68,6 +68,19 @@ public class Mapper5 extends Mapper {
     // Vertical/horizontal nametable mirroring from header (fallback)
     private final boolean verticalFromHeader;
 
+    // Multiplier ($5205/$5206)
+    private int multA = 0;
+    private int multB = 0;
+
+    // IRQ ($5203/$5204)
+    private int irqTarget = 0;
+    private boolean irqEnabled = false;
+    private boolean irqPending = false;
+    private boolean inFrame = false;
+
+    // ExRAM latch for Mode 1 (Extended Attribute)
+    private int lastExRamByte = 0;
+
     /**
      * Creates a Mapper 5 (MMC5) instance from the given iNES ROM.
      * @param rom
@@ -90,6 +103,20 @@ public class Mapper5 extends Mapper {
     @Override
     public int cpuRead(int address) {
         address &= 0xFFFF;
+        // MMC5 Registers read
+        if (address >= 0x5200 && address <= 0x5206) {
+            switch (address) {
+                case 0x5204: // IRQ Status
+                    int status = (irqPending ? 0x80 : 0) | (inFrame ? 0x40 : 0);
+                    irqPending = false; // Reading acknowledges IRQ
+                    return status;
+                case 0x5205: // Multiplier Low
+                    return (multA * multB) & 0xFF;
+                case 0x5206: // Multiplier High
+                    return ((multA * multB) >> 8) & 0xFF;
+            }
+            return 0;
+        }
         if (address >= 0x6000 && address <= 0x7FFF) {
             // 8KB PRG RAM window ($6000) uses regPrgBank6000 low bits (we ignore bank for
             // now - single 8K)
@@ -154,7 +181,23 @@ public class Mapper5 extends Mapper {
             trace("[M5 CHRUP]=%02X", value);
             return;
         }
-        // Writes to multiplier / IRQ etc ignored for now
+        // Multiplier & IRQ registers
+        if (address >= 0x5200 && address <= 0x5206) {
+            switch (address) {
+                case 0x5203: // IRQ Scanline target
+                    irqTarget = value & 0xFF;
+                    break;
+                case 0x5204: // IRQ Enable
+                    irqEnabled = (value & 0x80) != 0;
+                    break;
+                case 0x5205: // Multiplier A
+                    multA = value & 0xFF;
+                    break;
+                case 0x5206: // Multiplier B
+                    multB = value & 0xFF;
+                    break;
+            }
+        }
     }
 
     @Override
@@ -209,6 +252,49 @@ public class Mapper5 extends Mapper {
             this.logLimit = limit;
     }
 
+    @Override
+    public void onScanline(int scanline) {
+        // MMC5 IRQ logic approximation: fires when scanline matches target.
+        // Also maintains the "In Frame" flag ($5204 bit 6).
+        if (scanline >= 0 && scanline <= 239) {
+            inFrame = true;
+            if (scanline == irqTarget) {
+                irqPending = true;
+                if (irqEnabled && irqCallback != null) {
+                    irqCallback.run();
+                }
+            }
+        } else {
+            inFrame = false;
+            irqPending = false; // Clear pending outside active frame (simplified behavior)
+        }
+    }
+
+    @Override
+    public int ppuReadNametable(int address, byte[] ciram) {
+        // Perform standard read first
+        int val = super.ppuReadNametable(address, ciram);
+        
+        // In ExRAM Mode 1, we latch the ExRAM value corresponding to this tile.
+        // ExRAM is 1KB, indexed by the nametable offset (0-3FF).
+        if (regExRamMode == 1) {
+            lastExRamByte = exRam[address & 0x03FF] & 0xFF;
+        }
+        return val;
+    }
+
+    @Override
+    public int adjustAttribute(int coarseX, int coarseY, int attributeAddress, int currentValue) {
+        if (regExRamMode == 1) {
+            // In Mode 1, attributes come from ExRAM (latched during NT read).
+            // Format: bits 7-6 = palette index.
+            // We replicate this palette to all 2-bit slots so the PPU's shift logic picks the right one.
+            int pal = (lastExRamByte >> 6) & 0x03;
+            return (pal << 6) | (pal << 4) | (pal << 2) | pal;
+        }
+        return currentValue;
+    }
+
     /**
      * Reads a byte from CHR space with current banking applied.
      * @param address
@@ -216,6 +302,41 @@ public class Mapper5 extends Mapper {
      */
     private int chrRead(int address) {
         int mode = regChrMode & 0x03;
+        boolean sprite = (getChrReadMode() == ChrReadMode.SPRITE);
+
+        // MMC5 Split: Sprites use $5120-$5127, BG uses $5128-$512B
+        if (!sprite) {
+            // ExRAM Mode 1: Background tiles use ExRAM for banking
+            // Bank = (ExRAM & 0x3F) -> selects a 4KB bank
+            if (regExRamMode == 1) {
+                int bank4k = lastExRamByte & 0x3F;
+                int bankIndex = bank4k * 0x1000;
+                int offsetInBank = address & 0x0FFF;
+                int linear = bankIndex + offsetInBank;
+                int chrLen = (chrRam != null) ? chrRam.length : chr.length;
+                if (chrLen == 0) return 0;
+                return (chrRam != null ? chrRam[linear % chrLen] : chr[linear % chrLen]) & 0xFF;
+            }
+
+            // Background fetch logic
+            // In Mode 3 (most common), BG uses 4KB pages selected by $5128-$512B
+            // $5128 -> 0000-0FFF, $5129 -> 1000-1FFF
+            if (mode == 3) {
+                int regIdx = (address >= 0x1000) ? 9 : 8; // $5129 or $5128 (indices 9 and 8)
+                int bank = regChrBanks[regIdx] & 0xFF;
+                // Bank value is 4KB unit
+                int bankIndex = bank * 0x1000;
+                int offsetInBank = address & 0x0FFF;
+                int linear = bankIndex + offsetInBank;
+                int chrLen = (chrRam != null) ? chrRam.length : chr.length;
+                if (chrLen == 0) return 0;
+                linear %= chrLen;
+                return (chrRam != null ? chrRam[linear] : chr[linear]) & 0xFF;
+            }
+            // Fallback for other BG modes (0,1,2) - treat as sprite logic for now or implement later
+        }
+
+        // Sprite fetch logic (or fallback)
         int bankIndex;
         int offsetInBank;
         switch (mode) {
