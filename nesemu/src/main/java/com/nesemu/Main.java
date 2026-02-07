@@ -9,6 +9,7 @@ import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
 import com.nesemu.gui.NesWindow;
 import com.nesemu.gui.GuiLauncher;
+import com.nesemu.headless.HeadlessLauncher;
 import com.nesemu.app.EmulatorContext;
 import com.nesemu.input.InputConfig;
 import com.nesemu.input.GamepadPoller;
@@ -16,7 +17,6 @@ import com.nesemu.config.AppOptions;
 import com.nesemu.config.CLIOptionsParser;
 import com.nesemu.config.ConfigUtils;
 import com.nesemu.config.UserConfig;
-import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
 import com.nesemu.io.NesController;
 import com.nesemu.ppu.PPU;
@@ -447,111 +447,7 @@ public class Main {
             final UserConfig userConfig = UserConfig.load();
             new GuiLauncher(context, applicationOptions, userConfig, controllerPad1, controllerPad2, gamepadPoller).launch();
         } else {
-            long start = System.nanoTime();
-            if (applicationOptions.untilVblank) {
-                long executed = 0;
-                long maxInstr = (applicationOptions.traceInstrCount > 0) ? applicationOptions.traceInstrCount
-                        : 1_000_000;
-                long startCpuCycles = context.emulator.getCpu().getTotalCycles();
-                while (!context.emulator.getPpu().isInVBlank() && executed < maxInstr) {
-                    long before = context.emulator.getCpu().getTotalCycles();
-                    context.emulator.getCpu().stepInstruction();
-                    long after = context.emulator.getCpu().getTotalCycles();
-                    long cpuSpent = after - before;
-                    for (long c = 0; c < cpuSpent * 3; c++) {
-                        context.emulator.getPpu().clock();
-                    }
-                    executed++;
-                }
-                if (context.emulator.getPpu().isInVBlank()) {
-                    Log.info(PPU, "UNTIL-VBLANK atingido instr=%d cpuCycles~%d frame=%d scan=%d cyc=%d status=%02X",
-                            executed, (context.emulator.getCpu().getTotalCycles() - startCpuCycles),
-                            context.emulator.getPpu().getFrame(),
-                            context.emulator.getPpu().getScanline(), context.emulator.getPpu().getCycle(),
-                            context.emulator.getPpu().getStatusRegister());
-                } else {
-                    Log.warn(PPU, "UNTIL-VBLANK limite instr (%d) sem vblank scan=%d cyc=%d frame=%d",
-                            maxInstr, context.emulator.getPpu().getScanline(), context.emulator.getPpu().getCycle(),
-                            context.emulator.getPpu().getFrame());
-                }
-                for (int i = 0; i < applicationOptions.frames; i++)
-                    context.emulator.stepFrame();
-            } else if (applicationOptions.traceInstrCount > 0) {
-                long executed = 0;
-                while (executed < applicationOptions.traceInstrCount) {
-                    int pc = context.emulator.getCpu().getPC();
-                    int opcode = context.emulator.getBus().read(pc);
-                    Log.trace(CPU, "TRACE PC=%04X OP=%02X A=%02X X=%02X Y=%02X P=%02X SP=%02X CYC=%d",
-                            pc, opcode, context.emulator.getCpu().getA(), context.emulator.getCpu().getX(), context.emulator.getCpu().getY(),
-                            context.emulator.getCpu().getStatusByte(), context.emulator.getCpu().getSP(),
-                            context.emulator.getCpu().getTotalCycles());
-                    long before = context.emulator.getCpu().getTotalCycles();
-                    context.emulator.getCpu().stepInstruction();
-                    long after = context.emulator.getCpu().getTotalCycles();
-                    long cpuSpent = after - before;
-                    for (long c = 0; c < cpuSpent * 3; c++) {
-                        context.emulator.getPpu().clock();
-                    }
-                    executed++;
-                    if (applicationOptions.breakAtPc != null
-                            && context.emulator.getCpu().getPC() == (applicationOptions.breakAtPc & 0xFFFF)) {
-                        Log.info(CPU, "BREAK PC=%04X após %d instruções", applicationOptions.breakAtPc, executed);
-                        break;
-                    }
-                    if (applicationOptions.breakReadAddr >= 0 && context.emulator.getBus().isWatchTriggered()) {
-                        Log.info(BUS, "BREAK leitura %04X atingida count=%d após %d instr",
-                                applicationOptions.breakReadAddr, applicationOptions.breakReadCount, executed);
-                        break;
-                    }
-                    if (applicationOptions.traceNmi && executed % 5000 == 0) {
-                        Log.debug(CPU, "trace progress instr=%d", executed);
-                    }
-                }
-                for (int i = 0; i < applicationOptions.frames; i++)
-                    context.emulator.stepFrame();
-            } else {
-                for (int i = 0; i < applicationOptions.frames; i++) {
-                    context.emulator.stepFrame();
-                }
-            }
-            long elapsedNs = System.nanoTime() - start;
-            double fpsSim = applicationOptions.frames / (elapsedNs / 1_000_000_000.0);
-            Log.info(GENERAL, "Frames simulados: %d (%.2f fps)", applicationOptions.frames, fpsSim);
-            if (applicationOptions.pipeLogLimit > 0) {
-                Log.info(PPU, "--- PIPELINE LOG ---");
-                Log.info(PPU, "%s", context.emulator.getPpu().consumePipelineLog());
-            }
-            if (applicationOptions.dbgBgSample > 0) {
-                context.emulator.getPpu().dumpFirstBackgroundSamples(Math.min(applicationOptions.dbgBgSample, 50));
-            }
-            Log.info(PPU, "--- Tile index matrix (hex of first pixel per tile) ---");
-            context.emulator.getPpu().printTileIndexMatrix();
-            context.emulator.getPpu().printBackgroundIndexHistogram();
-            if (applicationOptions.bgColStats) {
-                context.emulator.getPpu().printBackgroundColumnStats();
-            }
-            Path out = Path.of("background.ppm");
-            context.emulator.getPpu().dumpBackgroundToPpm(out);
-            Log.info(PPU, "PPM gerado: %s", out.toAbsolutePath());
-            if (applicationOptions.dumpNt) {
-                context.emulator.getPpu().printNameTableTileIds(0);
-            }
-            if (applicationOptions.dumpPattern != null) {
-                context.emulator.getPpu().dumpPatternTile(applicationOptions.dumpPattern);
-            }
-            if (applicationOptions.dumpPatternsList != null) {
-                for (String part : applicationOptions.dumpPatternsList.split(",")) {
-                    part = part.trim();
-                    if (part.isEmpty())
-                        continue;
-                    try {
-                        int t = Integer.parseInt(part, 16);
-                        context.emulator.getPpu().dumpPatternTile(t);
-                    } catch (NumberFormatException e) {
-                        Log.error(PPU, "Tile inválido em lista: %s", part);
-                    }
-                }
-            }
+            new HeadlessLauncher(context, applicationOptions).launch();
         }
     }
 }
