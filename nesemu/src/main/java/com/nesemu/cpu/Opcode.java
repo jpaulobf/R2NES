@@ -38,13 +38,24 @@ public enum Opcode {
         return OPCODE_TABLE[opcodeByte];
     }
 
+    private static final boolean[] STORE_CACHE = new boolean[256];
+    static {
+        for (int i = 0; i < 256; i++) {
+            STORE_CACHE[i] = resolveIsStoreOpcode(i);
+        }
+    }
+
+    static boolean isStoreOpcode(int opcodeByte) {
+        return STORE_CACHE[opcodeByte & 0xFF];
+    }
+
     /**
-     * Determines if the opcode is a store instruction (which do not require a final
-     * read during operand fetch).
+     * Internal resolution logic (moved from isStoreOpcode).
+     * Determines if the opcode is a store instruction.
      * @param opcodeByte
      * @return
      */
-    static boolean isStoreOpcode(int opcodeByte) {
+    private static boolean resolveIsStoreOpcode(int opcodeByte) {
         switch (opcodeByte & 0xFF) {
             case 0x85:
             case 0x95:

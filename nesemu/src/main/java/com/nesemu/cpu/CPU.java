@@ -361,20 +361,6 @@ public class CPU implements NesCPU {
         boolean skipFinalRead = Opcode.isStoreOpcode(opcodeByte);
         fetchOperand(mode, skipFinalRead); // Updates this.opRes internally
 
-        // Page crossing detection (only relevant for indexed modes)
-        boolean pageCrossed = false;
-        if (mode == AddressingMode.ABSOLUTE_X || mode == AddressingMode.ABSOLUTE_Y) {
-            int index = (mode == AddressingMode.ABSOLUTE_X) ? registers.X : registers.Y;
-            int lo = (opRes.address - index) & 0xFFFF;
-            pageCrossed = ((lo & 0xFF00) != (opRes.address & 0xFF00));
-        } else if (mode == AddressingMode.INDIRECT_Y && !skipFinalRead) {
-            // For loads (and non-stores) we need to detect page crossings (+1 cycle). For
-            // stores we ignore the extra cycle and avoid duplicate pointer reads.
-            int zp = busRef.read(registers.PC - 1) & 0xFF; // operand byte already fetched
-            int base = (busRef.read((zp + 1) & 0xFF) << 8) | busRef.read(zp); // two extra reads (expected for load)
-            pageCrossed = ((base & 0xFF00) != (opRes.address & 0xFF00));
-        }
-
         int baseCycles = CYCLE_TABLE[opcodeByte & 0xFF];
         int remaining = baseCycles;
         // reset instrumentation per instruction
@@ -383,13 +369,10 @@ public class CPU implements NesCPU {
         lastExtraCycles = 0;
         lastBranchTaken = false;
         lastBranchPageCross = false;
-        // Update lastPageCrossed for instructions that may rely (e.g., TOP abs,X
-        // timing)
-        lastPageCrossed = pageCrossed;
         // Add +1 cycle on page crossing for read-only indexed addressing modes.
         // Official opcodes already covered; include LAX (illegal load A & X) which
         // mirrors LDA timing.
-        if (pageCrossed && (opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
+        if (lastPageCrossed && (opcode == Opcode.LDA || opcode == Opcode.LDX || opcode == Opcode.LDY ||
                 opcode == Opcode.ADC || opcode == Opcode.SBC || opcode == Opcode.CMP ||
                 opcode == Opcode.AND || opcode == Opcode.ORA || opcode == Opcode.EOR ||
                 opcode == Opcode.LAX)) {
@@ -557,6 +540,8 @@ public class CPU implements NesCPU {
                 int hi = busRef.read(registers.PC++);
                 int base = (hi << 8) | lo;
                 int addr = (base + registers.Y) & 0xFFFF;
+                if (((base ^ addr) & 0xFF00) != 0)
+                    lastPageCrossed = true;
                 opRes.value = skipFinalRead ? 0 : busRef.read(addr);
                 opRes.address = addr;
                 break;
@@ -587,6 +572,8 @@ public class CPU implements NesCPU {
                 int hi = busRef.read((zp + 1) & 0xFF);
                 int base = (hi << 8) | lo;
                 int addr = (base + registers.Y) & 0xFFFF;
+                if (((base ^ addr) & 0xFF00) != 0)
+                    lastPageCrossed = true;
                 if (skipFinalRead) {
                     // Record base pointer bytes for later microsequence without re-reading
                     lastIndirectBaseLo = lo;
