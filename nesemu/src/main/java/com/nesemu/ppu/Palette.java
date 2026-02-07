@@ -22,6 +22,38 @@ public class Palette {
     // 32 bytes palette RAM (background + sprite). We'll store raw 6-bit color
     // indices.
     private final int[] paletteRam = new int[32];
+    
+    // Pre-calculated ARGB cache: 8 emphasis modes * 64 colors = 512 entries
+    private static final int[] PALETTE_CACHE = new int[512];
+
+    static {
+        // Initialize cache for all combinations of emphasis and color
+        final float[][] mul = new float[][] {
+                { 1.00f, 1.00f, 1.00f }, // 000
+                { 1.10f, 0.85f, 0.85f }, // R
+                { 0.90f, 1.10f, 0.85f }, // G
+                { 1.05f, 1.05f, 0.80f }, // R+G
+                { 0.90f, 0.85f, 1.10f }, // B
+                { 1.05f, 0.80f, 1.05f }, // R+B
+                { 0.80f, 1.05f, 1.05f }, // G+B
+                { 0.95f, 0.95f, 0.95f }  // R+G+B
+        };
+
+        for (int emph = 0; emph < 8; emph++) {
+            float[] m = mul[emph];
+            for (int i = 0; i < 64; i++) {
+                int rgb = NES_PALETTE[i];
+                int r = (rgb >> 16) & 0xFF;
+                int g = (rgb >> 8) & 0xFF;
+                int b = rgb & 0xFF;
+                // Apply emphasis
+                r = Math.min(255, Math.round(r * m[0]));
+                g = Math.min(255, Math.round(g * m[1]));
+                b = Math.min(255, Math.round(b * m[2]));
+                PALETTE_CACHE[(emph << 6) | i] = 0xFF000000 | (r << 16) | (g << 8) | b;
+            }
+        }
+    }
 
     /**
      * Write to palette RAM (after mirroring normalization).
@@ -83,30 +115,10 @@ public class Palette {
      */
     public int getArgb(int paletteColorIndex, int mask /* PPUMASK */) {
         paletteColorIndex &= 0x3F;
-        int rgb = NES_PALETTE[paletteColorIndex];
-        // Apply emphasis first (hardware modifies DAC output before grayscale
-        // simplification)
-        int emph = (mask >> 5) & 0x07; // bits R,G,B emphasis
-        if (emph != 0) {
-            final float[][] mul = new float[][] {
-                    { 1.00f, 1.00f, 1.00f }, // 000
-                    { 1.10f, 0.85f, 0.85f }, // R
-                    { 0.90f, 1.10f, 0.85f }, // G
-                    { 1.05f, 1.05f, 0.80f }, // R+G
-                    { 0.90f, 0.85f, 1.10f }, // B
-                    { 1.05f, 0.80f, 1.05f }, // R+B
-                    { 0.80f, 1.05f, 1.05f }, // G+B
-                    { 0.95f, 0.95f, 0.95f } // R+G+B
-            };
-            float[] m = mul[emph];
-            int r = (rgb >> 16) & 0xFF;
-            int g = (rgb >> 8) & 0xFF;
-            int b = rgb & 0xFF;
-            r = Math.min(255, Math.round(r * m[0]));
-            g = Math.min(255, Math.round(g * m[1]));
-            b = Math.min(255, Math.round(b * m[2]));
-            rgb = 0xFF000000 | (r << 16) | (g << 8) | b;
-        }
+        int emph = (mask >> 5) & 0x07;
+        // Fast lookup
+        int rgb = PALETTE_CACHE[(emph << 6) | paletteColorIndex];
+        
         // Grayscale after emphasis
         if ((mask & 0x01) != 0) {
             int r = (rgb >> 16) & 0xFF;

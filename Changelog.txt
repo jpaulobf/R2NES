@@ -1,6 +1,13 @@
 Changelog - R2NES
 ===================
 
+Version 0.5.7 – Structural Refactor & PPU Boost (2026-02-07)
+------------------------
+
+Changed
+- **Architecture:** Refactored `Main` class, extracting `GuiLauncher` and `HeadlessLauncher` to improve code organization and maintainability.
+- **PPU Optimization:** Implemented static Palette Cache to remove per-pixel floating-point calculations; added Sprite Pattern Prefetching (cycle 257) to batch memory accesses.
+
 Version 0.5.6.3 – Performance & Audio Polish (2026-02-07)
 ------------------------
 

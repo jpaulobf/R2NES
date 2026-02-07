@@ -59,6 +59,12 @@ public class PPU implements NesPPU {
     private final byte[] secondaryOam = new byte[32]; // 8 sprites * 4 bytes
     private final int[] preparedSpriteIndices = new int[EXTENDED_SPRITE_DRAW_LIMIT];
     private int preparedSpriteCount = 0;
+    // Buffers for pre-fetched sprite patterns (low/high bytes)
+    private final int[] preparedPatternLow = new int[EXTENDED_SPRITE_DRAW_LIMIT];
+    private final int[] preparedPatternHigh = new int[EXTENDED_SPRITE_DRAW_LIMIT];
+    // Active buffers for current scanline
+    private final int[] activePatternLow = new int[EXTENDED_SPRITE_DRAW_LIMIT];
+    private final int[] activePatternHigh = new int[EXTENDED_SPRITE_DRAW_LIMIT];
     private int preparedLine = -2; // which scanline the prepared list corresponds to
                                    // $2005 PPUSCROLL (x,y latch)
                                    // $2006 PPUADDR (VRAM address latch)
@@ -295,6 +301,7 @@ public class PPU implements NesPPU {
             int target = isPreRender() ? 0 : (scanline + 1);
             if (target >= 0 && target <= 239) {
                 evaluateSpritesForLine(target);
+                fetchSpritePatterns(target); // Pre-fetch patterns for the next line
             } else {
                 preparedSpriteCount = 0;
                 preparedLine = target;
@@ -1307,6 +1314,45 @@ public class PPU implements NesPPU {
         preparedSpriteCount = Math.min(found, capacity);
         preparedLine = targetLine;
     }
+    
+    /**
+     * Pre-fetch pattern table bytes for the prepared sprites.
+     * Real hardware does this during cycles 257-320. We batch it here for performance.
+     */
+    private void fetchSpritePatterns(int targetLine) {
+        int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
+        for (int i = 0; i < preparedSpriteCount; i++) {
+            int spriteIndex = preparedSpriteIndices[i];
+            int base = spriteIndex * 4;
+            int y = oam[base] & 0xFF;
+            int tile = oam[base + 1] & 0xFF;
+            int attr = oam[base + 2] & 0xFF;
+            
+            int spriteTopY = spriteYHardware ? (y + 1) : y;
+            int rowInSprite = targetLine - spriteTopY;
+            // Safety clamp (should be guaranteed by evaluateSprites)
+            if (rowInSprite < 0) rowInSprite = 0;
+            if (rowInSprite >= spriteHeight) rowInSprite = spriteHeight - 1;
+            
+            boolean flipV = (attr & 0x80) != 0;
+            int row = flipV ? (spriteHeight - 1 - rowInSprite) : rowInSprite;
+            int addrLo, addrHi;
+            
+            if (spriteHeight == 16) {
+                int tableSelect = tile & 0x01;
+                int baseTileIndex = tile & 0xFE;
+                int actualTile = baseTileIndex + (row / 8);
+                int tileRow = row & 0x7;
+                addrLo = (tableSelect * 0x1000) + actualTile * 16 + tileRow;
+            } else {
+                int patternTableBase = ((regCTRL & PpuRegs.CTRL_SPR_TABLE) != 0 ? 0x1000 : 0x0000);
+                addrLo = patternTableBase + tile * 16 + row;
+            }
+            addrHi = addrLo + 8;
+            preparedPatternLow[i] = ppuMemoryRead(addrLo);
+            preparedPatternHigh[i] = ppuMemoryRead(addrHi);
+        }
+    }
 
     /**
      * Promote previously prepared sprite list (from evaluateSpritesForLine) to the
@@ -1316,10 +1362,13 @@ public class PPU implements NesPPU {
     private void publishPreparedSpritesForCurrentLine() {
         if (preparedLine != scanline) {
             evaluateSpritesForLine(scanline); // fallback
+            fetchSpritePatterns(scanline);
         }
         spriteCountThisLine = preparedSpriteCount;
         for (int i = 0; i < spriteCountThisLine; i++) {
             spriteIndices[i] = preparedSpriteIndices[i];
+            activePatternLow[i] = preparedPatternLow[i];
+            activePatternHigh[i] = preparedPatternHigh[i];
         }
     }
 
@@ -1342,7 +1391,6 @@ public class PPU implements NesPPU {
         if (xPixel < 0 || xPixel >= 256) {
             return;
         }
-        int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
         if (xPixel < 8 && (regMASK & PpuRegs.MASK_SPR_LEFT) == 0)
             return;
         int bgOriginal = bgBaseIndexBuffer[sl * 256 + xPixel] & 0x0F;
@@ -1351,43 +1399,17 @@ public class PPU implements NesPPU {
         for (int si = 0; si < drawCount; si++) {
             int spriteIndex = spriteIndices[si];
             int base = spriteIndex * 4;
-            int y = oam[base] & 0xFF;
-            int tile = oam[base + 1] & 0xFF;
+            // y and tile not needed for pixel generation, only x and attr
             int attr = oam[base + 2] & 0xFF;
             int x = oam[base + 3] & 0xFF;
             if (xPixel < x || xPixel >= x + 8)
                 continue;
-            int spriteTopY = spriteYHardware ? (y + 1) : y; // sem wrap
-            if (spriteTopY >= 256)
-                continue; // y==0xFF sentinel -> oculto
-            int rowInSprite = sl - spriteTopY;
-            if (rowInSprite < 0 || rowInSprite >= spriteHeight)
-                continue;
-            boolean flipV = (attr & 0x80) != 0;
+            
             boolean flipH = (attr & 0x40) != 0;
-            int row = flipV ? (spriteHeight - 1 - rowInSprite) : rowInSprite;
-            int addrLo, addrHi;
-            if (spriteHeight == 16) {
-                int tableSelect = tile & 0x01;
-                int baseTileIndex = tile & 0xFE;
-                int half = row / 8;
-                int tileRow = row & 0x7;
-                int actualTile = baseTileIndex + half;
-                int patternTableBase = tableSelect * 0x1000;
-                addrLo = patternTableBase + actualTile * 16 + tileRow;
-                addrHi = addrLo + 8;
-            } else {
-                int patternTableBase = ((regCTRL & PpuRegs.CTRL_SPR_TABLE) != 0 ? 0x1000 : 0x0000);
-                int tileRow = row & 0x7;
-                addrLo = patternTableBase + tile * 16 + tileRow;
-                addrHi = addrLo + 8;
-            }
-            int lo = ppuMemoryRead(addrLo) & 0xFF;
-            int hi = ppuMemoryRead(addrHi) & 0xFF;
             int colInSprite = xPixel - x;
             int bit = flipH ? colInSprite : (7 - colInSprite);
-            int p0 = (lo >> bit) & 1;
-            int p1 = (hi >> bit) & 1;
+            int p0 = (activePatternLow[si] >> bit) & 1;
+            int p1 = (activePatternHigh[si] >> bit) & 1;
             int pattern = (p1 << 1) | p0;
             if (pattern == 0)
                 continue;
