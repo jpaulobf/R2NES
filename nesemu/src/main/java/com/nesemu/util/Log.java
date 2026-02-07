@@ -7,9 +7,9 @@ import java.util.EnumSet;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** 
+/**
  * Simple logging utility with global level and category filtering.
- * Usage: Log.info(Log.Cat.CPU, "Message %d", 123); 
+ * Usage: Log.info(Log.Cat.CPU, "Message %d", 123);
  */
 public final class Log {
 
@@ -41,6 +41,7 @@ public final class Log {
 
     /**
      * Set global logging level. Messages below this level are ignored.
+     * 
      * @param lvl
      */
     public static void setLevel(Level lvl) {
@@ -50,6 +51,7 @@ public final class Log {
 
     /**
      * Enable or disable a logging category.
+     * 
      * @param c
      * @param enable
      */
@@ -62,6 +64,7 @@ public final class Log {
 
     /**
      * Enable or disable timestamps in log output.
+     * 
      * @param on
      */
     public static void setTimestamps(boolean on) {
@@ -78,6 +81,7 @@ public final class Log {
 
     /**
      * True if messages at this level and category are enabled.
+     * 
      * @param lvl
      * @param cat
      * @return
@@ -88,6 +92,7 @@ public final class Log {
 
     /**
      * Log a message if level/category enabled.
+     * 
      * @param lvl
      * @param cat
      * @param fmt
@@ -106,6 +111,7 @@ public final class Log {
 
     /**
      * Log at trace level.
+     * 
      * @param c
      * @param f
      * @param a
@@ -116,6 +122,7 @@ public final class Log {
 
     /**
      * Log at debug level.
+     * 
      * @param c
      * @param f
      * @param a
@@ -126,6 +133,7 @@ public final class Log {
 
     /**
      * Log at info level.
+     * 
      * @param c
      * @param f
      * @param a
@@ -136,6 +144,7 @@ public final class Log {
 
     /**
      * Log at warn level.
+     * 
      * @param c
      * @param f
      * @param a
@@ -146,6 +155,7 @@ public final class Log {
 
     /**
      * Log at error level.
+     * 
      * @param c
      * @param f
      * @param a

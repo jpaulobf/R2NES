@@ -68,7 +68,10 @@ public interface NesPPU extends Clockable {
     /** Power-on reset (clears registers, VRAM address, frame counter). */
     void reset();
 
-    /** Current scanline (-1/261 pre-render, 0-239 visible, 240 post, 241-260 vblank). */
+    /**
+     * Current scanline (-1/261 pre-render, 0-239 visible, 240 post, 241-260
+     * vblank).
+     */
     int getScanline();
 
     /** Current cycle (0-340) within scanline. */
@@ -113,7 +116,10 @@ public interface NesPPU extends Clockable {
     /** Latched attribute byte (before quadrant selection). */
     int getAtLatch();
 
-    /** Get final rendered pixel value at coordinates (already palette-resolved index). */
+    /**
+     * Get final rendered pixel value at coordinates (already palette-resolved
+     * index).
+     */
     int getPixel(int x, int y);
 
     /** Direct reference to internal 256x240 framebuffer array (mutable). */
@@ -128,7 +134,10 @@ public interface NesPPU extends Clockable {
     /** Read palette RAM entry. */
     int readPalette(int addr);
 
-    /** Raw PPUSTATUS (with side-effects already applied when read through register path). */
+    /**
+     * Raw PPUSTATUS (with side-effects already applied when read through register
+     * path).
+     */
     int getStatusRegister();
 
     /** Raw PPUMASK value. */

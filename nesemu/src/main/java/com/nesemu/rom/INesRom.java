@@ -6,7 +6,7 @@ import java.util.Arrays;
  * Loaded iNES cartridge (PRG-ROM + CHR-ROM + header).
  */
 public class INesRom {
-    
+
     // Immutable after construction
     private final INesHeader header;
     private final byte[] prgRom; // multiples of 16KB
@@ -15,6 +15,7 @@ public class INesRom {
 
     /**
      * Constructor for the INesRom class.
+     * 
      * @param header
      * @param prgRom
      * @param chrRom
@@ -29,6 +30,7 @@ public class INesRom {
 
     /**
      * Gets the iNES header.
+     * 
      * @return
      */
     public INesHeader getHeader() {
@@ -37,6 +39,7 @@ public class INesRom {
 
     /**
      * Gets a copy of the PRG-ROM data.
+     * 
      * @return
      */
     public byte[] getPrgRom() {
@@ -45,6 +48,7 @@ public class INesRom {
 
     /**
      * Gets a copy of the CHR-ROM data (may be empty if CHR RAM).
+     * 
      * @return
      */
     public byte[] getChrRom() {
@@ -53,6 +57,7 @@ public class INesRom {
 
     /**
      * Gets a copy of the trainer data (may be null if not present).
+     * 
      * @return
      */
     public byte[] getTrainer() {

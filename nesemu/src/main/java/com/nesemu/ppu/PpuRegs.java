@@ -5,7 +5,7 @@ package com.nesemu.ppu;
  * Centralized to avoid magic numbers scattered across implementation & tests.
  */
 public final class PpuRegs {
-    
+
     /**
      * Private constructor to prevent instantiation
      */

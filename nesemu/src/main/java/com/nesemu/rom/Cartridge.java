@@ -14,6 +14,7 @@ public class Cartridge {
 
     /**
      * Constructor for the Cartridge class.
+     * 
      * @param rom
      * @param mapper
      */
@@ -24,6 +25,7 @@ public class Cartridge {
 
     /**
      * Gets the iNES ROM.
+     * 
      * @return
      */
     public INesRom getRom() {
@@ -32,6 +34,7 @@ public class Cartridge {
 
     /**
      * Gets the mapper.
+     * 
      * @return
      */
     public Mapper getMapper() {

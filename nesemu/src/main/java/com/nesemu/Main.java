@@ -176,7 +176,8 @@ public class Main {
                 // We'll place into system properties for now.
                 System.setProperty("r2nes.scanlines.enabled", String.valueOf(slEnabledFinal));
                 System.setProperty("r2nes.scanlines.alpha", String.valueOf(slAlphaFinal));
-                if (context.emulator != null) context.emulator.getBus().attachControllers(pad1, pad2);
+                if (context.emulator != null)
+                    context.emulator.getBus().attachControllers(pad1, pad2);
                 controllerPad1 = pad1;
                 controllerPad2 = pad2;
 
@@ -291,7 +292,8 @@ public class Main {
                     Log.info(GENERAL, "Spin dump bytes=%d", applicationOptions.spinDumpBytes);
                 }
             }
-            if (applicationOptions.mmc1LogLimit > 0 && context.emulator.getMapper() instanceof com.nesemu.mapper.Mapper1 m1) {
+            if (applicationOptions.mmc1LogLimit > 0
+                    && context.emulator.getMapper() instanceof com.nesemu.mapper.Mapper1 m1) {
                 m1.enableBankLogging(applicationOptions.mmc1LogLimit);
                 Log.info(GENERAL, "MMC1 logging ativo (limite=%d)", applicationOptions.mmc1LogLimit);
             }
@@ -423,7 +425,8 @@ public class Main {
         // Escreve PPUMASK inicial para acelerar primeiros frames (BG + coluna esquerda
         // por padrão)
         int initMask = (applicationOptions.initialMaskOverride != null) ? applicationOptions.initialMaskOverride : 0x08;
-        if (context.emulator != null) context.emulator.getBus().write(0x2001, initMask);
+        if (context.emulator != null)
+            context.emulator.getBus().write(0x2001, initMask);
         Log.info(PPU, "PPUMASK inicial=%02X%s", initMask,
                 (applicationOptions.initialMaskOverride != null ? " (override)" : ""));
         if (applicationOptions.leftColumnModeOpt != null) {
@@ -440,12 +443,14 @@ public class Main {
                     mode = com.nesemu.ppu.PPU.LeftColumnMode.HARDWARE;
                     break;
             }
-            if (context.emulator != null) ((PPU) context.emulator.getPpu()).setLeftColumnMode(mode);
+            if (context.emulator != null)
+                ((PPU) context.emulator.getPpu()).setLeftColumnMode(mode);
             Log.info(PPU, "Left-column-mode=%s", mode.name().toLowerCase(Locale.ROOT));
         }
         if (applicationOptions.gui) {
             final UserConfig userConfig = UserConfig.load();
-            new GuiLauncher(context, applicationOptions, userConfig, controllerPad1, controllerPad2, gamepadPoller).launch();
+            new GuiLauncher(context, applicationOptions, userConfig, controllerPad1, controllerPad2, gamepadPoller)
+                    .launch();
         } else {
             new HeadlessLauncher(context, applicationOptions).launch();
         }

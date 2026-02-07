@@ -22,7 +22,7 @@ public class Palette {
     // 32 bytes palette RAM (background + sprite). We'll store raw 6-bit color
     // indices.
     private final int[] paletteRam = new int[32];
-    
+
     // Pre-calculated ARGB cache: 8 emphasis modes * 64 colors = 512 entries
     private static final int[] PALETTE_CACHE = new int[512];
 
@@ -36,7 +36,7 @@ public class Palette {
                 { 0.90f, 0.85f, 1.10f }, // B
                 { 1.05f, 0.80f, 1.05f }, // R+B
                 { 0.80f, 1.05f, 1.05f }, // G+B
-                { 0.95f, 0.95f, 0.95f }  // R+G+B
+                { 0.95f, 0.95f, 0.95f } // R+G+B
         };
 
         for (int emph = 0; emph < 8; emph++) {
@@ -118,7 +118,7 @@ public class Palette {
         int emph = (mask >> 5) & 0x07;
         // Fast lookup
         int rgb = PALETTE_CACHE[(emph << 6) | paletteColorIndex];
-        
+
         // Grayscale after emphasis
         if ((mask & 0x01) != 0) {
             int r = (rgb >> 16) & 0xFF;

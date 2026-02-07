@@ -23,6 +23,7 @@ public class INesHeader {
 
     /**
      * Private constructor; use static parse() method.
+     * 
      * @param raw
      * @param prgRomPages
      * @param chrRomPages
@@ -49,6 +50,7 @@ public class INesHeader {
 
     /**
      * Parses raw header bytes into INesHeader instance.
+     * 
      * @param header
      * @return
      */
@@ -70,6 +72,7 @@ public class INesHeader {
 
     /**
      * Gets the number of 16KB PRG ROM pages.
+     * 
      * @return
      */
     public int getPrgRomPages() {
@@ -78,6 +81,7 @@ public class INesHeader {
 
     /**
      * Gets the number of 8KB CHR ROM pages.
+     * 
      * @return
      */
     public int getChrRomPages() {
@@ -86,6 +90,7 @@ public class INesHeader {
 
     /**
      * Gets the mapper number (0-255).
+     * 
      * @return
      */
     public int getMapper() {
@@ -94,6 +99,7 @@ public class INesHeader {
 
     /**
      * Indicates if the ROM has a 512-byte trainer at $7000-$71FF.
+     * 
      * @return
      */
     public boolean hasTrainer() {
@@ -102,6 +108,7 @@ public class INesHeader {
 
     /**
      * Indicates if the cartridge has battery-backed PRG RAM.
+     * 
      * @return
      */
     public boolean isBatteryBacked() {
@@ -110,6 +117,7 @@ public class INesHeader {
 
     /**
      * Indicates if mirroring is vertical (true) or horizontal (false).
+     * 
      * @return
      */
     public boolean isVerticalMirroring() {
@@ -118,6 +126,7 @@ public class INesHeader {
 
     /**
      * Indicates if the header is in NES 2.0 format.
+     * 
      * @return
      */
     public boolean isNes2() {
@@ -126,14 +135,16 @@ public class INesHeader {
 
     /**
      * Gets a copy of the raw header bytes.
+     * 
      * @return
-    */
+     */
     public byte[] getRaw() {
         return Arrays.copyOf(raw, raw.length);
     }
 
     /**
      * Gets flags 6 byte.
+     * 
      * @return
      */
     public int getFlags6() {
@@ -142,6 +153,7 @@ public class INesHeader {
 
     /**
      * Gets flags 7 byte.
+     * 
      * @return
      */
     public int getFlags7() {

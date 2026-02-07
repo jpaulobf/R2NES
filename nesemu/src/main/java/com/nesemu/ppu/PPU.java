@@ -97,7 +97,7 @@ public class PPU implements NesPPU {
     private long sprite0HitSetFrame = -1; // frame when sprite0 hit last set
     private int sprite0HitSetScanline = -1;
     private int sprite0HitSetCycle = -1;
-    
+
     // Debug: force sprite0 hit every frame (set via CLI) for diagnostic bypass of
     // polling loops
     private boolean forceSprite0Hit = false;
@@ -1315,13 +1315,15 @@ public class PPU implements NesPPU {
         preparedSpriteCount = Math.min(found, capacity);
         preparedLine = targetLine;
     }
-    
+
     /**
      * Pre-fetch pattern table bytes for the prepared sprites.
-     * Real hardware does this during cycles 257-320. We batch it here for performance.
+     * Real hardware does this during cycles 257-320. We batch it here for
+     * performance.
      */
     private void fetchSpritePatterns(int targetLine) {
-        if (mapper != null) mapper.setChrReadMode(Mapper.ChrReadMode.SPRITE);
+        if (mapper != null)
+            mapper.setChrReadMode(Mapper.ChrReadMode.SPRITE);
         int spriteHeight = ((regCTRL & PpuRegs.CTRL_SPR_SIZE_8x16) != 0) ? 16 : 8;
         for (int i = 0; i < preparedSpriteCount; i++) {
             int spriteIndex = preparedSpriteIndices[i];
@@ -1329,17 +1331,19 @@ public class PPU implements NesPPU {
             int y = oam[base] & 0xFF;
             int tile = oam[base + 1] & 0xFF;
             int attr = oam[base + 2] & 0xFF;
-            
+
             int spriteTopY = spriteYHardware ? (y + 1) : y;
             int rowInSprite = targetLine - spriteTopY;
             // Safety clamp (should be guaranteed by evaluateSprites)
-            if (rowInSprite < 0) rowInSprite = 0;
-            if (rowInSprite >= spriteHeight) rowInSprite = spriteHeight - 1;
-            
+            if (rowInSprite < 0)
+                rowInSprite = 0;
+            if (rowInSprite >= spriteHeight)
+                rowInSprite = spriteHeight - 1;
+
             boolean flipV = (attr & 0x80) != 0;
             int row = flipV ? (spriteHeight - 1 - rowInSprite) : rowInSprite;
             int addrLo, addrHi;
-            
+
             if (spriteHeight == 16) {
                 int tableSelect = tile & 0x01;
                 int baseTileIndex = tile & 0xFE;
@@ -1406,7 +1410,7 @@ public class PPU implements NesPPU {
             int x = oam[base + 3] & 0xFF;
             if (xPixel < x || xPixel >= x + 8)
                 continue;
-            
+
             boolean flipH = (attr & 0x40) != 0;
             int colInSprite = xPixel - x;
             int bit = flipH ? colInSprite : (7 - colInSprite);
@@ -1648,14 +1652,16 @@ public class PPU implements NesPPU {
             }
             case 5: {
                 int fineY = (vramAddress >> 12) & 0x07;
-                if (mapper != null) mapper.setChrReadMode(Mapper.ChrReadMode.BACKGROUND);
+                if (mapper != null)
+                    mapper.setChrReadMode(Mapper.ChrReadMode.BACKGROUND);
                 int base = ((regCTRL & PpuRegs.CTRL_BG_TABLE) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY;
                 patternLowLatch = ppuMemoryRead(base);
                 break;
             }
             case 7: {
                 int fineY = (vramAddress >> 12) & 0x07;
-                if (mapper != null) mapper.setChrReadMode(Mapper.ChrReadMode.BACKGROUND);
+                if (mapper != null)
+                    mapper.setChrReadMode(Mapper.ChrReadMode.BACKGROUND);
                 int base = ((regCTRL & PpuRegs.CTRL_BG_TABLE) != 0 ? 0x1000 : 0x0000) + (ntLatch * 16) + fineY + 8;
                 patternHighLatch = ppuMemoryRead(base);
                 break;
