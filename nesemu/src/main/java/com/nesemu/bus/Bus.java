@@ -167,7 +167,7 @@ public class Bus implements NesBus {
             spinReadRecorder.accept(address);
         int value;
         if (address < 0x2000) { // 2KB internal RAM mirrored each 0x800
-            value = memory.readInternalRam(address);
+            value = memory.readInternalRam(address & 0x7FF);
         } else if (address < 0x4000) { // PPU registers mirrored every 8 bytes
             int reg = 0x2000 + (address & 0x7);
             if (ppu != null) {
@@ -181,7 +181,7 @@ public class Bus implements NesBus {
                 value = testShadow[address - 0x2000] & 0xFF; // fallback for tests when PPU absent
             }
         } else if (address < 0x4016) { // APU + IO ($4000-$4015 before controllers)
-            if (address >= 0x4000 && address <= 0x4013) {
+            if (address <= 0x4013) {
                 if (apu != null) {
                     // Write-only on hardware; return open-bus-like 0 for now
                     value = 0;
@@ -230,7 +230,7 @@ public class Bus implements NesBus {
             int dmcAddr = apu.getDmcCurrentAddress() & 0xFFFF;
             int fetched = 0;
             if (dmcAddr < 0x2000) {
-                fetched = memory.readInternalRam(dmcAddr) & 0xFF;
+                fetched = memory.readInternalRam(dmcAddr & 0x7FF) & 0xFF;
             } else if (dmcAddr < 0x4000) {
                 int reg = 0x2000 + (dmcAddr & 0x7);
                 if (ppu != null) {
@@ -276,7 +276,7 @@ public class Bus implements NesBus {
         address &= 0xFFFF;
         value &= 0xFF;
         if (address < 0x2000) {
-            memory.writeInternalRam(address, value);
+            memory.writeInternalRam(address & 0x7FF, value);
             return;
         } else if (address < 0x4000) {
             if (ppu != null) {
@@ -294,7 +294,7 @@ public class Bus implements NesBus {
             return;
         } else if (address < 0x4014) {
             // APU registers $4000-$4013
-            if (address >= 0x4000 && address <= 0x4013) {
+            if (address <= 0x4013) {
                 if (apu != null) {
                     apu.writeRegister(address, value);
                 } else {
@@ -438,7 +438,7 @@ public class Bus implements NesBus {
             }
         }
         // Raw dump (8 sprites * 4 bytes) independent of reflection helper success
-        if (globalVerbose) {
+        if (globalVerbose && firstBytes != null) {
             StringBuilder sb = new StringBuilder();
             sb.append(String.format("[DMA OAM RAW] page=%02X bytes0-31:", pendingDmaPage & 0xFF));
             for (int i = 0; i < firstBytes.length; i++) {
