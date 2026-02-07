@@ -13,6 +13,7 @@ import com.nesemu.rom.INesRom;
 import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.*;
 import java.util.function.IntConsumer;
+import java.lang.reflect.Method;
 
 /**
  * NES system bus (CPU address space routing).
@@ -80,6 +81,15 @@ public class Bus implements NesBus {
     public void setSpinReadRecorder(IntConsumer rec) {
         this.spinReadRecorder = rec;
     }
+    
+    // --- Reflection Cache (Optimization) ---
+    private Method ppuReadRegMethod;
+    private Method ppuWriteRegMethod;
+    private Method ppuGetFrameMethod;
+    private Method ppuGetScanlineMethod;
+    private Method ppuGetCycleMethod;
+    private Method ppuDmaOamWriteMethod;
+    private Method ppuGetOamCopyMethod;
 
     /** Notify controllers that a frame has ended (for turbo timing). */
     public void onFrameEnd() {
@@ -118,6 +128,7 @@ public class Bus implements NesBus {
     @Override
     public void attachPPU(NesPPU ppu) {
         this.ppu = ppu;
+        cachePpuMethods();
         // If CPU already attached through some pathway, attempt to link for NMI
         tryLinkCpuToPpu();
     }
@@ -409,15 +420,18 @@ public class Bus implements NesBus {
             vprintf("[DMA OAM WARN] page=%02X CPU-ref ausente (sem stall)\n", pendingDmaPage & 0xFF);
         }
         int base = (pendingDmaPage & 0xFF) << 8;
-        int[] firstBytes = new int[32];
+        
+        // Optimization: Only allocate debug structures if verbose is enabled
+        int[] firstBytes = globalVerbose ? new int[32] : null;
+
         // Copy 256 bytes from CPU memory space (using cpuRead for mapper/RAM
         // visibility)
         for (int i = 0; i < 256; i++) {
             int val = read(base + i);
-            if (i < firstBytes.length)
+            if (firstBytes != null && i < firstBytes.length)
                 firstBytes[i] = val & 0xFF;
             try {
-                ppu.getClass().getMethod("dmaOamWrite", int.class, int.class).invoke(ppu, i, val & 0xFF);
+                if (ppuDmaOamWriteMethod != null) ppuDmaOamWriteMethod.invoke(ppu, i, val & 0xFF);
             } catch (Exception e) {
                 // fallback: if method missing abort silently
                 break;
@@ -436,7 +450,7 @@ public class Bus implements NesBus {
         }
         // Após cópia, logar primeiros sprites para diagnóstico (máx 8)
         try {
-            byte[] oamDump = (byte[]) ppu.getClass().getMethod("getOamCopy").invoke(ppu);
+            byte[] oamDump = (ppuGetOamCopyMethod != null) ? (byte[]) ppuGetOamCopyMethod.invoke(ppu) : null;
             int spritesToShow = 8;
             if (globalVerbose) {
                 vprintf("[DMA OAM] page=%02X primeiros %d sprites:\n", pendingDmaPage & 0xFF, spritesToShow);
@@ -459,11 +473,7 @@ public class Bus implements NesBus {
         if (haveCpu) {
             long cpuCycles = cpuRef.getTotalCycles();
             int stall = 513 + ((cpuCycles & 1) != 0 ? 1 : 0);
-            try {
-                cpuRef.getClass().getMethod("addDmaStall", int.class).invoke(cpuRef, stall);
-            } catch (Exception e) {
-                // ignore
-            }
+            cpuRef.addDmaStall(stall);
         }
         pendingDmaPage = -1;
     }
@@ -479,8 +489,7 @@ public class Bus implements NesBus {
     private int readPpuRegister(int reg) {
         try {
             // Use reflection only if PPU concrete exposes methods; else adapt design later.
-            // We added readRegister(int) in Ppu2C02.
-            return (int) ppu.getClass().getMethod("readRegister", int.class).invoke(ppu, reg);
+            return (ppuReadRegMethod != null) ? (int) ppuReadRegMethod.invoke(ppu, reg) : 0;
         } catch (Exception e) {
             return 0;
         }
@@ -494,7 +503,7 @@ public class Bus implements NesBus {
      */
     private void writePpuRegister(int reg, int value) {
         try {
-            ppu.getClass().getMethod("writeRegister", int.class, int.class).invoke(ppu, reg, value);
+            if (ppuWriteRegMethod != null) ppuWriteRegMethod.invoke(ppu, reg, value);
         } catch (Exception e) {
             // ignore
         }
@@ -507,7 +516,7 @@ public class Bus implements NesBus {
      */
     private long getPpuFrame() {
         try {
-            return (long) ppu.getClass().getMethod("getFrame").invoke(ppu);
+            return (ppuGetFrameMethod != null) ? (long) ppuGetFrameMethod.invoke(ppu) : -1;
         } catch (Exception e) {
             return -1;
         }
@@ -520,7 +529,7 @@ public class Bus implements NesBus {
      */
     private int getPpuScanline() {
         try {
-            return (int) ppu.getClass().getMethod("getScanline").invoke(ppu);
+            return (ppuGetScanlineMethod != null) ? (int) ppuGetScanlineMethod.invoke(ppu) : -1;
         } catch (Exception e) {
             return -1;
         }
@@ -533,9 +542,29 @@ public class Bus implements NesBus {
      */
     private int getPpuCycle() {
         try {
-            return (int) ppu.getClass().getMethod("getCycle").invoke(ppu);
+            return (ppuGetCycleMethod != null) ? (int) ppuGetCycleMethod.invoke(ppu) : -1;
         } catch (Exception e) {
             return -1;
+        }
+    }
+
+    /**
+     * Caches PPU methods to avoid expensive reflection lookups in hot paths.
+     */
+    private void cachePpuMethods() {
+        if (ppu == null) return;
+        Class<?> clz = ppu.getClass();
+        try {
+            ppuReadRegMethod = clz.getMethod("readRegister", int.class);
+            ppuWriteRegMethod = clz.getMethod("writeRegister", int.class, int.class);
+            ppuGetFrameMethod = clz.getMethod("getFrame");
+            ppuGetScanlineMethod = clz.getMethod("getScanline");
+            ppuGetCycleMethod = clz.getMethod("getCycle");
+            ppuDmaOamWriteMethod = clz.getMethod("dmaOamWrite", int.class, int.class);
+            ppuGetOamCopyMethod = clz.getMethod("getOamCopy");
+        } catch (NoSuchMethodException e) {
+            // Methods might not exist in all implementations; handle gracefully
+            if (globalVerbose) Log.debug(BUS, "Alguns métodos de reflexão do PPU não foram encontrados.");
         }
     }
 
