@@ -13,10 +13,10 @@
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
 ### Current Release (0.7)
-Battletoads & Compatibility.
+Battletoads & Compatibility (Buggy)
 
 What's new in 0.7:
-* **Mappers:** Added Mapper 7 (AxROM) support, enabling games like *Battletoads*, *Marble Madness*, and *Wizards & Warriors*.
+* **Mappers:** Added Mapper 7 (AxROM) support, enabling games like *Battletoads* (skip stage 2), *Marble Madness*, and *Wizards & Warriors*.
 * **Previous (0.6.1):**
 * **Performance:** Optimized PPU sprite rendering by caching attributes/coordinates per scanline, reducing memory access overhead in the pixel loop.
 
