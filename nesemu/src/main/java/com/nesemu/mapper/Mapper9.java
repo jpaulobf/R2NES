@@ -118,13 +118,14 @@ public class Mapper9 extends Mapper {
         // the latch flips state for the *next* read.
         
         // Latch 0 Triggers:
+        // Hardware behavior: Latch updates on the HIGH byte read ($xFD8-$xFDF).
+        // Updating on low byte ($xFD0) would cause the high byte to be read from the NEW bank!
         if (address >= 0x0FD8 && address <= 0x0FDF) {
             latch0 = false; // Switch to FD bank
         } else if (address >= 0x0FE8 && address <= 0x0FEF) {
             latch0 = true;  // Switch to FE bank
         }
-        // Latch 1 Triggers (Ranges $1FD8-$1FDF and $1FE8-$1FEF):
-        // These correspond to the high-byte plane of tiles $FD and $FE in the right pattern table.
+        // Latch 1 Triggers:
         else if (address >= 0x1FD8 && address <= 0x1FDF) {
             latch1 = false; // Switch to FD bank
         } else if (address >= 0x1FE8 && address <= 0x1FEF) {

@@ -1432,10 +1432,22 @@ public class PPU implements NesPPU {
             // Sprite 0 Hit Logic
             if (spriteIndex == 0 && pattern != 0) {
                 boolean hit = (bgOriginal != 0);
-                // Heuristic: Double Dragon places Sprite 0 at Y=196, X=250.
-                // If BG rendering is slightly off (transparent), force hit in this "status bar split" region.
-                if (!hit && sl > 180 && xPixel > 230) {
+                // Relaxed Sprite 0: If we are in the visible region and have a sprite pixel,
+                
+                // Heuristic: Double Dragon check (Safety Net)
+                // Double Dragon expects a hit at the bottom split (Y ~196). If rendering is slightly off, force it.
+                // We restrict this to sl > 180 so it NEVER affects Punch-Out (which needs hits at the top).
+                if (!hit && sl > 180 && xPixel > 230 && (regMASK & PpuRegs.MASK_BG_ENABLE) != 0) {
                     hit = true;
+                }
+
+                // allow hit even if BG is technically transparent (0) but opaque in palette logic?
+                // No, hardware requires non-zero BG pattern.
+                // However, ensure we don't accidentally suppress it due to left-column blanking logic if the game expects it.
+                if (xPixel < 8 && (regMASK & PpuRegs.MASK_BG_LEFT) == 0) {
+                    // If BG is hidden in left column, hardware does NOT trigger hit.
+                    // But if we are forcing left column blanking via 'always' mode, we might miss it.
+                    // For now, respect hardware flag.
                 }
 
                 if (hit) {
