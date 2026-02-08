@@ -1,6 +1,12 @@
 Changelog - R2NES
 ===================
 
+Version 0.7 – Battletoads & Compatibility (2026-02-08)
+------------------------
+
+Added
+- **Mapper 7 (AxROM):** Implemented single-screen mirroring and 32KB PRG banking. Enables *Battletoads*, *Marble Madness*, etc.
+
 Version 0.6.1 – PPU Performance (2026-02-08)
 ------------------------
 

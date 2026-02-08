@@ -12,10 +12,12 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.6.1)
-PPU Performance & Optimization.
+### Current Release (0.7)
+Battletoads & Compatibility.
 
-What's new in 0.6.1:
+What's new in 0.7:
+* **Mappers:** Added Mapper 7 (AxROM) support, enabling games like *Battletoads*, *Marble Madness*, and *Wizards & Warriors*.
+* **Previous (0.6.1):**
 * **Performance:** Optimized PPU sprite rendering by caching attributes/coordinates per scanline, reducing memory access overhead in the pixel loop.
 * **Previous (0.6):**
 * **PPU Scrolling:** Fixed visual artifacts ("trash") on the left column during horizontal scroll by correcting shift register timing during prefetch.
@@ -167,6 +169,7 @@ Hotkey behavior: Press save key at any time; load key restores snapshot and norm
 | 3 | CNROM | 8K CHR bank |
 | 4 | MMC3 | (WIP partial – save state support pending) |
 | 5 | MMC5 | (WIP partial – save state support pending) |
+| 7 | AxROM | 32K PRG switch, Single Screen |
 
 ### Timing Modes
 Two global scheduling strategies (default: simple):
@@ -198,10 +201,12 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.6.1)
-Performance e Otimização da PPU.
+### Versão Atual (0.7)
+Battletoads e Compatibilidade.
 
-Novidades em 0.6.1:
+Novidades em 0.7:
+* **Mappers:** Adicionado suporte ao Mapper 7 (AxROM), habilitando jogos como *Battletoads*, *Marble Madness* e *Wizards & Warriors*.
+* **Anterior (0.6.1):**
 * **Performance:** Otimizada renderização de sprites na PPU com cache de atributos/coordenadas por scanline, reduzindo overhead de acesso à memória no loop de pixels.
 * **Anterior (0.6):**
 * **Scroll PPU:** Corrigidos artefatos visuais ("lixo") na coluna esquerda durante scroll horizontal, ajustando o timing dos registradores de deslocamento no prefetch.
@@ -349,6 +354,7 @@ Hotkeys: Salvar a qualquer momento; carregar restaura snapshot e normaliza timin
 | 3 | CNROM | Banking CHR |
 | 4 | MMC3 | (Parcial – suporte save state pendente) |
 | 5 | MMC5 | (Parcial – suporte save state pendente) |
+| 7 | AxROM | 32K PRG switch, Single Screen |
 
 ### Modos de Tempo
 Dois modos globais (padrão: simple):

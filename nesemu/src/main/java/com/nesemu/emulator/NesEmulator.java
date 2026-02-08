@@ -9,6 +9,7 @@ import com.nesemu.mapper.Mapper2;
 import com.nesemu.mapper.Mapper1;
 import com.nesemu.mapper.Mapper5;
 import com.nesemu.mapper.Mapper4;
+import com.nesemu.mapper.Mapper7;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.ppu.PPU;
 import com.nesemu.apu.APU;
@@ -108,9 +109,10 @@ public class NesEmulator {
             case 3 -> this.mapper = new Mapper3(rom);
             case 4 -> this.mapper = new Mapper4(rom); // MMC3 (partial, no IRQ yet)
             case 5 -> this.mapper = new Mapper5(rom); // MMC5 (partial)
+            case 7 -> this.mapper = new Mapper7(rom); // AxROM
             default ->
                 throw new IllegalArgumentException(
-                        "Unsupported mapper " + mapperNum + " (only 0,1,2,3,4,5 implemented)");
+                        "Unsupported mapper " + mapperNum + " (only 0,1,2,3,4,5,7 implemented)");
         }
         this.ppu = new PPU();
         this.ppu.reset();
