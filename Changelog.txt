@@ -1,6 +1,12 @@
 Changelog - R2NES
 ===================
 
+Version 0.6.1 – PPU Performance (2026-02-08)
+------------------------
+
+Changed
+- **PPU Optimization:** Implemented per-scanline caching for sprite X coordinates and attributes, eliminating repetitive OAM array lookups during the `overlaySpritePixel` hot loop. Simplified fetch region boolean logic for reduced CPU overhead per cycle.
+
 Version 0.6 – PPU Accuracy & Stability (2026-02-08)
 ------------------------
 

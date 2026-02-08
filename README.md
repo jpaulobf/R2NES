@@ -12,10 +12,12 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.6)
-PPU Accuracy & Stability.
+### Current Release (0.6.1)
+PPU Performance & Optimization.
 
-What's new in 0.6:
+What's new in 0.6.1:
+* **Performance:** Optimized PPU sprite rendering by caching attributes/coordinates per scanline, reducing memory access overhead in the pixel loop.
+* **Previous (0.6):**
 * **PPU Scrolling:** Fixed visual artifacts ("trash") on the left column during horizontal scroll by correcting shift register timing during prefetch.
 * **Compatibility:** Fixed *Double Dragon* freeze via improved Sprite 0 hit logic.
 * **Timing:** Resolved pipeline hazards in PPU fetch/shift logic for pixel-perfect fine scrolling.
@@ -196,10 +198,12 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.6)
-Precisão e Estabilidade da PPU.
+### Versão Atual (0.6.1)
+Performance e Otimização da PPU.
 
-Novidades em 0.6:
+Novidades em 0.6.1:
+* **Performance:** Otimizada renderização de sprites na PPU com cache de atributos/coordenadas por scanline, reduzindo overhead de acesso à memória no loop de pixels.
+* **Anterior (0.6):**
 * **Scroll PPU:** Corrigidos artefatos visuais ("lixo") na coluna esquerda durante scroll horizontal, ajustando o timing dos registradores de deslocamento no prefetch.
 * **Compatibilidade:** Corrigido travamento em *Double Dragon* através de lógica aprimorada de Sprite 0 Hit.
 * **Timing:** Resolvidos conflitos de pipeline (hazards) na lógica de busca/deslocamento da PPU para scroll fino preciso.

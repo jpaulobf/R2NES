@@ -65,6 +65,8 @@ public class PPU implements NesPPU {
     // Active buffers for current scanline
     private final int[] activePatternLow = new int[EXTENDED_SPRITE_DRAW_LIMIT];
     private final int[] activePatternHigh = new int[EXTENDED_SPRITE_DRAW_LIMIT];
+    private final int[] activeSpriteX = new int[EXTENDED_SPRITE_DRAW_LIMIT];
+    private final int[] activeSpriteAttr = new int[EXTENDED_SPRITE_DRAW_LIMIT];
     private int preparedLine = -2; // which scanline the prepared list corresponds to
                                    // $2005 PPUSCROLL (x,y latch)
                                    // $2006 PPUADDR (VRAM address latch)
@@ -345,9 +347,7 @@ public class PPU implements NesPPU {
                 // Phase 0: Reload shift registers (moved to end of cycle to preserve data during shift)
                 // This fixes pipeline hazard where reload overwrote low byte before shift moved it to high.
                 if ((cycle & 7) == 0) {
-                    boolean fetchRegion = (isVisibleScanline() && cycle >= 1 && cycle <= 256)
-                            || (cycle >= 321 && cycle <= 336 && isVisibleScanline())
-                            || (isPreRender() && ((cycle >= 321 && cycle <= 336) || (cycle >= 1 && cycle <= 256)));
+                    boolean fetchRegion = (cycle >= 1 && cycle <= 256) || (cycle >= 321 && cycle <= 336);
                     if (fetchRegion) {
                         tileReloadAndAdvanceX();
                     }
@@ -1375,9 +1375,13 @@ public class PPU implements NesPPU {
         }
         spriteCountThisLine = preparedSpriteCount;
         for (int i = 0; i < spriteCountThisLine; i++) {
-            spriteIndices[i] = preparedSpriteIndices[i];
+            int idx = preparedSpriteIndices[i];
+            spriteIndices[i] = idx;
             activePatternLow[i] = preparedPatternLow[i];
             activePatternHigh[i] = preparedPatternHigh[i];
+            int base = idx * 4;
+            activeSpriteAttr[i] = oam[base + 2] & 0xFF;
+            activeSpriteX[i] = oam[base + 3] & 0xFF;
         }
     }
 
@@ -1407,10 +1411,8 @@ public class PPU implements NesPPU {
         int drawCount = Math.min(spriteCountThisLine, Math.min(maxDraw, spriteIndices.length));
         for (int si = 0; si < drawCount; si++) {
             int spriteIndex = spriteIndices[si];
-            int base = spriteIndex * 4;
-            // y and tile not needed for pixel generation, only x and attr
-            int attr = oam[base + 2] & 0xFF;
-            int x = oam[base + 3] & 0xFF;
+            int attr = activeSpriteAttr[si];
+            int x = activeSpriteX[si];
             if (xPixel < x || xPixel >= x + 8)
                 continue;
 
@@ -1631,9 +1633,7 @@ public class PPU implements NesPPU {
     private void backgroundPipeline() {
         // Only execute during visible cycles 1-256 or prefetch cycles 321-336 on
         // visible/pre-render lines
-        boolean fetchRegion = (isVisibleScanline() && cycle >= 1 && cycle <= 256)
-                || (cycle >= 321 && cycle <= 336 && isVisibleScanline())
-                || (isPreRender() && ((cycle >= 321 && cycle <= 336) || (cycle >= 1 && cycle <= 256)));
+        boolean fetchRegion = (cycle >= 1 && cycle <= 256) || (cycle >= 321 && cycle <= 336);
         if (!fetchRegion)
             return;
         int phase = cycle & 0x7; // 8-cycle tile fetch phase (1,3,5,7 fetch; 0 reload)
