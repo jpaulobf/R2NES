@@ -19,18 +19,6 @@ What's new in 0.7:
 * **Mappers:** Added Mapper 7 (AxROM) support, enabling games like *Battletoads*, *Marble Madness*, and *Wizards & Warriors*.
 * **Previous (0.6.1):**
 * **Performance:** Optimized PPU sprite rendering by caching attributes/coordinates per scanline, reducing memory access overhead in the pixel loop.
-* **Previous (0.6):**
-* **PPU Scrolling:** Fixed visual artifacts ("trash") on the left column during horizontal scroll by correcting shift register timing during prefetch.
-* **Compatibility:** Fixed *Double Dragon* freeze via improved Sprite 0 hit logic.
-* **Timing:** Resolved pipeline hazards in PPU fetch/shift logic for pixel-perfect fine scrolling.
-* **Previous (0.5.8.5):**
-* **CRT Filter:** Added bilinear smoothing + RGB phosphor mask simulation for a retro look.
-* **Configuration:** New `crt-mode` and `crt-alpha` options in `emulator.ini` to toggle and adjust filter intensity.
-* **Mapper 4 (MMC3):** Implemented Scanline IRQ counter. Fixes split-screen effects (e.g. SMB3 status bar).
-* **Refactoring:** Cleaned up entry point by extracting GUI and Headless logic into dedicated launchers.
-* **PPU Performance:** Added palette caching (eliminating float math per pixel) and sprite pattern prefetching.
-* **Performance:** Major reduction in GC pressure (reused operand objects) and CPU overhead (cached reflection methods, optimized lookups) for smoother frame rates.
-* **Audio:** Fixed "choppy" sound by biasing HPF output; reduced muffling by tuning LPF and removing redundant averaging; added Nyquist aliasing protection.
 
 *(See Changelog.txt for full version history)*
 
@@ -208,18 +196,6 @@ Novidades em 0.7:
 * **Mappers:** Adicionado suporte ao Mapper 7 (AxROM), habilitando jogos como *Battletoads*, *Marble Madness* e *Wizards & Warriors*.
 * **Anterior (0.6.1):**
 * **Performance:** Otimizada renderização de sprites na PPU com cache de atributos/coordenadas por scanline, reduzindo overhead de acesso à memória no loop de pixels.
-* **Anterior (0.6):**
-* **Scroll PPU:** Corrigidos artefatos visuais ("lixo") na coluna esquerda durante scroll horizontal, ajustando o timing dos registradores de deslocamento no prefetch.
-* **Compatibilidade:** Corrigido travamento em *Double Dragon* através de lógica aprimorada de Sprite 0 Hit.
-* **Timing:** Resolvidos conflitos de pipeline (hazards) na lógica de busca/deslocamento da PPU para scroll fino preciso.
-* **Anterior (0.5.8.5):**
-* **Filtro CRT:** Adicionada suavização bilinear + simulação de máscara de fósforo RGB para um visual retrô.
-* **Configuração:** Novas opções `crt-mode` e `crt-alpha` no `emulator.ini` para ativar e ajustar a intensidade do filtro.
-* **Mapper 4 (MMC3):** Implementado contador de IRQ por scanline. Corrige efeitos de tela dividida (ex: barra de status do SMB3).
-* **Refatoração:** Limpeza do ponto de entrada extraindo lógica de GUI e Headless para launchers dedicados.
-* **Performance PPU:** Adicionado cache de paleta (eliminando matemática float por pixel) e prefetch de padrões de sprite.
-* **Performance:** Grande redução na pressão do GC (reuso de objetos) e overhead de CPU (cache de reflexão, lookups otimizados) para quadros mais estáveis.
-* **Áudio:** Correção de som "picotado" via bias no HPF; redução de abafamento ajustando LPF; proteção contra aliasing (Nyquist).
 
 *(Consulte Changelog.txt para o histórico completo)*
 
