@@ -558,7 +558,7 @@ public class NesEmulator {
     /**
      * Reset CPU and PPU to power-on state (PC from reset vector).
      */
-    public void reset() {
+    public synchronized void reset() {
         cpu.reset();
         if (ppu != null)
             ppu.reset();
@@ -567,7 +567,7 @@ public class NesEmulator {
     /**
      * Run N CPU cycles (each CPU cycle advances PPU 3 cycles).
      */
-    public void runCycles(long cpuCycles) {
+    public synchronized void runCycles(long cpuCycles) {
         if (bus == null) {
             // Legacy mode: no PPU stepping
             for (long i = 0; i < cpuCycles; i++)
@@ -602,13 +602,13 @@ public class NesEmulator {
     }
 
     /** Run a number of full instructions (blocking). */
-    public void runInstructions(long count) {
+    public synchronized void runInstructions(long count) {
         for (long i = 0; i < count; i++)
             cpu.stepInstruction();
     }
 
     /** Advance until end of current frame (when PPU scanline wraps to -1). */
-    public void stepFrame() {
+    public synchronized void stepFrame() {
         long targetFrame = ppu.getFrame();
         while (ppu.getFrame() == targetFrame) {
             runCycles(1); // 1 CPU cycle -> 3 PPU cycles
@@ -623,7 +623,7 @@ public class NesEmulator {
     }
 
     /** Convenience: run a number of whole frames. */
-    public void runFrames(int frames) {
+    public synchronized void runFrames(int frames) {
         for (int i = 0; i < frames; i++) {
             stepFrame();
         }
@@ -801,7 +801,7 @@ public class NesEmulator {
      * Serialize full emulator state (CPU registers, internal RAM, PPU core
      * registers, VRAM/OAM/palettes, mapper + CHR RAM, PRG RAM)
      */
-    public void saveState(Path path) throws IOException {
+    public synchronized void saveState(Path path) throws IOException {
         if (cpu == null || bus == null || ppu == null)
             return;
         java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream(1024 * 64);
@@ -875,7 +875,7 @@ public class NesEmulator {
      * @return
      * @throws IOException
      */
-    public boolean loadState(Path path) throws IOException {
+    public synchronized boolean loadState(Path path) throws IOException {
         if (!Files.exists(path))
             return false;
         if (cpu == null || bus == null || ppu == null)
@@ -978,6 +978,10 @@ public class NesEmulator {
         if (cyc != 0 || (scanline >= 0 && scanline <= 239)) {
             // This avoids frozen frame due to missing transient pipeline contents
             ppu.normalizeTimingAfterLoad();
+        }
+        // Reset APU to avoid stuck notes or invalid IRQ state from previous session
+        if (apu != null) {
+            apu.reset();
         }
         return true;
     }
