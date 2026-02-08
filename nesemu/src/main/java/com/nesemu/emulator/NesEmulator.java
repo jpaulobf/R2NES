@@ -10,6 +10,7 @@ import com.nesemu.mapper.Mapper1;
 import com.nesemu.mapper.Mapper5;
 import com.nesemu.mapper.Mapper4;
 import com.nesemu.mapper.Mapper7;
+import com.nesemu.mapper.Mapper9;
 import com.nesemu.mapper.Mapper;
 import com.nesemu.ppu.PPU;
 import com.nesemu.apu.APU;
@@ -110,9 +111,10 @@ public class NesEmulator {
             case 4 -> this.mapper = new Mapper4(rom); // MMC3 (partial, no IRQ yet)
             case 5 -> this.mapper = new Mapper5(rom); // MMC5 (partial)
             case 7 -> this.mapper = new Mapper7(rom); // AxROM
+            case 9 -> this.mapper = new Mapper9(rom); // MMC2 (Punch-Out!!)
             default ->
                 throw new IllegalArgumentException(
-                        "Unsupported mapper " + mapperNum + " (only 0,1,2,3,4,5,7 implemented)");
+                        "Unsupported mapper " + mapperNum + " (only 0,1,2,3,4,5,7,9 implemented)");
         }
         this.ppu = new PPU();
         this.ppu.reset();
@@ -125,6 +127,9 @@ public class NesEmulator {
         bus.attachAPU(this.apu);
         this.cpu = new CPU(bus);
         this.ppu.attachCPU(this.cpu);
+        if (this.mapper != null) {
+            this.mapper.setIrqCallback(this.cpu::irq);
+        }
     }
 
     /** Alternative constructor with ROM path (enables automatic .sav naming). */
@@ -571,6 +576,11 @@ public class NesEmulator {
         runCyclesInternal(cpuCycles);
     }
 
+    /**
+     * Run N CPU cycles (each CPU cycle advances PPU 3 cycles).
+     * Internal method with no synchronization (called from runCycles and stepFrame).
+     * @param cpuCycles
+     */
     private void runCyclesInternal(long cpuCycles) {
         if (bus == null) {
             // Legacy mode: no PPU stepping

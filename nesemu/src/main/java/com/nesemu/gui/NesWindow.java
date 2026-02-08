@@ -766,8 +766,8 @@ public class NesWindow {
                 case 0: // normal centered integer scaling
                     nesW = baseScaleW;
                     nesH = baseScaleH;
-                    cx = (winW - nesW) / 2;
-                    cy = (winH - nesH) / 2;
+                    cx = ((winW - nesW) / 2);
+                    cy = ((winH - nesH) / 2);
                     scaleX = renderer.getScale();
                     scaleY = renderer.getScale();
                     break;

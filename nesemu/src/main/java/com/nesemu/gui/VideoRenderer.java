@@ -110,24 +110,4 @@ public class VideoRenderer extends JPanel {
     public Consumer<Graphics2D> getOverlay() {
         return overlay;
     }
-
-    @Override
-    protected void paintComponent(Graphics g) {
-        super.paintComponent(g);
-        // Test: render with -8px offset on X and Y to reduce visible black borders
-        int ox = -8 * scale;
-        int oy = -8 * scale;
-        g.drawImage(image, ox, oy, 256 * scale, 240 * scale, null);
-        Consumer<Graphics2D> ov = overlay;
-        if (ov != null) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.scale(scale, scale); // draw overlay in NES pixel space
-                g2.translate(-8, -8); // match the -8px NES offset
-                ov.accept(g2);
-            } finally {
-                g2.dispose();
-            }
-        }
-    }
 }
