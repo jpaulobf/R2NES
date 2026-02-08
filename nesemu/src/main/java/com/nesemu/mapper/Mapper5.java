@@ -438,7 +438,7 @@ public class Mapper5 extends Mapper {
      * protection register sequence.
      * @return
      */
-    private boolean prgRamWriteEnabled() {
+    public boolean prgRamWriteEnabled() {
         // Proper enable requires prot1=2 prot2=1. For now allow always if both non-zero
         // OR simple match.
         if (regPrgRamProt1 == 2 && regPrgRamProt2 == 1)
@@ -480,5 +480,8 @@ public class Mapper5 extends Mapper {
     }
     public int getChr1kBanks() {
         return chr1kBanks;
+    }
+    public int getRegPrgBank6000() {
+        return regPrgBank6000;
     }
 }
