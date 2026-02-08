@@ -1,6 +1,8 @@
 package com.nesemu.mapper;
 
 import com.nesemu.rom.INesRom;
+import com.nesemu.util.Log;
+import static com.nesemu.util.Log.Cat.GENERAL;
 
 public class Mapper7 extends Mapper {
 
@@ -69,5 +71,34 @@ public class Mapper7 extends Mapper {
     @Override
     public MirrorType getMirrorType() {
         return mirroring == 0 ? MirrorType.SINGLE0 : MirrorType.SINGLE1;
+    }
+
+    @Override
+    public byte[] saveState() {
+        // Serialize prgBank (int), mirroring (int), chrRam (byte[])
+        // Layout: [0]=prgBank, [1]=mirroring, [2..]=chrRam
+        int chrLen = (chrRam != null) ? chrRam.length : 0;
+        byte[] data = new byte[2 + chrLen];
+        data[0] = (byte) (prgBank & 0xFF);
+        data[1] = (byte) (mirroring & 0xFF);
+        if (chrLen > 0) {
+            System.arraycopy(chrRam, 0, data, 2, chrLen);
+        }
+        return data;
+    }
+
+    @Override
+    public void loadState(byte[] data) {
+        if (data == null || data.length < 2) return;
+        prgBank = data[0] & 0x07;
+        mirroring = data[1] & 0x01;
+        int chrLen = (chrRam != null) ? chrRam.length : 0;
+        if (chrLen > 0) {
+            if (data.length >= 2 + chrLen) {
+                System.arraycopy(data, 2, chrRam, 0, chrLen);
+            } else {
+                Log.warn(GENERAL, "Mapper7 loadState: Save data too short for CHR RAM (len=%d, need=%d)", data.length, 2 + chrLen);
+            }
+        }
     }
 }
