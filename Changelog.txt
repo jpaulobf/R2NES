@@ -1,6 +1,15 @@
 Changelog - R2NES
 ===================
 
+Version 0.6 – PPU Accuracy & Stability (2026-02-08)
+------------------------
+
+Changed
+- **PPU Scrolling:** Enabled background shift registers during prefetch cycles (321-336) to fix "trash" pixels on the left screen edge during horizontal scrolling.
+- **PPU Timing:** Moved shift register reload to the end of the cycle to prevent data corruption (pipeline hazard), ensuring accurate fine scroll.
+- **Sprite 0 Hit:** Added heuristic to detect hits in the bottom-right screen region even if background rendering is slightly off, fixing the *Double Dragon* freeze.
+- **Configuration:** Default `left-column-mode` reverted to `hardware` as the scrolling fix makes forced masking unnecessary.
+
 Version 0.5.8.5 – CRT Filter (2026-02-07)
 ------------------------
 

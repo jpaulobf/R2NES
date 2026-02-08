@@ -12,13 +12,16 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.5.8.5)
-CRT Filter & Visual Enhancements.
+### Current Release (0.6)
+PPU Accuracy & Stability.
 
-What's new in 0.5.8.5:
+What's new in 0.6:
+* **PPU Scrolling:** Fixed visual artifacts ("trash") on the left column during horizontal scroll by correcting shift register timing during prefetch.
+* **Compatibility:** Fixed *Double Dragon* freeze via improved Sprite 0 hit logic.
+* **Timing:** Resolved pipeline hazards in PPU fetch/shift logic for pixel-perfect fine scrolling.
+* **Previous (0.5.8.5):**
 * **CRT Filter:** Added bilinear smoothing + RGB phosphor mask simulation for a retro look.
 * **Configuration:** New `crt-mode` and `crt-alpha` options in `emulator.ini` to toggle and adjust filter intensity.
-* **Previous (0.5.8):**
 * **Mapper 4 (MMC3):** Implemented Scanline IRQ counter. Fixes split-screen effects (e.g. SMB3 status bar).
 * **Refactoring:** Cleaned up entry point by extracting GUI and Headless logic into dedicated launchers.
 * **PPU Performance:** Added palette caching (eliminating float math per pixel) and sprite pattern prefetching.
@@ -193,13 +196,16 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.5.8.5)
-Filtro CRT e melhorias visuais.
+### Versão Atual (0.6)
+Precisão e Estabilidade da PPU.
 
-Novidades em 0.5.8.5:
+Novidades em 0.6:
+* **Scroll PPU:** Corrigidos artefatos visuais ("lixo") na coluna esquerda durante scroll horizontal, ajustando o timing dos registradores de deslocamento no prefetch.
+* **Compatibilidade:** Corrigido travamento em *Double Dragon* através de lógica aprimorada de Sprite 0 Hit.
+* **Timing:** Resolvidos conflitos de pipeline (hazards) na lógica de busca/deslocamento da PPU para scroll fino preciso.
+* **Anterior (0.5.8.5):**
 * **Filtro CRT:** Adicionada suavização bilinear + simulação de máscara de fósforo RGB para um visual retrô.
 * **Configuração:** Novas opções `crt-mode` e `crt-alpha` no `emulator.ini` para ativar e ajustar a intensidade do filtro.
-* **Anterior (0.5.8):**
 * **Mapper 4 (MMC3):** Implementado contador de IRQ por scanline. Corrige efeitos de tela dividida (ex: barra de status do SMB3).
 * **Refatoração:** Limpeza do ponto de entrada extraindo lógica de GUI e Headless para launchers dedicados.
 * **Performance PPU:** Adicionado cache de paleta (eliminando matemática float por pixel) e prefetch de padrões de sprite.

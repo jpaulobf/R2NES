@@ -130,13 +130,6 @@ public class PPU implements NesPPU {
     // Latches
     private int ntLatch, atLatch, patternLowLatch, patternHighLatch;
 
-    // Pre-render prefetch promotion state
-    private boolean prefetchHadFirstTile = false;
-    private int prefetchPatternLowA = 0;
-    private int prefetchPatternHighA = 0;
-    private int prefetchAttrLowA = 0;
-    private int prefetchAttrHighA = 0;
-
     // --- Early register write logging (first few only to avoid spam) ---
     private static final int EARLY_WRITE_LOG_LIMIT = 40; // cap (unless LOG_EXTENDED)
     private int earlyWriteLogCount = 0;
@@ -191,9 +184,6 @@ public class PPU implements NesPPU {
         patternLowShift = patternHighShift = 0;
         attributeLowShift = attributeHighShift = 0;
         ntLatch = atLatch = patternLowLatch = patternHighLatch = 0;
-        prefetchHadFirstTile = false;
-        prefetchPatternLowA = prefetchPatternHighA = 0;
-        prefetchAttrLowA = prefetchAttrHighA = 0;
         // no per-scanline pre-shift flag to reset
         // firstTileReady / scanlinePixelCounter removed
         for (int i = 0; i < frameBuffer.length; i++) {
@@ -258,7 +248,6 @@ public class PPU implements NesPPU {
                 }
                 // --- End added ---
                 // entering pre-render of next frame: reset prefetch state
-                prefetchHadFirstTile = false;
                 frame++;
                 statusReadCountFrame = 0; // reset per-frame counter at frame increment
                 if (debugNmiLog && debugNmiLogCount < debugNmiLogLimit) {
@@ -329,7 +318,11 @@ public class PPU implements NesPPU {
                     if ((regMASK & 0x10) != 0) { // sprites enabled
                         overlaySpritePixel();
                     }
-                    // Shift after sampling (hardware shifts once per pixel after use)
+                }
+                // Shift after sampling (hardware shifts once per pixel after use)
+                // Enable shifting for visible cycles (1-256) AND prefetch cycles (321-336)
+                // on both visible and pre-render scanlines to prime registers correctly.
+                if ((isVisibleScanline() || isPreRender()) && ((cycle >= 1 && cycle <= 256) || (cycle >= 321 && cycle <= 336))) {
                     shiftBackgroundRegisters();
                 }
                 // At cycle 256 increment Y (vertical position)
@@ -347,6 +340,17 @@ public class PPU implements NesPPU {
                 // During pre-render line cycles 280-304 copy vertical bits from t to v
                 if (isPreRender() && cycle >= 280 && cycle <= 304) {
                     copyVerticalBits();
+                }
+
+                // Phase 0: Reload shift registers (moved to end of cycle to preserve data during shift)
+                // This fixes pipeline hazard where reload overwrote low byte before shift moved it to high.
+                if ((cycle & 7) == 0) {
+                    boolean fetchRegion = (isVisibleScanline() && cycle >= 1 && cycle <= 256)
+                            || (cycle >= 321 && cycle <= 336 && isVisibleScanline())
+                            || (isPreRender() && ((cycle >= 321 && cycle <= 336) || (cycle >= 1 && cycle <= 256)));
+                    if (fetchRegion) {
+                        tileReloadAndAdvanceX();
+                    }
                 }
             }
         }
@@ -1105,7 +1109,6 @@ public class PPU implements NesPPU {
     public void normalizeTimingAfterLoad() {
         this.scanline = -1; // pre-render
         this.cycle = 0;
-        this.prefetchHadFirstTile = false;
         this.patternLowShift = this.patternHighShift = 0;
         this.attributeLowShift = this.attributeHighShift = 0;
         this.ntLatch = this.atLatch = this.patternLowLatch = this.patternHighLatch = 0;
@@ -1683,8 +1686,7 @@ public class PPU implements NesPPU {
                 break;
             }
             case 0: { // Reload + advance coarse X (unless cycle 256)
-                // coarse X increments at cycles 8,16,…,248,328,336 (skip 256)
-                tileReloadAndAdvanceX();
+                // Moved to end of clock() to avoid pipeline hazard (reload before shift)
                 break;
             }
         }
@@ -1701,25 +1703,6 @@ public class PPU implements NesPPU {
     private void tileReloadAndAdvanceX() {
         // Insert freshly fetched tile bits
         loadShiftRegisters();
-        // Pre-render prefetch promotion (cycles 321-336 of scanline -1)
-        if (isPreRender() && cycle >= 321 && cycle <= 336) {
-            if (!prefetchHadFirstTile) {
-                prefetchPatternLowA = patternLowShift & 0x00FF;
-                prefetchPatternHighA = patternHighShift & 0x00FF;
-                prefetchAttrLowA = attributeLowShift & 0x00FF;
-                prefetchAttrHighA = attributeHighShift & 0x00FF;
-                prefetchHadFirstTile = true;
-            } else {
-                patternLowShift = ((prefetchPatternLowA & 0xFF) << 8) | (patternLowShift & 0x00FF);
-                patternHighShift = ((prefetchPatternHighA & 0xFF) << 8) | (patternHighShift & 0x00FF);
-                attributeLowShift = ((prefetchAttrLowA & 0xFF) << 8) | (attributeLowShift & 0x00FF);
-                attributeHighShift = ((prefetchAttrHighA & 0xFF) << 8) | (attributeHighShift & 0x00FF);
-            }
-        }
-        // Reset flag leaving pre-render (safety; should clear naturally each frame)
-        if (!isPreRender() && prefetchHadFirstTile && scanline == 0 && cycle == 0) {
-            prefetchHadFirstTile = false;
-        }
         // Increment coarse X only on tile boundaries (every 8 cycles) except at the
         // vertical increment slot (256)
         if (cycle != 256 && (cycle & 7) == 0) {

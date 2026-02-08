@@ -1,9 +1,7 @@
 package com.nesemu.ppu;
 
 import static org.junit.jupiter.api.Assertions.*;
-
 import org.junit.jupiter.api.Test;
-
 import com.nesemu.emulator.NesEmulator;
 import com.nesemu.rom.INesHeader;
 import com.nesemu.rom.INesRom;
