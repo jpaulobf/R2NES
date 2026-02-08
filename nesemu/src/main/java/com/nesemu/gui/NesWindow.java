@@ -804,8 +804,7 @@ public class NesWindow {
 
                             g.setColor(Color.BLACK);
                             g.fillRect(0, 0, winW, winH);
-                            // Test: render with -8 NES px offset in both axes
-                            int offsetX = (int) Math.round(cx + (-8 * scaleX));
+                            int offsetX = (int) Math.round(cx + (-3 * scaleX));
                             int offsetY = (int) Math.round(cy + (-8 * scaleY));
                             g.drawImage(renderer.getImage(), offsetX, offsetY, nesW, nesH, null);
                             
@@ -824,7 +823,6 @@ public class NesWindow {
                                 try {
                                     g2.translate(offsetX, offsetY);
                                     g2.scale(scaleX, scaleY);
-                                    g2.translate(-8, -8); // NES-space -8px offset for overlay
                                     try {
                                         ov.accept(g2);
                                     } catch (Throwable overlayErr) {
