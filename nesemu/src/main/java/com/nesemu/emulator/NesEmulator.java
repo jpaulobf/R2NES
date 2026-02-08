@@ -568,6 +568,10 @@ public class NesEmulator {
      * Run N CPU cycles (each CPU cycle advances PPU 3 cycles).
      */
     public synchronized void runCycles(long cpuCycles) {
+        runCyclesInternal(cpuCycles);
+    }
+
+    private void runCyclesInternal(long cpuCycles) {
         if (bus == null) {
             // Legacy mode: no PPU stepping
             for (long i = 0; i < cpuCycles; i++)
@@ -611,7 +615,7 @@ public class NesEmulator {
     public synchronized void stepFrame() {
         long targetFrame = ppu.getFrame();
         while (ppu.getFrame() == targetFrame) {
-            runCycles(1); // 1 CPU cycle -> 3 PPU cycles
+            runCyclesInternal(1); // 1 CPU cycle -> 3 PPU cycles
         }
         // Apply any post-frame transformations (e.g., left column crop mode)
         // Done here so it affects both GUI and headless executions uniformly.
