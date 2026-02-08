@@ -1,7 +1,6 @@
 package com.nesemu.gui;
 
 import java.awt.Dimension;
-import java.awt.Graphics;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.awt.Graphics2D;
