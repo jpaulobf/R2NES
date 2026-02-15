@@ -442,10 +442,21 @@ public class Mapper5 extends Mapper {
         return readChrLinear(finalBank * 0x0400 + offset);
     }
 
+    /**
+     * Reads a byte from CHR space using a linear address, applying modulo for out-of-bounds.
+     * @param linear
+     * @return
+     */
     private int readChrLinear(int linear) {
         int chrLen = (chrRam != null) ? chrRam.length : chr.length;
         if (chrLen == 0) return 0;
-        linear %= chrLen;
+        // Optimization: Use bitwise AND for power-of-2 sizes (standard for ROMs)
+        // Modulo (%) is very slow in hot paths (PPU fetch).
+        if ((chrLen & (chrLen - 1)) == 0) {
+            linear &= (chrLen - 1);
+        } else {
+            linear %= chrLen;
+        }
         return (chrRam != null ? chrRam[linear] : chr[linear]) & 0xFF;
     }
 
