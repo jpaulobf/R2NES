@@ -1,6 +1,20 @@
 Changelog - R2NES
 ===================
 
+Version 0.8 – Debugger Suite & Mapper Fixes (2026-02-15)
+------------------------
+
+Added
+- **Debugger Suite:** Integrated debugging tools accessible via Options menu.
+  - **Disassembler:** Real-time CPU instruction trace with mnemonic decoding.
+  - **Memory Viewer:** Live view of CPU memory space (RAM, WRAM, Mapper registers).
+  - **PPU Viewer:** Visualizer for Pattern Tables (CHR) with palette context.
+- **Configuration:** Added `debug-disasm`, `debug-mem`, `debug-hex`, `debug-ppu` keys to `emulator.ini`.
+
+Changed
+- **Mapper 5 (MMC5):** Improved PRG RAM banking (fixes Castlevania 3 boot loop), implemented ExRAM read/write, and refined CHR banking logic.
+- **Mapper 9 (MMC2):** Fixed latch triggers for tile fetching (Punch-Out!!).
+
 Version 0.7 – Battletoads & Compatibility (WIP) (2026-02-08)
 ------------------------
 

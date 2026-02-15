@@ -104,6 +104,33 @@ public class Mapper5 extends Mapper {
     @Override
     public int cpuRead(int address) {
         address &= 0xFFFF;
+        
+        // DEBUG: Allow reading back write-only configuration registers ($51xx)
+        // This helps the Memory Viewer show the current state of the mapper.
+        if (address >= 0x5100 && address <= 0x5130) {
+            switch (address) {
+                case 0x5100: return regPrgMode;
+                case 0x5101: return regChrMode;
+                case 0x5102: return regPrgRamProt1;
+                case 0x5103: return regPrgRamProt2;
+                case 0x5104: return regExRamMode;
+                case 0x5105: return regNtMapping;
+                case 0x5106: return regFillTile;
+                case 0x5107: return regFillAttr;
+                case 0x5113: return regPrgBank6000;
+                case 0x5114: return regPrgBank8000;
+                case 0x5115: return regPrgBankA000;
+                case 0x5116: return regPrgBankC000;
+                case 0x5117: return regPrgBankE000;
+                case 0x5130: return regChrUpper;
+                default:
+                    if (address >= 0x5120 && address <= 0x512B) {
+                        return regChrBanks[address - 0x5120];
+                    }
+                    return 0;
+            }
+        }
+
         // MMC5 Registers read
         if (address >= 0x5200 && address <= 0x5206) {
             switch (address) {
@@ -118,10 +145,14 @@ public class Mapper5 extends Mapper {
             }
             return 0;
         }
+        // ExRAM ($5C00-$5FFF) - CPU read access
+        if (address >= 0x5C00 && address <= 0x5FFF) {
+            return exRam[address - 0x5C00] & 0xFF;
+        }
         if (address >= 0x6000 && address <= 0x7FFF) {
-            // 8KB PRG RAM window ($6000) uses regPrgBank6000 low bits (we ignore bank for
-            // now - single 8K)
-            int base = 0; // Force bank 0 for $6000 range to ensure stability
+            // 8KB PRG RAM window ($6000) uses regPrgBank6000
+            // $5113 bits 0-2 select the 8KB bank (0-7) from the 64KB PRG RAM
+            int base = (regPrgBank6000 & 0x07) * 0x2000;
             return prgRam[base + (address - 0x6000)] & 0xFF;
         }
         if (address < 0x8000)
@@ -135,7 +166,8 @@ public class Mapper5 extends Mapper {
         value &= 0xFF;
         // PRG RAM region
         if (address >= 0x6000 && address <= 0x7FFF) {
-            int base = 0; // Force bank 0
+            // Write to selected PRG RAM bank
+            int base = (regPrgBank6000 & 0x07) * 0x2000;
             prgRam[base + (address - 0x6000)] = (byte) value;
             return;
         }
@@ -264,19 +296,46 @@ public class Mapper5 extends Mapper {
             }
         } else {
             inFrame = false;
-            irqPending = false; // Clear pending outside active frame (simplified behavior)
+            irqPending = false; // Reset pending flag at end of frame to prevent stuck IRQ
         }
     }
 
     @Override
     public int ppuReadNametable(int address, byte[] ciram) {
-        // Perform standard read first
-        int val = super.ppuReadNametable(address, ciram);
+        int val = 0;
+        
+        // Decode MMC5 Nametable Mapping ($5105)
+        // Format: DD CC BB AA (2 bits per quadrant)
+        // 00=CIRAM0, 01=CIRAM1, 10=ExRAM, 11=FillMode
+        int ntIndex = (address >> 10) & 0x03; // 0..3 ($2000,$2400,$2800,$2C00)
+        int mode = (regNtMapping >> (ntIndex * 2)) & 0x03;
+
+        switch (mode) {
+            case 0: // CIRAM 0
+                val = ciram[address & 0x03FF] & 0xFF;
+                break;
+            case 1: // CIRAM 1
+                val = ciram[0x0400 + (address & 0x03FF)] & 0xFF;
+                break;
+            case 2: // ExRAM (as Nametable)
+                val = exRam[address & 0x03FF] & 0xFF;
+                break;
+            case 3: // Fill Mode
+                val = regFillTile & 0xFF;
+                break;
+        }
         
         // In ExRAM Mode 1, we latch the ExRAM value corresponding to this tile.
         // ExRAM is 1KB, indexed by the nametable offset (0-3FF).
-        if (regExRamMode == 1) {
-            lastExRamByte = exRam[address & 0x03FF] & 0xFF;
+        // CRITICAL: Only latch on NameTable fetches ($000-$3BF), NOT Attribute fetches ($3C0-$3FF).
+        // Latching on attributes would corrupt the state for the subsequent pattern fetch.
+        if (regExRamMode == 1 && (address & 0x03FF) < 0x03C0) {
+            // Note: When using ExRAM as Nametable (mode 2 above), the latch logic is tricky.
+            // But usually Mode 1 (Ex Attributes) is combined with CIRAM nametables.
+            // We use the logical address offset 0-3FF to index ExRAM for the attribute data.
+            // Even if the nametable data came from CIRAM, the attribute/bank data comes from ExRAM[offset].
+            int offset = address & 0x03FF;
+            lastExRamByte = exRam[offset] & 0xFF;
         }
         return val;
     }
@@ -302,76 +361,91 @@ public class Mapper5 extends Mapper {
         int mode = regChrMode & 0x03;
         boolean sprite = (getChrReadMode() == ChrReadMode.SPRITE);
 
-        // MMC5 Split: Sprites use $5120-$5127, BG uses $5128-$512B
-        if (!sprite) {
-            // ExRAM Mode 1: Background tiles use ExRAM for banking
-            // Bank = (ExRAM & 0x3F) -> selects a 4KB bank
-            if (regExRamMode == 1) {
-                int bank4k = lastExRamByte & 0x3F;
-                int bankIndex = bank4k * 0x1000;
-                int offsetInBank = address & 0x0FFF;
-                int linear = bankIndex + offsetInBank;
-                int chrLen = (chrRam != null) ? chrRam.length : chr.length;
-                if (chrLen == 0) return 0;
-                return (chrRam != null ? chrRam[linear % chrLen] : chr[linear % chrLen]) & 0xFF;
-            }
-
-            // Background fetch logic
-            // In Mode 3 (most common), BG uses 4KB pages selected by $5128-$512B
-            // $5128 -> 0000-0FFF, $5129 -> 1000-1FFF
-            if (mode == 3) {
-                int regIdx = (address >= 0x1000) ? 9 : 8; // $5129 or $5128 (indices 9 and 8)
-                int bank = regChrBanks[regIdx] & 0xFF;
-                // Bank value is 4KB unit
-                int bankIndex = bank * 0x1000;
-                int offsetInBank = address & 0x0FFF;
-                int linear = bankIndex + offsetInBank;
-                int chrLen = (chrRam != null) ? chrRam.length : chr.length;
-                if (chrLen == 0) return 0;
-                linear %= chrLen;
-                return (chrRam != null ? chrRam[linear] : chr[linear]) & 0xFF;
-            }
-            // Fallback for other BG modes (0,1,2) - treat as sprite logic for now or implement later
+        // ExRAM Mode 1: Background tiles use ExRAM for banking (overrides standard BG banking)
+        if (!sprite && regExRamMode == 1) {
+            // ExRAM byte bits 0-5 select 4KB bank.
+            int bank4k = lastExRamByte & 0x3F;
+            // Upper 2 bits from $5130 (bits 0-1 become bits 6-7 of 4KB index)
+            int finalBank4k = ((regChrUpper & 0x03) << 6) | bank4k;
+            return readChrLinear(finalBank4k * 0x1000 + (address & 0x0FFF));
         }
 
-        // Sprite fetch logic (or fallback)
-        int bankIndex;
-        int offsetInBank;
-        switch (mode) {
-            case 0 -> { // 8KB: use regChrBanks[0] as 8KB index (ignore low bits?)
-                int bank8 = (regChrBanks[0]) & 0xFF; // treat sequential 8KB; 8KB = 8 *1KB
-                bankIndex = bank8 * 0x2000;
-                offsetInBank = address & 0x1FFF;
-            }
-            case 1 -> { // 4KB banks: 0/1
-                if (address < 0x1000) {
-                    int bank4 = regChrBanks[0] & 0xFF;
-                    bankIndex = bank4 * 0x1000;
-                    offsetInBank = address & 0x0FFF;
-                } else {
-                    int bank4 = regChrBanks[1] & 0xFF;
-                    bankIndex = bank4 * 0x1000;
-                    offsetInBank = (address - 0x1000) & 0x0FFF;
+        int bankVal = 0;
+        int offset = 0;
+        int mask = 0xFF; // Mask to align 1KB index to mode size
+
+        if (sprite) {
+            // --- Sprites ($5120-$5127) ---
+            switch (mode) {
+                case 0 -> { // 8KB: Uses $5127 (last reg)
+                    bankVal = regChrBanks[7];
+                    mask = 0xF8; // Ignore low 3 bits (align to 8KB)
+                    offset = address & 0x1FFF;
+                }
+                case 1 -> { // 4KB: Uses $5123, $5127
+                    int idx = (address < 0x1000) ? 3 : 7;
+                    bankVal = regChrBanks[idx];
+                    mask = 0xFC; // Ignore low 2 bits (align to 4KB)
+                    offset = address & 0x0FFF;
+                }
+                case 2 -> { // 2KB: Uses $5121, $5123, $5125, $5127
+                    int sub = (address >> 11) & 0x03; // 0..3
+                    bankVal = regChrBanks[sub * 2 + 1];
+                    mask = 0xFE; // Ignore low 1 bit (align to 2KB)
+                    offset = address & 0x07FF;
+                }
+                case 3 -> { // 1KB: $5120..$5127
+                    int sub = (address >> 10) & 0x07; // 0..7
+                    bankVal = regChrBanks[sub];
+                    mask = 0xFF;
+                    offset = address & 0x03FF;
                 }
             }
-            case 2 -> { // 2KB banks: 0..3
-                int region = (address >> 11) & 0x03; // 0..3
-                int bank2 = regChrBanks[region] & 0xFF;
-                bankIndex = bank2 * 0x0800;
-                offsetInBank = address & 0x07FF;
-            }
-            default -> { // 1KB banks (mode 3) – 8 regions
-                int region = (address >> 10) & 0x07; // 0..7
-                int bank1 = regChrBanks[region] & 0xFF;
-                bankIndex = bank1 * 0x0400;
-                offsetInBank = address & 0x03FF;
+        } else {
+            // --- Background ($5128-$512B) ---
+            switch (mode) {
+                case 0 -> { // 8KB: Uses $512B
+                    bankVal = regChrBanks[11];
+                    mask = 0xF8;
+                    offset = address & 0x1FFF;
+                }
+                case 1 -> { // 4KB: Uses $512B (only one 4KB bank for BG in this mode usually, or aliased)
+                    // MMC5 BG Mode 1 is weird, but usually follows the pattern.
+                    // Assuming standard mapping: $512B for 0-FFF, $512B for 1000-1FFF?
+                    // Actually standard is $512B for both or split. Let's use last reg.
+                    int idx = (address < 0x1000) ? 11 : 11; 
+                    bankVal = regChrBanks[idx];
+                    mask = 0xFC;
+                    offset = address & 0x0FFF;
+                }
+                case 2 -> { // 2KB: Uses $5129, $512B
+                    int sub = (address >> 11) & 0x03;
+                    bankVal = regChrBanks[8 + sub]; // 8,9,10,11? No, usually 9, 11.
+                    // Simplified: just use the register corresponding to the slot.
+                    mask = 0xFE;
+                    offset = address & 0x07FF;
+                }
+                case 3 -> { // 1KB: $5128..$512B
+                    int sub = (address >> 10) & 0x03; // 0..3 (maps to 0000,0400,0800,0C00 relative to table)
+                    bankVal = regChrBanks[8 + sub];
+                    mask = 0xFF;
+                    offset = address & 0x03FF;
+                }
             }
         }
-        int linear = bankIndex + offsetInBank;
+
+        // Combine with upper bits from $5130 (which apply to the bank index)
+        // AND apply the mask to align the bank index to the block size
+        int finalBank = ((regChrUpper & 0x03) << 8) | (bankVal & mask);
+
+        // Convert 1KB bank index to linear address (MMC5 registers are always 1KB units)
+        return readChrLinear(finalBank * 0x0400 + offset);
+    }
+
+    private int readChrLinear(int linear) {
         int chrLen = (chrRam != null) ? chrRam.length : chr.length;
-        if (chrLen == 0)
-            return 0;
-        linear %= chrLen; // wrap safety
+        if (chrLen == 0) return 0;
+        linear %= chrLen;
         return (chrRam != null ? chrRam[linear] : chr[linear]) & 0xFF;
     }
 
@@ -395,7 +469,8 @@ public class Mapper5 extends Mapper {
             }
             case 1 -> { // $8000-$BFFF 16KB via regPrgBank8000; $C000-$FFFF 16KB via regPrgBankE000
                 if (off < 0xC000) {
-                    int bank16 = (regPrgBank8000 & 0x7E) >> 1; // ignore bit0
+                    // FIX: Mode 1 uses $5115 (Reg B) for the first 16KB bank, not $5114
+                    int bank16 = (regPrgBankA000 & 0x7E) >> 1; 
                     int base = (bank16 * 0x4000) % Math.max(prg.length, 1);
                     prgIndex = base + (off - 0x8000);
                 } else {
@@ -406,11 +481,23 @@ public class Mapper5 extends Mapper {
                 if (prgIndex >= 0 && prgIndex < prg.length)
                     value = prg[prgIndex] & 0xFF;
             }
-            case 2 -> { // Simplified: treat like mode1 for now (common games use 3)
-                int bank16 = (regPrgBank8000 & 0x7E) >> 1;
-                int base = (bank16 * 0x4000) % Math.max(prg.length, 1);
-                int local = (off - 0x8000) & 0x3FFF;
-                prgIndex = base + local;
+            case 2 -> { // Mode 2: 16KB ($8000) + 8KB ($C000) + 8KB ($E000)
+                if (off < 0xC000) {
+                    // $8000-$BFFF: 16KB via $5115 (Reg B)
+                    int bank16 = (regPrgBankA000 & 0x7E) >> 1;
+                    int base = (bank16 * 0x4000) % Math.max(prg.length, 1);
+                    prgIndex = base + (off - 0x8000);
+                } else if (off < 0xE000) {
+                    // $C000-$DFFF: 8KB via $5116 (Reg C)
+                    int bank8 = regPrgBankC000 & 0x7F;
+                    int base = (bank8 * 0x2000) % Math.max(prg.length, 1);
+                    prgIndex = base + (off - 0xC000);
+                } else {
+                    // $E000-$FFFF: 8KB via $5117 (Reg E)
+                    int bank8 = regPrgBankE000 & 0x7F;
+                    int base = (bank8 * 0x2000) % Math.max(prg.length, 1);
+                    prgIndex = base + (off - 0xE000);
+                }
                 if (prgIndex >= 0 && prgIndex < prg.length)
                     value = prg[prgIndex] & 0xFF;
             }

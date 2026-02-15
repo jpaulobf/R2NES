@@ -80,6 +80,7 @@ public class NesWindow {
     private Runnable onBeforeOpenLoadRomDialog; // optional hook to pause gameplay before dialog
     private Runnable onAfterLoadRomDialogCancelled; // optional hook to restore state when user cancels
     private Runnable onMiscMenuCallback; // optional hook for the Misc menu item
+    private Runnable onDebuggerMenuCallback; // optional hook for the Debugger menu item
     private volatile File fileChooserStartDir; // preferred starting directory
     private javax.swing.JMenuItem resetMenuItem;
     private javax.swing.JMenuItem closeRomMenuItem;
@@ -222,6 +223,11 @@ public class NesWindow {
     public void setOnMiscMenuSelected(Runnable r) {
         this.onMiscMenuCallback = r;
     }
+    
+    /** Set callback invoked when the Options->Debugger item is selected. */
+    public void setOnDebuggerMenuSelected(Runnable r) {
+        this.onDebuggerMenuCallback = r;
+    }
 
     /** Define diretório inicial preferido para o diálogo de Load ROM. */
     public void setFileChooserStartDir(Path dir) {
@@ -320,6 +326,7 @@ public class NesWindow {
         JMenuItem miVideo = new JMenuItem("Video");
         JMenuItem miAudio = new JMenuItem("Audio");
         JMenuItem miMisc = new JMenuItem("Misc");
+        JMenuItem miDebugger = new JMenuItem("Debugger Configuration...");
         miMisc.addActionListener(e -> {
             if (onMiscMenuCallback != null) {
                 try {
@@ -329,10 +336,21 @@ public class NesWindow {
             }
             restoreFocus();
         });
+        miDebugger.addActionListener(e -> {
+            if (onDebuggerMenuCallback != null) {
+                try {
+                    onDebuggerMenuCallback.run();
+                } catch (Exception ignore) {
+                }
+            }
+            restoreFocus();
+        });
         options.add(miInput);
         options.add(miVideo);
         options.add(miAudio);
         options.add(miMisc);
+        options.addSeparator();
+        options.add(miDebugger);
         mb.add(options);
         frame.setJMenuBar(mb);
     }

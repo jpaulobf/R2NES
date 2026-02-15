@@ -12,12 +12,14 @@
 ### Overview
 Experimental NES emulator (CPU + PPU) in Java focused on background pipeline accuracy & diagnostic tooling.
 
-### Current Release (0.7)
-Battletoads & Compatibility (Buggy)
+### Current Release (0.8)
+Debugger Suite & Mapper Fixes
 
-What's new in 0.7:
+What's new in 0.8:
+* **Debugger:** New suite of tools including Disassembler, Memory Viewer, and PPU Viewer.
+* **Mappers:** Fixes for Mapper 5 (Castlevania 3 boot) and Mapper 9 (Punch-Out!!).
+* **Previous (0.7):**
 * **Mappers:** Added Mapper 7 (AxROM) support, enabling games like *Battletoads* (skip stage 2), *Marble Madness*, and *Wizards & Warriors*.
-* **Previous (0.6.1):**
 * **Performance:** Optimized PPU sprite rendering by caching attributes/coordinates per scanline, reducing memory access overhead in the pixel loop.
 
 *(See Changelog.txt for full version history)*
@@ -189,12 +191,14 @@ Project evolving; some PPU fine timing & sprite edge cases pending.
 ### Visão Geral
 Projeto experimental de emulação NES (CPU + PPU) em Java, focado em precisão do pipeline de background e ferramentas de diagnóstico.
 
-### Versão Atual (0.7)
-Battletoads e Compatibilidade.
+### Versão Atual (0.8)
+Debugger Suite & Correções de Mappers
 
-Novidades em 0.7:
+Novidades em 0.8:
+* **Debugger:** Nova suíte de ferramentas incluindo Disassembler, Visualizador de Memória e PPU Viewer.
+* **Mappers:** Correções para Mapper 5 (Castlevania 3 boot) e Mapper 9 (Punch-Out!!).
+* **Anterior (0.7):**
 * **Mappers:** Adicionado suporte ao Mapper 7 (AxROM), habilitando jogos como *Battletoads*, *Marble Madness* e *Wizards & Warriors*.
-* **Anterior (0.6.1):**
 * **Performance:** Otimizada renderização de sprites na PPU com cache de atributos/coordenadas por scanline, reduzindo overhead de acesso à memória no loop de pixels.
 
 *(Consulte Changelog.txt para o histórico completo)*

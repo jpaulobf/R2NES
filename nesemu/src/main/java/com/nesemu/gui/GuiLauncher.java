@@ -1,6 +1,7 @@
 package com.nesemu.gui;
 
 import com.nesemu.app.EmulatorContext;
+import com.nesemu.debbuger.Debugger;
 import com.nesemu.audio.AudioPlayer;
 import com.nesemu.config.AppOptions;
 import com.nesemu.config.ConfigUtils;
@@ -8,6 +9,7 @@ import com.nesemu.config.RuntimeSettings;
 import com.nesemu.config.UserConfig;
 import com.nesemu.emulator.NesEmulator;
 import com.nesemu.input.GamepadPoller;
+import com.nesemu.input.InputConfig;
 import com.nesemu.io.NesController;
 import com.nesemu.rom.INesRom;
 import com.nesemu.rom.RomLoader;
@@ -33,6 +35,7 @@ public class GuiLauncher {
     private final NesController pad1;
     private final NesController pad2;
     private final GamepadPoller gamepadPoller;
+    private final Debugger debugger;
 
     // Transient UI state
     private boolean paused = false;
@@ -51,6 +54,7 @@ public class GuiLauncher {
         this.pad2 = pad2;
         this.gamepadPoller = gamepadPoller;
         this.hudState = options.hud;
+        this.debugger = new Debugger(context);
     }
 
     public void launch() {
@@ -64,6 +68,7 @@ public class GuiLauncher {
         }
 
         configureWindowSettings(window);
+        configureDebugger();
         setupMenus(window);
         setupInputAndHotkeys(window);
         setupOverlay(window);
@@ -145,6 +150,29 @@ public class GuiLauncher {
         window.setRomActionsEnabled(context.romPath != null);
     }
 
+    private void configureDebugger() {
+        try {
+            InputConfig cfg = ConfigUtils.loadInputConfig();
+            boolean disasm = parseBool(cfg, "debug-disasm");
+            boolean mem = parseBool(cfg, "debug-mem");
+            boolean hex = parseBool(cfg, "debug-hex");
+            boolean ppu = parseBool(cfg, "debug-ppu");
+
+            debugger.setDisassemblerEnabled(disasm);
+            debugger.setMemoryEnabled(mem);
+            debugger.setHexEditorEnabled(hex);
+            debugger.setPpuViewerEnabled(ppu);
+            Log.info(GENERAL, "Debugger config loaded: disasm=%s mem=%s hex=%s ppu=%s", disasm, mem, hex, ppu);
+        } catch (Exception e) {
+            Log.warn(GENERAL, "Failed to load debugger config: " + e.getMessage());
+        }
+    }
+
+    private boolean parseBool(InputConfig cfg, String key) {
+        String val = cfg.getOption(key);
+        return val != null && Boolean.parseBoolean(val.trim());
+    }
+
     private void setupMenus(NesWindow window) {
         window.setOnMiscMenuSelected(() -> {
             RomDirectoryConfigDialog dialog = new RomDirectoryConfigDialog(window.getFrame(),
@@ -181,6 +209,10 @@ public class GuiLauncher {
                         "Diretório padrão atualizado:\n" + chosen,
                         "Configuração de ROM", JOptionPane.INFORMATION_MESSAGE);
             }
+        });
+        
+        window.setOnDebuggerMenuSelected(() -> {
+            debugger.openOptionsWindow(window.getFrame());
         });
 
         // Exit handler
@@ -228,6 +260,7 @@ public class GuiLauncher {
             if (gamepadPoller != null) gamepadPoller.stop();
         } catch (Exception ignore) {
         }
+        if (debugger != null) debugger.closeAll();
         System.exit(0);
     }
 

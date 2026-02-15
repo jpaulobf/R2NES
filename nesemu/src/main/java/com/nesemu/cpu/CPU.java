@@ -1437,4 +1437,9 @@ public class CPU implements NesCPU {
             this.address = address;
         }
     }
+
+    @Override
+    public int getPc() {
+        return registers.PC;
+    }
 }

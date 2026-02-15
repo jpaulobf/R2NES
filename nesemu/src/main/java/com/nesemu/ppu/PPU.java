@@ -1157,6 +1157,14 @@ public class PPU implements NesPPU {
     }
 
     /**
+     * Debug access to PPU memory space (Pattern tables, Nametables, Palette).
+     * Does not have side effects (like incrementing counters).
+     */
+    public int debugRead(int addr) {
+        return ppuMemoryRead(addr);
+    }
+
+    /**
      * Internal PPU memory read abstraction.
      * Resolves CHR via mapper (if attached), applies nametable mirroring and
      * palette

@@ -189,4 +189,9 @@ public interface NesCPU extends Clockable {
     default int getLastNmiHandlerVector() {
         return 0;
     }
+
+    /** 
+     * Total times an IRQ handler sequence has been entered (after vector fetch).
+     */
+    int getPc();
 }
