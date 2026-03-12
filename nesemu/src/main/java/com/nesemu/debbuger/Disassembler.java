@@ -4,6 +4,7 @@ import com.nesemu.app.EmulatorContext;
 import com.nesemu.bus.interfaces.NesBus;
 import com.nesemu.cpu.interfaces.NesCPU;
 import javax.swing.*;
+import javax.swing.BorderFactory;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -16,7 +17,8 @@ public class Disassembler extends JFrame {
     private final JList<String> list;
     private final DefaultListModel<String> listModel;
     private final Timer refreshTimer;
-    
+    private final JLabel statusLabel; // Status bar for PC and SP
+
     // Cache de decodificação para performance
     private static final String[] MNEMONICS = new String[256];
     private static final int[] LENGTHS = new int[256];
@@ -92,26 +94,35 @@ public class Disassembler extends JFrame {
     public Disassembler(EmulatorContext context) {
         super("Disassembler - R2NES");
         this.context = context;
-        
+
         setLayout(new BorderLayout());
-        
+
         listModel = new DefaultListModel<>();
         list = new JList<>(listModel);
         list.setFont(new Font("Monospaced", Font.PLAIN, 12));
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setBackground(Color.BLACK);
         list.setForeground(Color.GREEN);
-        
+
         JScrollPane scroll = new JScrollPane(list);
         add(scroll, BorderLayout.CENTER);
-        
+
+        // Status bar (PC and SP)
+        statusLabel = new JLabel("PC: $0000   SP: $FF");
+        statusLabel.setFont(new Font("Monospaced", Font.BOLD, 12));
+        statusLabel.setBackground(new Color(40, 40, 40));
+        statusLabel.setForeground(Color.YELLOW);
+        statusLabel.setOpaque(true);
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        add(statusLabel, BorderLayout.SOUTH);
+
         // Refresh timer (15 FPS)
         refreshTimer = new Timer(66, e -> refresh());
         refreshTimer.start();
-        
+
         setSize(400, 500);
         setLocationByPlatform(true);
-        
+
         // Stop timer on close
         addWindowListener(new WindowAdapter() {
             @Override
@@ -123,16 +134,20 @@ public class Disassembler extends JFrame {
 
     private void refresh() {
         if (context.emulator == null) return;
-        
+
         // Reflection/Cast to access CPU/Bus if interfaces are generic
         // Assuming standard NesEmulator structure
         NesBus bus = context.emulator.getBus();
         NesCPU cpu = context.emulator.getCpu(); // Cast to concrete if needed for getPC
-        
+
         if (bus == null || cpu == null) return;
-        
+
         int pc = cpu.getPc() & 0xFFFF;
-        
+        int sp = cpu.getSP() & 0xFF; // Ler do registro SP da CPU, não da memória!
+
+        // Update status bar
+        statusLabel.setText(String.format("PC: $%04X   SP: $%02X", pc, sp));
+
         // Heuristic: Try to find a sync point slightly before PC to show context
         // We scan back 20 bytes and try to disassemble forward. If we hit PC exactly, good.
         int startAddr = pc;
@@ -154,24 +169,24 @@ public class Disassembler extends JFrame {
                 break;
             }
         }
-        
+
         List<String> lines = new ArrayList<>();
         int addr = startAddr;
         int selectedIndex = -1;
-        
+
         // Disassemble ~30 instructions
         for (int i = 0; i < 30; i++) {
             if (addr == pc) {
                 selectedIndex = i;
             }
-            
+
             int op = bus.read(addr) & 0xFF;
             String mnem = MNEMONICS[op];
             int len = LENGTHS[op];
-            
+
             StringBuilder sb = new StringBuilder();
             sb.append(String.format("%04X  ", addr));
-            
+
             // Bytes
             for (int j = 0; j < 3; j++) {
                 if (j < len) {
@@ -181,7 +196,7 @@ public class Disassembler extends JFrame {
                 }
             }
             sb.append("  ").append(mnem);
-            
+
             // Operands (Simplified visualization)
             if (len == 2) {
                 int val = bus.read(addr + 1) & 0xFF;
@@ -192,11 +207,11 @@ public class Disassembler extends JFrame {
                 int val = (hi << 8) | lo;
                 sb.append(String.format(" $%04X", val));
             }
-            
+
             lines.add(sb.toString());
             addr = (addr + len) & 0xFFFF;
         }
-        
+
         // Update UI
         if (!listModel.isEmpty() && listModel.size() == lines.size()) {
             // Try to update in place to avoid flicker
@@ -209,7 +224,7 @@ public class Disassembler extends JFrame {
             listModel.clear();
             for (String s : lines) listModel.addElement(s);
         }
-        
+
         if (selectedIndex >= 0) {
             list.setSelectedIndex(selectedIndex);
             list.ensureIndexIsVisible(selectedIndex);
