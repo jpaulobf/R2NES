@@ -5,15 +5,16 @@ import com.nesemu.util.Log;
 import static com.nesemu.util.Log.Cat.GENERAL;
 
 /**
- * Minimal MMC5 (Mapper 5) implementation (EXROM boards) – phase 1.
+ * Minimal MMC5 (Mapper 5) implementation (EXROM boards) – phase 2.
  * Goal: Support common games that only rely on:
  * - PRG banking (most use PRG mode 3 – four 8KB windows)
  * - CHR banking (most use CHR mode 3 – eight 1KB banks)
  * - Basic mirroring via $5105 values corresponding to standard mirroring
+ * - Split screen (basic $5200-$5202 support)
  *
  * Unsupported (placeholders):
  * - Extended attribute mode / ExRAM as nametable / fill mode
- * - Split screen ($5200-$5202)
+ * - Split screen advanced features (PRG bank per scanline, fine grained)
  * - IRQ / scanline counter ($5203/$5204)
  * - Multiplier ($5205/$5206)
  * - MMC5A extra registers ($5207+)
@@ -42,6 +43,11 @@ public class Mapper5 extends Mapper {
     private int regFillTile = 0; // $5106 (not yet used in PPU path)
     private int regFillAttr = 0; // $5107 (2-bit attr) (not yet used)
 
+    // Split Screen registers ($5200-$5202)
+    private int regSplitY = 0; // $5200: Split Y position (0-239)
+    private int regSplitCtrl = 0; // $5201: Split control (enable, right/left, CHR bank)
+    private int regSplitBank = 0; // $5202: Split PT bank selection
+
     // PRG bank registers ($5113-$5117)
     private int regPrgBank6000 = 0; // $5113 (RAM only bank) – we map within prgRam
     private int regPrgBank8000 = 0; // $5114
@@ -64,6 +70,11 @@ public class Mapper5 extends Mapper {
     private boolean logBanks = true;
     private int logLimit = 500;
     private int logCount = 0;
+
+    // Additional logging for scroll/nametable issues
+    private boolean logNametable = false;
+    private int logNametableCount = 0;
+    private int logNametableLimit = 100;
 
     // Vertical/horizontal nametable mirroring from header (fallback)
     private final boolean verticalFromHeader;
@@ -134,6 +145,9 @@ public class Mapper5 extends Mapper {
         // MMC5 Registers read
         if (address >= 0x5200 && address <= 0x5206) {
             switch (address) {
+                case 0x5200: return regSplitY;
+                case 0x5201: return regSplitCtrl;
+                case 0x5202: return regSplitBank;
                 case 0x5204: // IRQ Status
                     int status = (irqPending ? 0x80 : 0) | (inFrame ? 0x40 : 0);
                     irqPending = false; // Reading acknowledges IRQ
@@ -210,9 +224,22 @@ public class Mapper5 extends Mapper {
             trace("[M5 CHRUP]=%02X", value);
             return;
         }
-        // Multiplier & IRQ registers
+        // Multiplier & IRQ & Split Screen registers
         if (address >= 0x5200 && address <= 0x5206) {
             switch (address) {
+                case 0x5200: // Split Y Position
+                    regSplitY = value & 0xFF;
+                    trace("[M5 SPLIT_Y]=%02X", value);
+                    break;
+                case 0x5201: // Split Control
+                    regSplitCtrl = value & 0xFF;
+                    trace("[M5 SPLIT_CTRL]=%02X (enable=%d right=%d chr=%d)", value,
+                        (value & 0x80) >> 7, (value & 0x40) >> 6, (value & 0x03));
+                    break;
+                case 0x5202: // Split Bank Register
+                    regSplitBank = value & 0xFF;
+                    trace("[M5 SPLIT_BANK]=%02X", value);
+                    break;
                 case 0x5203: // IRQ Scanline target
                     irqTarget = value & 0xFF;
                     break;
@@ -263,13 +290,20 @@ public class Mapper5 extends Mapper {
         // Horizontal example: $50 -> bits: DDCCBBAA = 0101 0000 => A=0 B=0 C=1 D=0
         // (approx). We'll just detect known patterns.
         int v = regNtMapping & 0xFF;
-        return switch (v) {
+        MirrorType result = switch (v) {
             case 0x50 -> MirrorType.HORIZONTAL; // documented example
             case 0x44 -> MirrorType.VERTICAL; // documented example
             case 0x00 -> MirrorType.SINGLE0;
             case 0x55 -> MirrorType.SINGLE1; // treat as single1 (CIRAM 1) – somewhat arbitrary
             default -> verticalFromHeader ? MirrorType.VERTICAL : MirrorType.HORIZONTAL;
         };
+
+        // Debug logging for mirroring
+        if (logNametable && logNametableCount < logNametableLimit) {
+            Log.debug(GENERAL, "[M5 MIRROR] regNtMapping=%02X -> %s", v, result);
+        }
+
+        return result;
     }
 
     /**
@@ -303,29 +337,35 @@ public class Mapper5 extends Mapper {
     @Override
     public int ppuReadNametable(int address, byte[] ciram) {
         int val = 0;
-        
+
         // Decode MMC5 Nametable Mapping ($5105)
         // Format: DD CC BB AA (2 bits per quadrant)
         // 00=CIRAM0, 01=CIRAM1, 10=ExRAM, 11=FillMode
-        int ntIndex = (address >> 10) & 0x03; // 0..3 ($2000,$2400,$2800,$2C00)
+
+        // Get the logical nametable index (0..3 for $2000, $2400, $2800, $2C00)
+        int ntIndex = (address >> 10) & 0x03;
+
+        // Extract the 2-bit mode for THIS specific quadrant
         int mode = (regNtMapping >> (ntIndex * 2)) & 0x03;
 
         switch (mode) {
-            case 0: // CIRAM 0
+            case 0: // CIRAM 0 (lower bank)
                 val = ciram[address & 0x03FF] & 0xFF;
                 break;
-            case 1: // CIRAM 1
+            case 1: // CIRAM 1 (upper bank)
                 val = ciram[0x0400 + (address & 0x03FF)] & 0xFF;
                 break;
-            case 2: // ExRAM (as Nametable)
+            case 2: // ExRAM (as Nametable) - actual implementation
+                // ExRAM is 1KB, indexed by the tile offset within any nametable quadrant
                 val = exRam[address & 0x03FF] & 0xFF;
                 break;
-            case 3: // Fill Mode
+            case 3: // Fill Mode - entire nametable is the same tile
+                // Return regFillTile for all positions in this quadrant
                 val = regFillTile & 0xFF;
                 break;
         }
-        
-        // In ExRAM Mode 1, we latch the ExRAM value corresponding to this tile.
+
+        // In ExRAM Mode 1, we latch the ExRAM value corresponding to this tile for attributes.
         // ExRAM is 1KB, indexed by the nametable offset (0-3FF).
         // CRITICAL: Only latch on NameTable fetches ($000-$3BF), NOT Attribute fetches ($3C0-$3FF).
         // Latching on attributes would corrupt the state for the subsequent pattern fetch.
@@ -335,19 +375,35 @@ public class Mapper5 extends Mapper {
             // We use the logical address offset 0-3FF to index ExRAM for the attribute data.
             // Even if the nametable data came from CIRAM, the attribute/bank data comes from ExRAM[offset].
             int offset = address & 0x03FF;
-            lastExRamByte = exRam[offset] & 0xFF;
+            if (offset >= 0 && offset < exRam.length) {
+                lastExRamByte = exRam[offset] & 0xFF;
+            }
         }
+
+        if (logNametable && logNametableCount < logNametableLimit) {
+            Log.debug(GENERAL, "[M5 NT] addr=%04X ntIdx=%d mode=%d val=%02X regNtMapping=%02X",
+                address, ntIndex, mode, val, regNtMapping);
+            logNametableCount++;
+        }
+
         return val;
     }
 
     @Override
     public int adjustAttribute(int coarseX, int coarseY, int attributeAddress, int currentValue) {
         if (regExRamMode == 1) {
-            // In Mode 1, attributes come from ExRAM (latched during NT read).
-            // Format: bits 7-6 = palette index.
-            // We replicate this palette to all 2-bit slots so the PPU's shift logic picks the right one.
-            int pal = (lastExRamByte >> 6) & 0x03;
-            return (pal << 6) | (pal << 4) | (pal << 2) | pal;
+            // In Mode 1, attributes come from ExRAM (Extended Attributes).
+            // Instead of relying on lastExRamByte (which may be out of sync during fast scrolls),
+            // compute the correct ExRAM offset from coarseX and coarseY.
+            // ExRAM maps directly: tile at (coarseX, coarseY) -> ExRAM[coarseY * 32 + coarseX]
+            int exRamOffset = ((coarseY & 0x1F) * 32) + (coarseX & 0x1F);
+            if (exRamOffset >= 0 && exRamOffset < exRam.length) {
+                int exRamByte = exRam[exRamOffset] & 0xFF;
+                // Format: bits 7-6 = palette index.
+                // We replicate this palette to all 2-bit slots so the PPU's shift logic picks the right one.
+                int pal = (exRamByte >> 6) & 0x03;
+                return (pal << 6) | (pal << 4) | (pal << 2) | pal;
+            }
         }
         return currentValue;
     }
@@ -409,13 +465,11 @@ public class Mapper5 extends Mapper {
                     mask = 0xF8;
                     offset = address & 0x1FFF;
                 }
-                case 1 -> { // 4KB: Uses $512B (only one 4KB bank for BG in this mode usually, or aliased)
-                    // MMC5 BG Mode 1 is weird, but usually follows the pattern.
-                    // Assuming standard mapping: $512B for 0-FFF, $512B for 1000-1FFF?
-                    // Actually standard is $512B for both or split. Let's use last reg.
-                    int idx = (address < 0x1000) ? 11 : 11; 
+                case 1 -> { // 4KB: Uses $5129 (0x0000-0x0FFF) and $512B (0x1000-0x1FFF)
+                    // Two separate 4KB banks for background in Mode 1
+                    int idx = (address < 0x1000) ? 9 : 11;
                     bankVal = regChrBanks[idx];
-                    mask = 0xFC;
+                    mask = 0xFC; // Ignore low 2 bits (align to 4KB)
                     offset = address & 0x0FFF;
                 }
                 case 2 -> { // 2KB: Uses $5129, $512B
@@ -573,13 +627,44 @@ public class Mapper5 extends Mapper {
     public int getRegChrUpper() {
         return regChrUpper;
     }
+
+    public int getRegSplitY() {
+        return regSplitY;
+    }
+
+    public int getRegSplitCtrl() {
+        return regSplitCtrl;
+    }
+
+    public int getRegSplitBank() {
+        return regSplitBank;
+    }
+
     public int getPrg8kBanks() {
         return prg8kBanks;
     }
     public int getChr1kBanks() {
         return chr1kBanks;
     }
+    /**
+     * Enables detailed logging of nametable reads for debugging.
+     */
+    public void enableNametableLogging(int limit) {
+        this.logNametable = true;
+        this.logNametableLimit = limit > 0 ? limit : 100;
+        this.logNametableCount = 0;
+    }
+
     public int getRegPrgBank6000() {
         return regPrgBank6000;
+    }
+
+    /**
+     * Retorna cópia de ExRAM para debug (sem side-effects)
+     */
+    public byte[] getExRamDebugCopy() {
+        byte[] copy = new byte[exRam.length];
+        System.arraycopy(exRam, 0, copy, 0, exRam.length);
+        return copy;
     }
 }
